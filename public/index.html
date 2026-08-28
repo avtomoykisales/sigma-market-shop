@@ -1,0 +1,1018 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SIGMA MARKET — Профессиональное оборудование</title>
+<link rel="stylesheet" href="/style.css?v=20260828g">
+</head>
+<body class="shop">
+
+<!-- partial:header -->
+
+<main id="main">
+
+<!-- partial:hero -->
+
+<!-- ========== ГЛАВНАЯ СТРАНИЦА ========== -->
+<div id="homeView">
+
+  <!-- КАТЕГОРИИ -->
+  <section class="section categories-section">
+    <div class="container">
+      <div class="section-label">наши направления</div>
+      <div class="section-heading-row">
+        <h1 class="section-title">Решения под любые задачи</h1>
+        <a href="/#catalog" class="link-all" onclick="showCatalog('all');return false;">
+          Смотреть все направления <img src="/assets/icons/arrow-green.png" alt="">
+        </a>
+      </div>
+      <!-- Категории + подкатегории — единый слайдер влево/вправо -->
+      <div class="subcat-slider" id="homeSubcatSlider" style="display:none">
+        <div class="subcat-slider-body">
+          <button class="subcat-slider-btn prev" type="button" onclick="slideHomeSubcats(-1)" aria-label="Назад">‹</button>
+          <div class="subcat-slider-track" id="homeSubcatTrack"></div>
+          <button class="subcat-slider-btn next" type="button" onclick="slideHomeSubcats(1)" aria-label="Вперёд">›</button>
+        </div>
+      </div>
+
+      <!-- Квиз-подбор -->
+      <div class="quiz-cta" id="quizCta" style="display:none">
+        <div class="quiz-cta-text">
+          <h3 id="quizCtaTitle">Не знаете, что выбрать?</h3>
+          <p id="quizCtaSub">Ответьте на 3 вопроса — подберём подходящее оборудование под ваши задачи.</p>
+        </div>
+        <button class="btn-catalog" type="button" onclick="openQuiz()">Подобрать оборудование</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- О КОМПАНИИ -->
+  <section class="section about-section">
+    <div class="container about-inner">
+      <div class="about-text">
+        <div class="section-label">О компании</div>
+        <h2 class="section-title">Мы создаем эффективные<br>решения с 2012 года</h2>
+        <p>Помогаем бизнесу расти, внедряя надёжное оборудование и обеспечивая полный цикл работ — от проектирования до сервисной поддержки.</p>
+        <a href="/about" class="link-more">Подробнее о компании</a>
+      </div>
+      <div class="about-img">
+        <img src="/assets/icons/about.png" alt="О компании SIGMA MARKET">
+      </div>
+    </div>
+  </section>
+
+  <!-- ПАРТНЕРЫ -->
+  <section class="section partners-section">
+    <!-- <div class="container">
+      <div class="section-label">ПАРТНЁРЫ</div>
+      <div class="partners-bar">
+        <div class="partner-item">
+          <img src="/assets/icons/istobal.png" alt="istobal">
+        </div>
+        <div class="partner-sep"></div>
+        <div class="partner-item">
+          <img src="/assets/icons/washtec.webp" alt="washtec">
+        </div>
+        <div class="partner-sep"></div>
+        <div class="partner-item">
+          <img src="/assets/icons/karcher.webp" alt="karcher">
+        </div>
+        <div class="partner-sep"></div>
+        <div class="partner-item">
+          <img src="/assets/icons/christ.webp" alt="christ">
+        </div>
+      </div>
+    </div> -->
+  </section>
+
+</div><!-- /homeView -->
+
+<!-- ========== КАТАЛОГ ========== -->
+<div id="catalogView" style="display:none">
+  <section class="section catalog-section">
+    <div class="container">
+
+      <!-- Breadcrumb -->
+      <div class="breadcrumb" id="breadcrumb">
+        <span class="section-label" id="catalogLabel">каталог оборудования</span>
+        <h1 class="section-title" id="catalogTitle">Товары и услуги</h1>
+      </div>
+
+      <!-- Фильтр категорий (горизонтальные табы) -->
+      <div class="cat-tabs" id="catTabs">
+        <button class="cat-tab active" data-slug="all" onclick="selectCategory('all',this)">Все</button>
+      </div>
+
+      <!-- Подкатегории (лента; дублирует фильтр в панели) -->
+      <div class="subcat-bar" id="subcatBar" style="display:none"></div>
+
+      <div class="catalog-layout">
+        <!-- Фильтры -->
+        <aside class="catalog-filters" id="catalogFilters">
+          <div class="filters-head">
+            <span>Фильтры</span>
+            <button type="button" class="filters-reset" onclick="resetFilters()">Сбросить</button>
+            <button type="button" class="filters-close" onclick="closeFilters()" aria-label="Закрыть">✕</button>
+          </div>
+          <div id="filtersBody"><!-- строится JS --></div>
+          <button type="button" class="filters-done" onclick="closeFilters()">Показать товары</button>
+        </aside>
+        <div class="filters-overlay" id="filtersOverlay" onclick="closeFilters()"></div>
+
+        <div class="catalog-main">
+          <!-- Тулбар -->
+          <div class="catalog-toolbar">
+            <button type="button" class="btn-filters-mobile" onclick="openFilters()">⚙ Фильтры</button>
+            <span class="results-count" id="resultsCount"></span>
+            <select class="sort-select" onchange="applySort(this.value)" id="sortSelect">
+              <option value="default">По популярности</option>
+              <option value="price_asc">Цена: по возрастанию</option>
+              <option value="price_desc">Цена: по убыванию</option>
+              <option value="name_asc">По названию А–Я</option>
+            </select>
+          </div>
+
+          <!-- Активные фильтры -->
+          <div class="active-filters" id="activeFilters"></div>
+
+          <!-- Сетка товаров -->
+          <div class="product-grid" id="productGrid">
+            <div class="spinner"><div class="spin"></div>&nbsp; Загрузка…</div>
+          </div>
+
+          <!-- Пагинация -->
+          <div class="pagination" id="pagination"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+</div><!-- /catalogView -->
+
+<!-- ========== КАРТОЧКА ТОВАРА ========== -->
+<div id="productView" style="display:none">
+  <section class="section product-view-section">
+    <div class="container">
+      <nav class="breadcrumb" aria-label="Хлебные крошки">
+        <div class="section-title" id="pvCrumb">Товары и услуги</div>
+      </nav>
+      <div id="productViewBody">
+        <div class="spinner"><div class="spin"></div>&nbsp; Загрузка…</div>
+      </div>
+    </div>
+  </section>
+</div><!-- /productView -->
+
+<!-- ========== НЕДАВНО ПРОСМОТРЕННЫЕ ========== -->
+<section class="section recent-section" id="recentSection" style="display:none">
+  <div class="container">
+    <div class="section-label">вы недавно смотрели</div>
+    <div class="recent-strip" id="recentStrip"></div>
+  </div>
+</section>
+
+</main><!-- /#main -->
+
+<!-- partial:consult -->
+
+<!-- partial:footer -->
+
+<!-- ПАНЕЛЬ СРАВНЕНИЯ -->
+<div class="compare-bar" id="compareBar">
+  <div class="container compare-bar-inner">
+    <div class="compare-thumbs" id="compareThumbs"></div>
+    <div class="compare-actions">
+      <button type="button" class="btn-detail" onclick="clearCompare()">Очистить</button>
+      <button type="button" class="btn-catalog" onclick="openCompare()">Сравнить <span id="compareCount">0</span></button>
+    </div>
+  </div>
+</div>
+
+<!-- МОДАЛКА СРАВНЕНИЯ -->
+<div class="modal-overlay" id="compareModal" onclick="if(event.target===this)closeCompare()">
+  <div class="modal modal-wide">
+    <div class="modal-inner">
+      <button class="modal-close" onclick="closeCompare()">✕</button>
+      <h3 class="modal-name" style="margin-bottom:16px">Сравнение товаров</h3>
+      <div class="compare-table-wrap"><table class="compare-table" id="compareTable"></table></div>
+    </div>
+  </div>
+</div>
+
+<!-- КВИЗ -->
+<div class="modal-overlay" id="quizModal" onclick="if(event.target===this)closeQuiz()">
+  <div class="modal">
+    <div class="modal-inner">
+      <button class="modal-close" onclick="closeQuiz()">✕</button>
+      <div id="quizBody"></div>
+    </div>
+  </div>
+</div>
+
+<!-- CART PANEL -->
+<div class="cart-panel" id="cartPanel">
+  <div class="cart-header">
+    <h3>🛒 Корзина</h3>
+    <button class="cart-close" onclick="toggleCart()">✕</button>
+  </div>
+  <div class="cart-items" id="cartItems"></div>
+  <div class="cart-footer">
+    <div class="cart-total">Итого: <span id="cartTotal">0 ₸</span></div>
+    <div class="order-form">
+      <div class="form-row">
+        <div class="form-group"><label>Имя *</label><input type="text" id="oName" placeholder="Ваше имя"></div>
+        <div class="form-group"><label>Телефон *</label><input type="tel" id="oPhone" placeholder="+7 (___) ___-__-__"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>Email</label><input type="email" id="oEmail" placeholder="email@example.com"></div>
+        <div class="form-group"><label>Город</label><input type="text" id="oCity" placeholder="Алматы"></div>
+      </div>
+      <div class="form-group"><label>Комментарий</label><textarea id="oMessage" placeholder="Вопрос или пожелания…"></textarea></div>
+      <button class="btn-primary" onclick="submitOrder()">✅ Отправить заявку</button>
+    </div>
+  </div>
+</div>
+<div class="cart-overlay" id="cartOverlay" onclick="toggleCart()"></div>
+
+<!-- TOAST -->
+<div class="toast" id="toast"></div>
+
+<script src="/js/site.js?v=20260828f"></script>
+<script src="/js/product.js?v=20260828f"></script>
+<script>
+let state = {
+  view: 'home',      // 'home' | 'catalog' | 'favorites'
+  category: 'all',
+  search: '',
+  page: 1,
+  limit: 12,
+  total: 0,
+  sort: 'default',
+  cart: [],
+  categories: [],
+  settings: { blocks:{}, filters:{}, compare:true, favorites:true, quiz:{} },
+  filters: {},          // {subcat:[], brand:[], subtype:[], priceMax, perfMin, perfMax}
+  facets: null
+};
+const lsGet = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } };
+const lsSet = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} };
+
+// ===== URL / история =====
+let _routing = false;   // true во время разбора URL (popstate/init) — тогда не трогаем историю
+function setUrl(url) {
+  if (_routing) return;
+  const cur = location.pathname + location.search + location.hash;
+  if (cur !== url) { try { history.pushState(null, '', url); } catch {} }
+}
+function catalogUrl() {
+  const sub = (state.filters.subcat || []);
+  if (state.category === 'all' && !sub.length) return '/#catalog';
+  return '/?category=' + state.category + (sub.length ? '&subcategory=' + sub.join(',') : '');
+}
+
+// ===== SEO: обновление <title>/description/canonical на клиенте =====
+const SEO_HOME_TITLE = 'SIGMA MARKET — профессиональное оборудование для автомоек, СТО и клининга';
+const SEO_HOME_DESC = 'SIGMA MARKET — профессиональное оборудование для автомоек, СТО и автосервиса, клининга. Поставка, монтаж и сервис по всему Казахстану с 2012 года.';
+function setMeta(title, desc, path) {
+  if (title) document.title = title;
+  const d = document.getElementById('metaDescription');
+  if (d && desc) d.setAttribute('content', desc);
+  const attr = (sel, name, val) => {
+    const el = document.querySelector(sel);
+    if (el && val != null) el.setAttribute(name, val);
+  };
+  if (path) {
+    const abs = location.origin + path;
+    attr('#linkCanonical', 'href', abs);
+    attr('meta[property="og:url"]', 'content', abs);
+  }
+  if (title) { attr('meta[property="og:title"]', 'content', title); attr('meta[name="twitter:title"]', 'content', title); }
+  if (desc) { attr('meta[property="og:description"]', 'content', desc); attr('meta[name="twitter:description"]', 'content', desc); }
+  const r = document.querySelector('meta[name="robots"]');
+  if (r) r.setAttribute('content', /favorites|Избранное/.test(title || '') ? 'noindex, follow' : 'index, follow');
+}
+function seoClip(s, n) {
+  s = String(s || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+  return s.length <= n ? s : s.slice(0, n - 1).replace(/[\s.,;:–—-]+\S*$/, '') + '…';
+}
+
+state.cart      = lsGet('cart', []);
+let favIds      = lsGet('favorites', []);
+let compareIds  = lsGet('compare', []);
+let recentIds   = lsGet('recent', []);
+
+// ===== INIT =====
+async function init() {
+  try { state.settings = { ...state.settings, ...(await apiFetch('/api/settings')) }; } catch {}
+  await loadCategories();
+  renderCart();
+  renderFavBadge();
+  renderCompareBar();
+  renderRecent();
+  initQuizCta();
+  handleRoute();
+  window.addEventListener('hashchange', handleRoute);
+  window.addEventListener('popstate', handleRoute);
+  document.querySelectorAll('[data-nav="home"]').forEach(a => a.addEventListener('click', e => {
+    e.preventDefault(); closeDrawer(); showHome();
+  }));
+  document.querySelectorAll('[data-nav="catalog"]').forEach(a => a.addEventListener('click', e => {
+    e.preventDefault(); closeDrawer(); showCatalog('all');
+  }));
+  document.querySelectorAll('[data-nav="favorites"]').forEach(a => a.addEventListener('click', e => {
+    e.preventDefault(); closeDrawer(); showFavorites();
+  }));
+}
+
+// Разбор URL: ?product= / ?q= / ?category= / #catalog / #favorites / #quiz / #consult / #cart / иначе — главная
+function handleRoute() {
+  _routing = true;
+  try {
+    const params = new URLSearchParams(location.search);
+    const q = params.get('q');
+    const cat = params.get('category');
+    const prod = params.get('product');
+    if (prod) { showProduct(+prod); return; }
+    if (q) {
+      const inp = document.getElementById('searchInput');
+      if (inp) inp.value = q;
+      state.search = q; state.page = 1;
+      showCatalog('all');
+      return;
+    }
+    if (cat) { showCatalog(cat, (params.get('subcategory') || '').split(',').filter(Boolean)); return; }
+    if (location.hash === '#catalog') { showCatalog('all'); return; }
+    if (location.hash === '#favorites') { showFavorites(); return; }
+    if (location.hash === '#quiz') { openQuiz(); return; }
+    if (location.hash === '#consult') { scrollToConsult(); return; }
+    if (location.hash === '#cart') {
+      if (!document.getElementById('cartPanel').classList.contains('open')) toggleCart();
+      return;
+    }
+    showHome();   // чистый "/" → главная
+  } finally { _routing = false; }
+}
+
+// Подсветка активного пункта меню при SPA-переключении
+function setActiveNav(name) {
+  document.querySelectorAll('.main-nav [data-nav], .drawer-nav [data-nav]').forEach(a => {
+    a.classList.toggle('active', a.dataset.nav === name);
+  });
+}
+
+async function loadCategories() {
+  const cats = await apiFetch('/api/categories');
+  state.categories = cats;
+
+  // Заполнить табы в каталоге
+  const tabs = document.getElementById('catTabs');
+  tabs.innerHTML = `<button class="cat-tab active" data-slug="all" onclick="selectCategory('all',this)">Все</button>` +
+    cats.map(c => `<button class="cat-tab" data-slug="${c.slug}" onclick="selectCategory('${c.slug}',this)">${c.name}</button>`).join('');
+
+  loadHomeSubcats();
+}
+
+const esc = s => String(s || '').replace(/'/g, "\\'");
+
+// ===== Единый слайдер: направления + популярные подкатегории =====
+async function loadHomeSubcats() {
+  const wrap = document.getElementById('homeSubcatSlider');
+  const track = document.getElementById('homeSubcatTrack');
+  if (!wrap || !track) return;
+  const cats = state.categories || [];
+  let subs = [];
+  try { subs = await apiFetch('/api/subcategories'); } catch { subs = []; }
+  subs = (subs || []).filter(s => (s.product_count || 0) > 0)
+    .sort((a, b) => (b.product_count || 0) - (a.product_count || 0));
+  if (!cats.length) { wrap.style.display = 'none'; return; }
+
+  const catName = {}, catIcon = {};
+  cats.forEach(c => { catName[c.slug] = c.name; catIcon[c.slug] = c.icon; });
+
+  const iconImg = (icon, alt) => `<div class="subcat-slide-icon"><img src="${catIconUrl(icon)}" alt="${esc(alt || '')}" loading="lazy"
+    onerror="this.onerror=null;this.src='/assets/icons/cat-wash.png';this.onerror=function(){this.closest('.subcat-slide-icon').style.display='none'}"></div>`;
+
+  const catSlides = cats.map(c => `
+    <a class="subcat-slide subcat-slide--cat" href="/?category=${esc(c.slug)}" onclick="showCatalog('${esc(c.slug)}');return false;">
+      ${iconImg(c.icon, c.name)}
+      <div class="subcat-slide-cat">направление</div>
+      <div class="subcat-slide-name">${c.name}</div>
+      <div class="subcat-slide-cnt">${c.product_count != null ? c.product_count + ' тов.' : 'смотреть'}</div>
+    </a>`).join('');
+
+  const subSlides = subs.map(s => `
+    <a class="subcat-slide" href="/?category=${esc(s.category_slug)}&subcategory=${esc(s.slug)}" onclick="showCatalog('${esc(s.category_slug)}', ['${esc(s.slug)}']);return false;">
+      ${iconImg(catIcon[s.category_slug], s.name)}
+      <div class="subcat-slide-cat">${catName[s.category_slug] || ''}</div>
+      <div class="subcat-slide-name">${s.name}</div>
+      <div class="subcat-slide-cnt">${s.product_count} тов.</div>
+    </a>`).join('');
+
+  wrap.style.display = '';
+  track.innerHTML = catSlides + subSlides;
+  track.onscroll = updateHomeSubcatBtns;
+  requestAnimationFrame(updateHomeSubcatBtns);
+}
+
+function updateHomeSubcatBtns() {
+  const track = document.getElementById('homeSubcatTrack');
+  const wrap = document.getElementById('homeSubcatSlider');
+  if (!track || !wrap) return;
+  const prev = wrap.querySelector('.subcat-slider-btn.prev');
+  const next = wrap.querySelector('.subcat-slider-btn.next');
+  const max = track.scrollWidth - track.clientWidth - 2;
+  if (prev) prev.disabled = track.scrollLeft <= 2;
+  if (next) next.disabled = track.scrollLeft >= max;
+}
+
+function slideHomeSubcats(dir) {
+  const track = document.getElementById('homeSubcatTrack');
+  if (!track) return;
+  const step = Math.max(track.clientWidth * 0.8, 240);
+  track.scrollBy({ left: dir * step, behavior: 'smooth' });
+}
+
+// ===== VIEW SWITCHING =====
+function scrollToView(id) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  // чтение getBoundingClientRect форсирует пересчёт лейаута после смены display
+  const y = Math.max(0, el.getBoundingClientRect().top + window.scrollY - 72);
+  window.scrollTo(0, y); // плавность добавляет CSS html{scroll-behavior:smooth}
+}
+
+function setView(name) {
+  ['homeView', 'catalogView', 'productView'].forEach(id => {
+    document.getElementById(id).style.display = (id === name + 'View') ? '' : 'none';
+  });
+  renderSubcatBar();
+}
+
+function showHome() {
+  state.view = 'home';
+  state.search = '';
+  setView('home');
+  setActiveNav('home');
+  renderRecent();
+  setUrl('/');
+  setMeta(SEO_HOME_TITLE, SEO_HOME_DESC, '/');
+  window.scrollTo(0, 0);
+}
+
+const SEO_CAT_TITLE = {
+  avtomojka: 'Оборудование для автомойки — купить в Казахстане | SIGMA MARKET',
+  sto: 'Оборудование для СТО и автосервиса — купить в Казахстане | SIGMA MARKET',
+  klining: 'Оборудование для клининга — купить в Казахстане | SIGMA MARKET',
+};
+const SEO_CAT_DESC = {
+  avtomojka: 'Оборудование для автомоек: аппараты высокого давления, пеногенераторы, системы очистки и оборотного водоснабжения, пылесосы, сушка. Поставка и монтаж по Казахстану.',
+  sto: 'Оборудование для СТО и автосервиса: подъёмники, шиномонтаж, компрессоры, пневмоинструмент, оборудование для смазки и замены жидкостей. Поставка и сервис по Казахстану.',
+  klining: 'Профессиональное клининговое оборудование: поломоечные и подметальные машины, профессиональные пылесосы, аппараты высокого давления. Поставка и обслуживание по Казахстану.',
+};
+function applyCatalogMeta() {
+  const sub = state.filters.subcat || [];
+  const cat = (state.categories || []).find(c => c.slug === state.category);
+  if (!cat) { setMeta(SEO_HOME_TITLE, SEO_HOME_DESC, '/#catalog'); return; }
+  let subName = '';
+  if (sub.length === 1) {
+    const f = (state.facets && state.facets.subcategories || []).find(s => s.slug === sub[0]);
+    subName = f ? f.name : '';
+  }
+  const title = subName
+    ? seoClip(subName + ' — ' + cat.name + ' | SIGMA MARKET', 65)
+    : (SEO_CAT_TITLE[cat.slug] || (cat.name + ' — SIGMA MARKET'));
+  const desc = subName
+    ? seoClip(subName + ' — ' + cat.name + '. Поставка, монтаж и сервис по Казахстану от SIGMA MARKET.', 175)
+    : (SEO_CAT_DESC[cat.slug] || seoClip(cat.name + '. Профессиональное оборудование от SIGMA MARKET. Поставка по Казахстану.', 175));
+  setMeta(title, desc, catalogUrl());
+}
+
+function showCatalog(slug, subcat) {
+  state.view = 'catalog';
+  state.category = slug || 'all';
+  state.page = 1;
+  state.filters = { subcat: Array.isArray(subcat) ? subcat : (subcat ? [subcat] : []) };
+  state._builtFor = null;   // заставить перестроить панель фильтров
+  setUrl(catalogUrl());
+  setView('catalog');
+  document.getElementById('catTabs').style.display = '';
+  document.getElementById('catalogFilters').style.display = '';
+  document.getElementById('catalogLabel').textContent = 'каталог оборудования';
+  setActiveNav('catalog');
+  updateBreadcrumb();
+  document.querySelectorAll('.cat-tab').forEach(t => t.classList.toggle('active', t.dataset.slug === state.category));
+  loadProducts();
+  renderRecent();
+  scrollToView('catalogView');
+}
+
+function showFavorites() {
+  state.view = 'favorites';
+  state.page = 1;
+  setUrl('/#favorites');
+  setView('catalog');
+  document.getElementById('catTabs').style.display = 'none';
+  document.getElementById('catalogFilters').style.display = 'none';
+  document.getElementById('catalogLabel').textContent = 'сохранённое';
+  document.getElementById('catalogTitle').textContent = `Избранное (${favIds.length})`;
+  setActiveNav('favorites');
+  setMeta('Избранное — SIGMA MARKET', 'Сохранённые товары в SIGMA MARKET.', '/#favorites');
+  loadFavorites();
+  renderRecent();
+  scrollToView('catalogView');
+}
+
+function selectCategory(slug, btn) {
+  state.category = slug;
+  state.page = 1;
+  state.filters = {};
+  state._builtFor = null;
+  setUrl(catalogUrl());
+  document.querySelectorAll('.cat-tab').forEach(t => t.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  updateBreadcrumb();
+  loadProducts();
+  scrollToView('catalogView');
+}
+
+function updateBreadcrumb() {
+  document.getElementById('catalogFilters').style.display = state.settings.filters.enabled === false ? 'none' : '';
+  const cat = state.categories.find(c => c.slug === state.category);
+  const sep = '<span style="color:#999;font-weight:400">›</span>';
+  const title = document.getElementById('catalogTitle');
+  let html = 'Товары и услуги';
+  if (state.category !== 'all') html += ` ${sep} ${cat ? cat.name : state.category}`;
+  const sub = state.filters.subcat || [];
+  if (sub.length === 1) {
+    const sc = (state.facets && state.facets.subcategories || []).find(s => s.slug === sub[0]);
+    html += ` ${sep} ${sc ? sc.name : sub[0]}`;
+  } else if (sub.length > 1) {
+    html += ` ${sep} подкатегорий: ${sub.length}`;
+  }
+  title.innerHTML = html;
+}
+
+// ===== PRODUCTS =====
+async function loadProducts() {
+  const grid = document.getElementById('productGrid');
+  grid.innerHTML = '<div class="spinner"><div class="spin"></div>&nbsp; Загрузка…</div>';
+
+  const f = state.filters;
+  const qs = new URLSearchParams({ page: state.page, limit: state.limit, sort: state.sort, facets: '1' });
+  if (state.category !== 'all') qs.set('category', state.category);
+  if (f.subcat && f.subcat.length) qs.set('subcategory', f.subcat.join(','));
+  if (state.search) qs.set('search', state.search);
+  if (f.brand && f.brand.length) qs.set('brand', f.brand.join(','));
+  if (f.subtype && f.subtype.length) qs.set('subtype', f.subtype.join(','));
+  if (f.priceMin) qs.set('priceMin', f.priceMin);
+  if (f.priceMax) qs.set('priceMax', f.priceMax);
+  if (f.perfMin) qs.set('perfMin', f.perfMin);
+  if (f.perfMax) qs.set('perfMax', f.perfMax);
+
+  const data = await apiFetch('/api/products?' + qs.toString());
+  state.total = data.total || 0;
+  if (data.facets) {
+    state.facets = data.facets;
+    // перестраиваем панель фильтров только при смене категории — иначе не теряем клики/фокус
+    if (state._builtFor !== state.category) { buildFilters(); state._builtFor = state.category; }
+    else syncFilterChecks();
+  } else {
+    document.getElementById('catalogFilters').style.display = 'none';
+    document.querySelector('.btn-filters-mobile').style.display = 'none';
+  }
+  if (state.view === 'catalog') { updateBreadcrumb(); applyCatalogMeta(); }
+  renderActiveFilters();
+  document.getElementById('resultsCount').textContent = `Найдено: ${data.total} товаров`;
+
+  if (!data.products.length) {
+    grid.innerHTML = '<div class="spinner">Ничего не найдено. Попробуйте изменить фильтры.</div>';
+    document.getElementById('pagination').innerHTML = '';
+    return;
+  }
+  grid.innerHTML = data.products.map(p => cardHtml(p)).join('');
+  renderPagination(data.total);
+}
+
+async function loadFavorites() {
+  const grid = document.getElementById('productGrid');
+  document.getElementById('activeFilters').innerHTML = '';
+  if (!favIds.length) {
+    grid.innerHTML = '<div class="spinner">В избранном пока пусто. Нажмите ♡ на карточке товара.</div>';
+    document.getElementById('pagination').innerHTML = '';
+    document.getElementById('resultsCount').textContent = '';
+    return;
+  }
+  grid.innerHTML = '<div class="spinner"><div class="spin"></div></div>';
+  const items = await Promise.all(favIds.map(id => apiFetch('/api/products/' + id).catch(() => null)));
+  const products = items.filter(Boolean);
+  document.getElementById('resultsCount').textContent = `В избранном: ${products.length}`;
+  grid.innerHTML = products.map(p => cardHtml(p)).join('');
+  document.getElementById('pagination').innerHTML = '';
+}
+
+// ===== ФИЛЬТРЫ =====
+function buildFilters() {
+  const s = state.settings.filters || {};
+  if (s.enabled === false) { document.getElementById('catalogFilters').style.display = 'none'; return; }
+  const fc = state.facets; if (!fc) return;
+  const f = state.filters;
+  let html = '';
+
+  const subs = fc.subcategories || [];
+  if (state.category !== 'all' && subs.length) {
+    html += `<div class="filter-group filter-subcat"><h4>Подкатегория</h4>` +
+      subs.map(sc => `<label class="filter-check"><input type="checkbox" value="${sc.slug}"
+        ${(f.subcat||[]).includes(sc.slug)?'checked':''} onchange="toggleArrFilter('subcat',this.value)">
+        <span class="fc-name">${sc.name}</span> <span class="fc-cnt">${sc.cnt}</span></label>`).join('') +
+      `</div>`;
+  }
+
+  if (s.brand !== false && fc.brands.length) {
+    html += `<div class="filter-group"><h4>Бренд</h4>` +
+      fc.brands.map(b => `<label class="filter-check"><input type="checkbox" value="${b}"
+        ${(f.brand||[]).includes(b)?'checked':''} onchange="toggleArrFilter('brand',this.value)"> ${b}</label>`).join('') +
+      `</div>`;
+  }
+  if (s.subtype !== false && fc.subtypes.length) {
+    html += `<div class="filter-group"><h4>Тип</h4>` +
+      fc.subtypes.map(b => `<label class="filter-check"><input type="checkbox" value="${b}"
+        ${(f.subtype||[]).includes(b)?'checked':''} onchange="toggleArrFilter('subtype',this.value)"> ${b}</label>`).join('') +
+      `</div>`;
+  }
+  if (s.price !== false && fc.priceMax > fc.priceMin) {
+    html += `<div class="filter-group"><h4>Цена, ₸</h4>
+      <div class="filter-range">
+        <input type="number" placeholder="от" value="${f.priceMin||''}" oninput="state.filters.priceMin=this.value" onchange="reloadFiltered()">
+        <input type="number" placeholder="до ${formatPrice(fc.priceMax)}" value="${f.priceMax||''}" oninput="state.filters.priceMax=this.value" onchange="reloadFiltered()">
+      </div></div>`;
+  }
+  if (s.perf !== false && fc.perfMax > fc.perfMin) {
+    html += `<div class="filter-group"><h4>Производительность</h4>
+      <div class="filter-range">
+        <input type="number" placeholder="от ${fc.perfMin}" value="${f.perfMin||''}" oninput="state.filters.perfMin=this.value" onchange="reloadFiltered()">
+        <input type="number" placeholder="до ${fc.perfMax}" value="${f.perfMax||''}" oninput="state.filters.perfMax=this.value" onchange="reloadFiltered()">
+      </div></div>`;
+  }
+  const panel = document.getElementById('catalogFilters');
+  const mBtn = document.querySelector('.btn-filters-mobile');
+  if (!html) {
+    panel.style.display = 'none';
+    if (mBtn) mBtn.style.display = 'none';
+    return;
+  }
+  panel.style.display = '';
+  if (mBtn) mBtn.style.display = '';
+  document.getElementById('filtersBody').innerHTML = html;
+  renderSubcatBar();
+}
+
+function toggleArrFilter(key, val) {
+  const arr = state.filters[key] || (state.filters[key] = []);
+  const i = arr.indexOf(val);
+  i === -1 ? arr.push(val) : arr.splice(i, 1);
+  if (key === 'subcat') setUrl(catalogUrl());
+  reloadFiltered();
+}
+// синхронизирует чекбоксы/поля панели с state.filters (без перестроения DOM)
+function syncFilterChecks() {
+  const f = state.filters;
+  document.querySelectorAll('#filtersBody input[type="checkbox"]').forEach(cb => {
+    const m = (cb.getAttribute('onchange') || '').match(/toggleArrFilter\('(\w+)'/);
+    if (m) cb.checked = (f[m[1]] || []).includes(cb.value);
+  });
+  renderSubcatBar();
+}
+
+// Лента подкатегорий над каталогом (дублирует фильтр «Подкатегория»)
+function renderSubcatBar() {
+  const bar = document.getElementById('subcatBar');
+  const subs = (state.facets && state.facets.subcategories) || [];
+  if (state.view !== 'catalog' || state.category === 'all' || subs.length < 2) { bar.style.display = 'none'; return; }
+  const sel = state.filters.subcat || [];
+  bar.style.display = 'flex';
+  bar.innerHTML =
+    `<button class="subcat-chip${sel.length ? '' : ' active'}" onclick="clearSubcatFilter()">Все</button>` +
+    subs.map(s => `<button class="subcat-chip${sel.includes(s.slug) ? ' active' : ''}"
+      onclick="toggleArrFilter('subcat','${s.slug}')">${s.name} <span>${s.cnt}</span></button>`).join('');
+}
+function clearSubcatFilter() {
+  state.filters.subcat = [];
+  setUrl(catalogUrl());
+  reloadFiltered();
+}
+function reloadFiltered() { state.page = 1; loadProducts(); }
+function openFilters() {
+  document.getElementById('catalogFilters').classList.add('open');
+  document.getElementById('filtersOverlay').classList.add('open');
+}
+function closeFilters() {
+  document.getElementById('catalogFilters').classList.remove('open');
+  document.getElementById('filtersOverlay').classList.remove('open');
+}
+function resetFilters() {
+  state.filters = {};
+  document.querySelectorAll('#filtersBody input').forEach(i => { if (i.type === 'checkbox') i.checked = false; else i.value = ''; });
+  setUrl(catalogUrl());
+  reloadFiltered();
+}
+function renderActiveFilters() {
+  const f = state.filters, chips = [];
+  const subs = (state.facets && state.facets.subcategories) || [];
+  (f.subcat || []).forEach(sl => {
+    const sc = subs.find(x => x.slug === sl);
+    chips.push([sc ? sc.name : sl, () => toggleArrFilter('subcat', sl)]);
+  });
+  (f.brand || []).forEach(b => chips.push([`Бренд: ${b}`, () => toggleArrFilter('brand', b)]));
+  (f.subtype || []).forEach(b => chips.push([`Тип: ${b}`, () => toggleArrFilter('subtype', b)]));
+  if (f.priceMin || f.priceMax) chips.push([`Цена ${f.priceMin||'0'}–${f.priceMax||'∞'}`, () => { f.priceMin=f.priceMax=null; buildFilters(); reloadFiltered(); }]);
+  if (f.perfMin || f.perfMax) chips.push([`Произв. ${f.perfMin||'0'}–${f.perfMax||'∞'}`, () => { f.perfMin=f.perfMax=null; buildFilters(); reloadFiltered(); }]);
+  const el = document.getElementById('activeFilters');
+  el.innerHTML = chips.map((c, i) => `<button class="chip" data-i="${i}">${c[0]} ✕</button>`).join('');
+  el.querySelectorAll('.chip').forEach((b, i) => b.onclick = chips[i][1]);
+}
+
+function cardHtml(p) {
+  const imgHtml = p.icon
+    ? `<img src="/icons/${p.icon}" alt="${p.name}" loading="lazy" onerror="this.style.display='none'">`
+    : `<span class="card-emoji">${getCatEmoji(p.category_slug)}</span>`;
+  const priceHtml = p.price_on_request
+    ? `<div class="card-price-request">Цена по запросу</div>`
+    : p.price ? `<div class="card-price">${formatPrice(p.price)}</div>`
+    : `<div class="card-price-request">Уточните цену</div>`;
+  const addBtn = p.price_on_request
+    ? `<button class="btn-offer" onclick="event.stopPropagation();requestModal(${p.id})"><img src="/assets/icons/icon-offer.png" alt=""> Запросить цену</button>`
+    : `<button class="btn-buy" onclick="event.stopPropagation();addToCart(${p.id})"><img src="/assets/icons/icon-buy.png" alt=""> В корзину</button>`;
+  const favOn = favIds.includes(p.id);
+  const cmpOn = compareIds.includes(p.id);
+  const favBtn = state.settings.favorites !== false
+    ? `<button class="card-fav${favOn?' on':''}" title="В избранное" onclick="event.stopPropagation();toggleFav(${p.id})">${favOn?'♥':'♡'}</button>` : '';
+  const cmpBtn = state.settings.compare !== false
+    ? `<label class="card-compare" onclick="event.stopPropagation()"><input type="checkbox" ${cmpOn?'checked':''} onchange="toggleCompare(${p.id})"> Сравнить</label>` : '';
+  return `<div class="product-card${p.featured?' featured':''}" onclick="openModal(${p.id})">
+    <div class="card-img-wrap">
+      ${p.featured ? '<span class="badge-hit">⭐ Хит</span>' : ''}
+      ${favBtn}
+      ${imgHtml}
+    </div>
+    <div class="card-body">
+      ${p.brand ? `<div class="card-brand">${p.brand}</div>` : ''}
+      <a class="card-name" href="/?product=${p.id}" onclick="event.stopPropagation();openModal(${p.id});return false;">${p.name}</a>
+      ${p.article ? `<div class="card-article">Арт: ${p.article}</div>` : ''}
+    </div>
+    <div class="card-footer-row">
+      ${priceHtml}
+      <a class="btn-detail" href="/?product=${p.id}" onclick="event.stopPropagation();openModal(${p.id});return false;">Подробнее <img src="/assets/icons/arrow-green.png" alt="→"></a>
+    </div>
+    <div class="card-actions-row">${addBtn}${cmpBtn}</div>
+  </div>`;
+}
+
+function renderPagination(total) {
+  const pages = Math.ceil(total / state.limit);
+  const el = document.getElementById('pagination');
+  if (pages <= 1) { el.innerHTML=''; return; }
+  let html = '';
+  if (state.page > 1) html += `<button class="page-btn" onclick="goPage(${state.page-1})">← Назад</button>`;
+  for (let i = Math.max(1, state.page-2); i <= Math.min(pages, state.page+2); i++) {
+    html += `<button class="page-btn${i===state.page?' active':''}" onclick="goPage(${i})">${i}</button>`;
+  }
+  if (state.page < pages) html += `<button class="page-btn" onclick="goPage(${state.page+1})">Вперёд →</button>`;
+  el.innerHTML = html;
+}
+
+function goPage(p) { state.page = p; loadProducts(); window.scrollTo(0,300); }
+function applySort(v) { state.sort = v; state.page = 1; loadProducts(); }
+
+// ===== КАРТОЧКА ТОВАРА =====
+// Вынесена в /js/product.js: showProduct, openModal, closeModal, miniCard,
+// requestModal, renderPvFav, pvSetImg, pvNav, ytEmbed
+
+// ===== CART =====
+function addToCart(id) {
+  const existing = state.cart.find(i => i.id === id);
+  if (existing) { existing.qty++; saveCart(); renderCart(); showToast('✅ Количество обновлено', 'green'); return; }
+  fetch(`/api/products/${id}`).then(r=>r.json()).then(p => {
+    state.cart.push({ id:p.id, name:p.name, price:p.price, price_on_request:p.price_on_request, icon:p.icon, brand:p.brand, category_slug:p.category_slug, qty:1 });
+    saveCart(); renderCart(); showToast('✅ Добавлено в корзину', 'green');
+  });
+}
+function removeFromCart(id) { state.cart = state.cart.filter(i=>i.id!==id); saveCart(); renderCart(); }
+function changeQty(id, d) { const i = state.cart.find(i=>i.id===id); if(i){ i.qty=Math.max(1,i.qty+d); saveCart(); renderCart(); } }
+function saveCart() {
+  try { localStorage.setItem('cart', JSON.stringify(state.cart)); } catch{}
+  document.getElementById('cartCount').textContent = state.cart.reduce((s,i)=>s+i.qty,0);
+}
+function renderCart() {
+  document.getElementById('cartCount').textContent = state.cart.reduce((s,i)=>s+i.qty,0);
+  const el = document.getElementById('cartItems');
+  if (!state.cart.length) {
+    el.innerHTML = `<div class="cart-empty"><span>🛒</span>Корзина пуста.<br>Добавьте товары из каталога.</div>`;
+    document.getElementById('cartTotal').textContent = '0 ₸'; return;
+  }
+  el.innerHTML = state.cart.map(item=>`
+    <div class="cart-item">
+      <div class="cart-item-img">${item.icon?`<img src="/icons/${item.icon}" alt="">`:getCatEmoji(item.category_slug||'')}</div>
+      <div class="cart-item-info">
+        <div class="cart-item-name">${item.name}</div>
+        <div class="cart-item-price ${item.price_on_request?'request':''}">${item.price_on_request?'По запросу':formatPrice(item.price*item.qty)}</div>
+        <div class="qty-control">
+          <button class="qty-btn" onclick="changeQty(${item.id},-1)">−</button>
+          <span class="qty-val">${item.qty}</span>
+          <button class="qty-btn" onclick="changeQty(${item.id},1)">+</button>
+        </div>
+      </div>
+      <button class="cart-remove" onclick="removeFromCart(${item.id})">🗑</button>
+    </div>`).join('');
+  const total = state.cart.filter(i=>!i.price_on_request).reduce((s,i)=>s+i.price*i.qty,0);
+  const hasReq = state.cart.some(i=>i.price_on_request);
+  document.getElementById('cartTotal').textContent = formatPrice(total)+(hasReq?' + по запросу':'');
+}
+function toggleCart() {
+  const p = document.getElementById('cartPanel');
+  const o = document.getElementById('cartOverlay');
+  const open = !p.classList.contains('open');
+  p.classList.toggle('open', open);
+  o.classList.toggle('open', open);
+}
+async function submitOrder() {
+  const name = document.getElementById('oName').value.trim();
+  const phone = document.getElementById('oPhone').value.trim();
+  if (!name||!phone) { showToast('⚠️ Укажите имя и телефон'); return; }
+  const btn = document.querySelector('.cart-footer .btn-primary');
+  btn.disabled=true; btn.textContent='Отправляем…';
+  try {
+    const res = await apiFetch('/api/orders','POST',{
+      name, phone,
+      email: document.getElementById('oEmail').value.trim(),
+      city: document.getElementById('oCity').value.trim(),
+      message: document.getElementById('oMessage').value.trim(),
+      items: JSON.stringify(state.cart.map(i=>({id:i.id,name:i.name,qty:i.qty,price:i.price||0})))
+    });
+    if (res.success) {
+      showToast('✅ Заявка отправлена! Мы свяжемся с вами.','green');
+      state.cart=[]; saveCart(); renderCart();
+      ['oName','oPhone','oEmail','oCity','oMessage'].forEach(id=>document.getElementById(id).value='');
+      toggleCart();
+    }
+  } catch { showToast('❌ Ошибка. Попробуйте ещё раз.'); }
+  btn.disabled=false; btn.textContent='✅ Отправить заявку';
+}
+
+// ===== ИЗБРАННОЕ =====
+function toggleFav(id) {
+  const i = favIds.indexOf(id);
+  const adding = i === -1;
+  adding ? favIds.push(id) : favIds.splice(i, 1);
+  lsSet('favorites', favIds);
+  renderFavBadge();
+  showToast(adding ? '♥ Добавлено в избранное' : 'Убрано из избранного', adding ? 'green' : '');
+  // обновляем сердечки на месте, без перезагрузки списка
+  document.querySelectorAll(`.card-fav`).forEach(btn => {
+    const m = (btn.getAttribute('onclick') || '').match(/toggleFav\((\d+)\)/);
+    if (m && +m[1] === id) { btn.classList.toggle('on', adding); btn.textContent = adding ? '♥' : '♡'; }
+  });
+  if (state.view === 'favorites') showFavorites();
+}
+function renderFavBadge() {
+  document.querySelectorAll('.fav-count').forEach(el => {
+    el.textContent = favIds.length;
+    el.style.display = favIds.length ? '' : 'none';
+  });
+}
+
+// ===== СРАВНЕНИЕ =====
+function toggleCompare(id) {
+  const i = compareIds.indexOf(id);
+  if (i === -1) {
+    if (compareIds.length >= 4) { showToast('Можно сравнить до 4 товаров'); return renderCatalogChecks(); }
+    compareIds.push(id);
+  } else compareIds.splice(i, 1);
+  lsSet('compare', compareIds);
+  renderCompareBar();
+}
+function renderCatalogChecks() {
+  document.querySelectorAll('.card-compare input').forEach(cb => {
+    const m = (cb.getAttribute('onchange') || '').match(/toggleCompare\((\d+)\)/);
+    if (m) cb.checked = compareIds.includes(+m[1]);
+  });
+}
+async function renderCompareBar() {
+  const bar = document.getElementById('compareBar');
+  document.getElementById('compareCount').textContent = compareIds.length;
+  if (compareIds.length < 1) { bar.classList.remove('show'); return; }
+  bar.classList.add('show');
+  const items = await Promise.all(compareIds.map(id => apiFetch('/api/products/' + id).catch(() => null)));
+  document.getElementById('compareThumbs').innerHTML = items.filter(Boolean).map(p =>
+    `<div class="cmp-thumb">${p.icon ? `<img src="/icons/${p.icon}" onerror="this.replaceWith('📦')">` : getCatEmoji(p.category_slug)}
+      <button onclick="toggleCompare(${p.id})">✕</button></div>`).join('');
+}
+function clearCompare() { compareIds = []; lsSet('compare', compareIds); renderCompareBar(); renderCatalogChecks(); }
+async function openCompare() {
+  if (compareIds.length < 2) { showToast('Выберите минимум 2 товара'); return; }
+  const items = (await Promise.all(compareIds.map(id => apiFetch('/api/products/' + id).catch(() => null)))).filter(Boolean);
+  const specKeys = [...new Set(items.flatMap(p => {
+    let s = p.specs; if (typeof s === 'string') { try { s = JSON.parse(s); } catch { s = {}; } }
+    return Object.keys(s || {});
+  }))];
+  const specOf = (p, k) => { let s = p.specs; if (typeof s === 'string') { try { s = JSON.parse(s); } catch { s = {}; } } return (s || {})[k] || '—'; };
+  const row = (label, cells) => `<tr><th>${label}</th>${cells.map(c => `<td>${c}</td>`).join('')}</tr>`;
+  document.getElementById('compareTable').innerHTML =
+    row('', items.map(p => `<button class="modal-close" style="position:static" onclick="toggleCompare(${p.id});openCompare()">✕</button>`)) +
+    row('Название', items.map(p => `<strong>${p.name}</strong>`)) +
+    row('Бренд', items.map(p => p.brand || '—')) +
+    row('Цена', items.map(p => p.price_on_request ? 'По запросу' : (p.price ? formatPrice(p.price) : '—'))) +
+    row('Производительность', items.map(p => p.perf ? p.perf + ' ' + (p.perf_unit || '') : '—')) +
+    specKeys.map(k => row(k, items.map(p => specOf(p, k)))).join('') +
+    row('', items.map(p => p.price_on_request
+      ? `<button class="btn-offer" onclick="requestModal(${p.id})">Запросить</button>`
+      : `<button class="btn-buy" onclick="addToCart(${p.id})">В корзину</button>`));
+  document.getElementById('compareModal').classList.add('open');
+}
+function closeCompare() { document.getElementById('compareModal').classList.remove('open'); }
+
+// ===== НЕДАВНО ПРОСМОТРЕННЫЕ =====
+function pushRecent(id) {
+  recentIds = [id, ...recentIds.filter(x => x !== id)].slice(0, 10);
+  lsSet('recent', recentIds);
+  renderRecent();
+}
+async function renderRecent() {
+  const sec = document.getElementById('recentSection');
+  const ids = recentIds.slice(0, 8);
+  if (state.settings.blocks.recent === false || ids.length < 2 || state.view === 'favorites') { sec.style.display = 'none'; return; }
+  const items = (await Promise.all(ids.map(id => apiFetch('/api/products/' + id).catch(() => null)))).filter(Boolean);
+  if (items.length < 2) { sec.style.display = 'none'; return; }
+  document.getElementById('recentStrip').innerHTML = items.map(miniCard).join('');
+  sec.style.display = '';
+}
+
+// ===== КВИЗ ПОДБОРА =====
+let quizAns = {};
+function initQuizCta() {
+  const q = state.settings.quiz || {};
+  const cta = document.getElementById('quizCta');
+  if (q.enabled === false || !q.steps || !q.steps.length) { cta.style.display = 'none'; return; }
+  document.getElementById('quizCtaTitle').textContent = q.title || 'Подбор оборудования';
+  document.getElementById('quizCtaSub').textContent = q.subtitle || '';
+  cta.style.display = '';
+}
+function openQuiz() {
+  const q = state.settings.quiz || {};
+  if (!q.steps || !q.steps.length) { showToast('Подбор временно недоступен'); return; }
+  quizAns = {};
+  renderQuizStep(0);
+  document.getElementById('quizModal').classList.add('open');
+}
+function closeQuiz() { document.getElementById('quizModal').classList.remove('open'); }
+function renderQuizStep(i) {
+  const q = state.settings.quiz;
+  const step = q.steps[i];
+  const total = q.steps.length;
+  document.getElementById('quizBody').innerHTML = `
+    <div class="quiz-progress">${q.steps.map((s, n) => `<span class="${n <= i ? 'on' : ''}"></span>`).join('')}</div>
+    <div class="quiz-step-label">Шаг ${i + 1} из ${total}</div>
+    <h3 class="modal-name">${step.label}</h3>
+    <div class="quiz-options">
+      ${step.options.map(o => `<button class="quiz-opt" onclick="quizPick('${step.key}','${o.id}',${i})">${o.label}</button>`).join('')}
+    </div>
+    ${i > 0 ? `<button class="quiz-back" onclick="renderQuizStep(${i - 1})">← Назад</button>` : ''}`;
+}
+function quizPick(key, id, i) {
+  quizAns[key] = id;
+  const q = state.settings.quiz;
+  if (i + 1 < q.steps.length) renderQuizStep(i + 1);
+  else quizSubmit();
+}
+async function quizSubmit() {
+  document.getElementById('quizBody').innerHTML = '<div class="spinner"><div class="spin"></div>&nbsp; Подбираем…</div>';
+  const res = await apiFetch('/api/products/quiz', 'POST', quizAns);
+  const list = res.products || [];
+  document.getElementById('quizBody').innerHTML = `
+    <h3 class="modal-name">${list.length ? 'Рекомендуем для вас' : 'Не нашли точного совпадения'}</h3>
+    <p class="quiz-step-label">${list.length ? 'Подобрано по вашим ответам. Уточните детали у менеджера.' : 'Оставьте заявку — подберём вручную.'}</p>
+    <div class="mini-row">${list.map(miniCard).join('')}</div>
+    <div class="quiz-result-actions">
+      <button class="btn-catalog" onclick="closeQuiz();scrollToConsult()">Получить консультацию</button>
+      <button class="quiz-back" onclick="quizAns={};renderQuizStep(0)">Пройти заново</button>
+    </div>`;
+}
+
+// ===== UTILS =====
+// toggleDrawer/closeDrawer, toggleSearch, scrollToConsult, submitConsult,
+// showToast, apiFetch, formatPrice — в /js/site.js (общие для всех страниц)
+function getCatEmoji(slug) {
+  return {avtomoyki:'🚗',sto:'🔧',klining:'🧹',voda:'💧',aksessuary:'⚙️',promyshlennoe:'🏭'}[slug]||'📦';
+}
+function catIconUrl(icon) {
+  if (!icon) return '/assets/icons/cat-wash.png';
+  return /^https?:|^\//.test(icon) ? icon : '/icons/' + icon;
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') { closeModal(); closeCompare(); closeQuiz(); }
+});
+
+init();
+</script>
+</body>
+</html>

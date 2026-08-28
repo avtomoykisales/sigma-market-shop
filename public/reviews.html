@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Отзывы — SIGMA MARKET</title>
+<link rel="stylesheet" href="/style.css?v=20260828g">
+</head>
+<body class="shop">
+
+<!-- partial:header -->
+
+<!-- partial:hero -->
+
+<main>
+  <section class="section">
+    <div class="container">
+      <div class="section-label">нам доверяют</div>
+      <h1 class="section-title">Отзывы клиентов</h1>
+      <p class="prose">Автомойки, СТО, клининговые компании и промышленные предприятия по всему
+        Казахстану уже работают на оборудовании SIGMA MARKET. Несколько отзывов наших заказчиков.</p>
+
+      <div class="reviews-grid">
+        <article class="review-card">
+          <div class="stars" aria-label="5 из 5">★★★★★</div>
+          <p>«Запустили портальную мойку под ключ за три недели. Монтаж, пусконаладка, обучение
+            персонала — всё чётко. Через полгода работы — ни одной серьёзной поломки.»</p>
+          <div class="review-author">Даурен Т. <span>— сеть автомоек, Алматы</span></div>
+        </article>
+        <article class="review-card">
+          <div class="stars" aria-label="5 из 5">★★★★★</div>
+          <p>«Брали поломоечные машины GANSOW для склада. Подобрали модель точно под площадь,
+            расходники всегда в наличии. Сервис отвечает быстро.»</p>
+          <div class="review-author">Ольга К. <span>— логистический комплекс, Астана</span></div>
+        </article>
+        <article class="review-card">
+          <div class="stars" aria-label="5 из 5">★★★★★</div>
+          <p>«Оснастили СТО подъёмниками и компрессором. Оборудование официальное, с гарантией
+            производителя — это было главным критерием выбора.»</p>
+          <div class="review-author">Марат Ж. <span>— автосервис, Шымкент</span></div>
+        </article>
+        <article class="review-card">
+          <div class="stars" aria-label="5 из 5">★★★★★</div>
+          <p>«Аппараты высокого давления PORTOTECNICA работают на детейлинге уже второй год в
+            интенсивном режиме. Рекомендую.»</p>
+          <div class="review-author">Ислам А. <span>— детейлинг-студия, Караганда</span></div>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <section class="section section-alt">
+    <div class="container review-form-wrap">
+      <div class="section-label">поделитесь мнением</div>
+      <h2 class="section-title">Оставить отзыв</h2>
+      <div class="review-form">
+        <div class="rf-row">
+          <input type="text" id="rvName" placeholder="Ваше имя *">
+          <input type="tel" id="rvPhone" placeholder="Телефон *">
+        </div>
+        <input type="text" id="rvCompany" placeholder="Компания и город">
+        <textarea id="rvText" placeholder="Ваш отзыв о работе с SIGMA MARKET *"></textarea>
+        <button type="button" class="btn-primary" onclick="submitReview()">Отправить отзыв</button>
+        <p class="rf-note">Отзыв публикуется после проверки модератором.</p>
+      </div>
+    </div>
+  </section>
+</main>
+
+<!-- partial:consult -->
+
+<!-- partial:footer -->
+
+<div class="toast" id="toast"></div>
+<script src="/js/site.js"></script>
+<script>
+async function submitReview() {
+  var name = document.getElementById('rvName').value.trim();
+  var phone = document.getElementById('rvPhone').value.trim();
+  var text = document.getElementById('rvText').value.trim();
+  var company = document.getElementById('rvCompany').value.trim();
+  if (!name || !phone || !text) { showToast('⚠️ Заполните имя, телефон и текст отзыва'); return; }
+  try {
+    var res = await apiFetch('/api/orders', 'POST', {
+      name: name, phone: phone, city: company,
+      message: 'ОТЗЫВ: ' + text,
+      items: '[]'
+    });
+    if (res && res.success) {
+      showToast('✅ Спасибо! Отзыв отправлен на модерацию.', 'green');
+      ['rvName','rvPhone','rvCompany','rvText'].forEach(function (id) { document.getElementById(id).value = ''; });
+    }
+  } catch (e) { showToast('❌ Ошибка. Попробуйте ещё раз.'); }
+}
+</script>
+</body>
+</html>

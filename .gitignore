@@ -1,0 +1,8 @@
+node_modules/
+*.log
+.DS_Store
+.env
+.env.*
+sigma.db-shm
+sigma.db-wal
+*.bak-preimport

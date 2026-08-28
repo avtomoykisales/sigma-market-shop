@@ -1,0 +1,103 @@
+<!-- HEADER -->
+<header class="site-header">
+  <div class="header-inner">
+    <a href="/" class="logo">
+      <img src="/assets/icons/logo.png" alt="SIGMA" class="logo-img">
+    </a>
+    <nav class="main-nav">
+      <a href="/" class="nav-link" data-nav="home">главная</a>
+      <a href="/#catalog" class="nav-link" data-nav="catalog">товары и услуги</a>
+      <a href="/about" class="nav-link" data-nav="about">о нас</a>
+      <a href="/delivery" class="nav-link" data-nav="delivery">доставка и оплата</a>
+      <a href="/contacts" class="nav-link" data-nav="contacts">контакты</a>
+      <a href="/reviews" class="nav-link" data-nav="reviews">отзывы</a>
+    </nav>
+    <div class="header-right">
+      <button class="hdr-search" type="button" onclick="toggleSearch()" aria-label="Поиск"><img src="/assets/icons/icon-search.png" alt="" onerror="this.parentNode.innerHTML='🔍'"></button>
+      <a class="hdr-consult" href="/#consult">Получить консультацию</a>
+      <a class="hdr-fav" href="/#favorites" data-nav="favorites" title="Избранное">
+        ♥ <span class="fav-count" style="display:none">0</span>
+      </a>
+      <button class="hdr-cart" type="button" onclick="handleCart()">
+        🛒 <span class="cart-count" id="cartCount">0</span>
+      </button>
+      <button class="hdr-burger" id="hdrBurger" type="button" onclick="toggleDrawer()" aria-label="Меню">
+        <span></span><span></span><span></span>
+      </button>
+    </div>
+  </div>
+  <!-- Search bar (hidden by default) -->
+  <div class="search-dropdown" id="searchDropdown" style="display:none">
+    <form class="search-inner" action="/" method="get" role="search">
+      <input type="text" name="q" id="searchInput" placeholder="Поиск по названию, артикулу, бренду…">
+      <button type="submit">Найти</button>
+    </form>
+  </div>
+</header>
+
+<!-- MOBILE DRAWER -->
+<div class="drawer-overlay" id="drawerOverlay" onclick="closeDrawer()"></div>
+<aside class="drawer" id="drawer">
+  <div class="drawer-head">
+    <a href="/" class="drawer-logo">
+      <img src="/assets/icons/logo.png" alt="SIGMA">
+    </a>
+    <button class="drawer-close" type="button" onclick="closeDrawer()" aria-label="Закрыть">✕</button>
+  </div>
+
+  <nav class="drawer-nav">
+    <a href="/" class="drawer-link" data-nav="home">главная</a>
+    <a href="/#catalog" class="drawer-link" data-nav="catalog">товары и услуги</a>
+    <a href="/#favorites" class="drawer-link" data-nav="favorites">избранное</a>
+    <a href="/about" class="drawer-link" data-nav="about">о нас</a>
+    <a href="/delivery" class="drawer-link" data-nav="delivery">доставка и оплата</a>
+    <a href="/contacts" class="drawer-link" data-nav="contacts">контакты</a>
+    <a href="/reviews" class="drawer-link" data-nav="reviews">отзывы</a>
+  </nav>
+
+  <a class="drawer-consult" href="/#consult">Получить консультацию</a>
+
+  <div class="drawer-card">
+    <div class="footer-contact"><img src="/assets/icons/icon-phone.png" alt=""> +7 (707) 420-20-03</div>
+    <div class="footer-contact"><img src="/assets/icons/icon-email.png" alt=""> avtomoyki.sales@gmail.com</div>
+    <div class="footer-contact"><img src="/assets/icons/icon-map.png" alt=""> Республика Казахстан, г. Алматы,<br>пр-т Рыскулова 103/18Б оф. 202</div>
+  </div>
+
+  <div class="drawer-group">
+    <button class="drawer-group-head" type="button">Каталог <span>⌄</span></button>
+    <div class="drawer-group-body">
+      <a href="/?category=avtomoyki">Автомойки</a>
+      <a href="/?category=sto">СТО и автосервис</a>
+      <a href="/?category=klining">Клининг</a>
+      <a href="/?category=aksessuary">Аксессуары и запчасти</a>
+      <a href="/?category=promyshlennoe">Промышленное оборудование</a>
+    </div>
+  </div>
+  <div class="drawer-group">
+    <button class="drawer-group-head" type="button">Компания <span>⌄</span></button>
+    <div class="drawer-group-body">
+      <a href="/about">О компании</a>
+      <a href="/about">Проекты</a>
+      <a href="/delivery#guarantee">Сервис</a>
+      <a href="/reviews">Новости</a>
+    </div>
+  </div>
+  <div class="drawer-group">
+    <button class="drawer-group-head" type="button">Клиентам <span>⌄</span></button>
+    <div class="drawer-group-body">
+      <a href="/delivery">Доставка и оплата</a>
+      <a href="/delivery#guarantee">Гарантия</a>
+      <a href="/delivery">Документация</a>
+      <a href="/contacts">FAQ</a>
+    </div>
+  </div>
+
+  <div class="drawer-foot">
+    <div class="drawer-logo">
+      <img src="/assets/icons/logo.png" alt="SIGMA">
+      <span>S|GMA</span>
+    </div>
+    <p>Профессиональное оборудование для автомоек и автосервиса, клининга</p>
+    <p class="drawer-copy">© SIGMA MARKET TOO, 2012–2025</p>
+  </div>
+</aside>
