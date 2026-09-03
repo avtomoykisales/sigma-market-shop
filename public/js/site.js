@@ -113,10 +113,60 @@
     } catch (e) { window.showToast('❌ Ошибка. Попробуйте ещё раз.'); }
   };
 
+  /* ---------- ГЕРОЙ-СЛАЙДЕР ---------- */
+  // Кнопка слайда: если открыт SPA каталога (index) — переключаем вид без перезагрузки,
+  // иначе даём ссылке отработать обычным переходом на "/?category=...".
+  window.heroGo = function (cat, sub) {
+    if (typeof window.showCatalog === 'function') {
+      var subs = sub ? String(sub).split(',').filter(Boolean) : [];
+      window.showCatalog(cat, subs);
+      return false;
+    }
+    return true;
+  };
+
+  function initHeroSlider() {
+    var section = document.getElementById('heroSlider');
+    if (!section) return;
+    var slides = [].slice.call(section.querySelectorAll('.hero-slide-img'));
+    var dotsWrap = document.getElementById('heroDots');
+    if (slides.length < 2) { if (dotsWrap) dotsWrap.style.display = 'none'; return; }
+
+    var idx = 0, timer = null;
+    function render() {
+      slides.forEach(function (s, i) { s.classList.toggle('is-active', i === idx); });
+      if (dotsWrap) [].forEach.call(dotsWrap.children, function (d, i) {
+        d.classList.toggle('is-active', i === idx);
+      });
+    }
+    function go(n) { idx = (n % slides.length + slides.length) % slides.length; render(); restart(); }
+    function restart() { clearInterval(timer); timer = setInterval(function () { go(idx + 1); }, 2000); }
+
+    window.heroStep = function (d) { go(idx + d); };
+
+    if (dotsWrap) {
+      slides.forEach(function (_, i) {
+        var b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'hero-dot';
+        b.setAttribute('aria-label', 'Слайд ' + (i + 1));
+        b.addEventListener('click', function () { go(i); });
+        dotsWrap.appendChild(b);
+      });
+    }
+    // пауза только когда вкладка не активна — иначе слайдер крутится всегда
+    document.addEventListener('visibilitychange', function () {
+      if (document.hidden) clearInterval(timer); else restart();
+    });
+    render();
+    restart();
+  }
+
   /* ---------- ИНИЦИАЛИЗАЦИЯ ---------- */
   document.addEventListener('DOMContentLoaded', function () {
     markActiveNav();
     window.updateCartBadge();
+    initHeroSlider();
 
     // аккордеоны в мобильном меню
     document.querySelectorAll('.drawer-group-head').forEach(function (b) {
@@ -130,4 +180,19 @@
   document.addEventListener('keydown', function (e) {
     if (e.key === 'Escape') window.closeDrawer();
   });
+
+  /* ---------- Внутренние страницы: сразу к контенту (герой остаётся выше) ---------- */
+  if (document.body.classList.contains('subpage') && !location.hash) {
+    var jumpToContent = function () {
+      var main = document.querySelector('main');
+      if (!main) return;
+      var header = document.querySelector('.site-header');
+      var offset = (header ? header.offsetHeight : 64) + 8;
+      var y = main.getBoundingClientRect().top + window.pageYOffset - offset;
+      if (y > 4) window.scrollTo(0, y);
+    };
+    window.addEventListener('load', jumpToContent);
+    // подстраховка, если картинка героя долистала лейаут
+    setTimeout(jumpToContent, 400);
+  }
 })();

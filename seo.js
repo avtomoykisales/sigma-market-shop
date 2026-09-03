@@ -51,6 +51,7 @@ function orgLd(base) {
     foundingDate: '2012',
     email: ORG.email,
     telephone: ORG.phoneRaw,
+    sameAs: ['https://www.instagram.com/sigmamarket.kz'],
     address: {
       '@type': 'PostalAddress',
       addressCountry: ORG.country,

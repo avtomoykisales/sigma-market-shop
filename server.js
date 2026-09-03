@@ -193,7 +193,7 @@ app.get('/api/products', async (req, res) => {
                 MIN(p.perf) as perfmin, MAX(p.perf) as perfmax
          FROM products p JOIN categories c ON p.category_id=c.id WHERE 1=1 ${catWhere}`, fParams);
       const subcats = await db.allAsync(
-        `SELECT s.name, s.slug, COUNT(p.id) as cnt
+        `SELECT s.name, s.slug, s.icon, COUNT(p.id) as cnt
          FROM subcategories s
          JOIN categories c ON s.category_id = c.id
          LEFT JOIN products p ON p.subcategory_id = s.id
@@ -502,22 +502,22 @@ app.get('/api/admin/subcategories', adminAuth, async (req, res) => {
 });
 app.post('/api/admin/subcategories', adminAuth, async (req, res) => {
   try {
-    const { category_id, name, description, sort } = req.body;
+    const { category_id, name, description, sort, icon } = req.body;
     if (!category_id || !name) return res.status(400).json({ error: 'Укажите категорию и название' });
     const slug = req.body.slug ? slugify(req.body.slug) : slugify(name);
     const r = await db.runAsync(
-      `INSERT INTO subcategories (category_id, name, slug, description, sort) VALUES (?,?,?,?,?)`,
-      [category_id, name, slug, description || '', sort || 0]);
+      `INSERT INTO subcategories (category_id, name, slug, description, sort, icon) VALUES (?,?,?,?,?,?)`,
+      [category_id, name, slug, description || '', sort || 0, icon || null]);
     res.json({ success: true, id: r.lastID });
   } catch (e) { res.status(500).json({ error: /UNIQUE/.test(e.message) ? 'Такой slug уже есть в этой категории' : e.message }); }
 });
 app.put('/api/admin/subcategories/:id', adminAuth, async (req, res) => {
   try {
-    const { category_id, name, description, sort } = req.body;
+    const { category_id, name, description, sort, icon } = req.body;
     const slug = req.body.slug ? slugify(req.body.slug) : slugify(name);
     await db.runAsync(
-      `UPDATE subcategories SET category_id=?, name=?, slug=?, description=?, sort=? WHERE id=?`,
-      [category_id, name, slug, description || '', sort || 0, req.params.id]);
+      `UPDATE subcategories SET category_id=?, name=?, slug=?, description=?, sort=?, icon=? WHERE id=?`,
+      [category_id, name, slug, description || '', sort || 0, icon || null, req.params.id]);
     res.json({ success: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });

@@ -1,38 +1,47 @@
 <!-- HERO -->
-<section class="hero-section">
+<section class="hero-section" id="heroSlider">
   <div class="hero-text">
     <p class="hero-title">Профессиональное<br>оборудование<br>для бизнеса</p>
     <p class="hero-sub">Комплексное решение для автосалонов, СТО,<br>клининга и промышленности по всему Казахстану</p>
     <div class="hero-buttons">
-      <a class="btn-catalog" href="/#catalog" data-nav="catalog">Смотреть каталог</a>
+      <a class="btn-catalog" href="/#catalog" onclick="return heroGo('all','')">Смотреть каталог</a>
     </div>
   </div>
+
   <div class="hero-image">
-    <img src="/assets/icons/banner.png" alt="Оборудование SIGMA MARKET">
-    <button class="carousel-btn prev" type="button"><img src="/assets/icons/arrow-left.png" alt="←"></button>
-    <button class="carousel-btn next" type="button"><img src="/assets/icons/arrow-right.png" alt="→"></button>
+    <a class="hero-slide-img is-active" href="/?category=klining&subcategory=polomoechnye-mashiny"
+       onclick="return heroGo('klining','polomoechnye-mashiny')">
+      <img src="/assets/icons/hero-polo.jpg" alt="Поломоечные машины"
+           onerror="this.onerror=null;this.src='/assets/icons/banner.png'">
+      <span class="hero-slide-cap">Поломоечные машины</span>
+    </a>
+    <a class="hero-slide-img" href="/?category=klining&subcategory=podmetalnye-mashiny"
+       onclick="return heroGo('klining','podmetalnye-mashiny')">
+      <img src="/assets/icons/hero-podmet.jpg" alt="Подметальные машины"
+           onerror="this.onerror=null;this.src='/assets/icons/banner.png'">
+      <span class="hero-slide-cap">Подметальные машины</span>
+    </a>
+    <a class="hero-slide-img" href="/?category=avtomojka"
+       onclick="return heroGo('avtomojka','')">
+      <img src="/assets/icons/hero-avto.jpg" alt="Оборудование для автомойки"
+           onerror="this.onerror=null;this.src='/assets/icons/banner.png'">
+      <span class="hero-slide-cap">Оборудование для автомойки</span>
+    </a>
+    <a class="hero-slide-img" href="/?category=sto"
+       onclick="return heroGo('sto','')">
+      <img src="/assets/icons/hero-sto.jpg" alt="Оборудование для СТО и автосервиса"
+           onerror="this.onerror=null;this.src='/assets/icons/banner.png'">
+      <span class="hero-slide-cap">Оборудование для СТО и автосервиса</span>
+    </a>
+    <a class="hero-slide-img" href="/?category=avtomojka&subcategory=beskontaktnye-robotizirovannye-avtomoyki,avtomaticheskie-konveyernye-avtomoyki-tunnelnogo,portalnye-avtomoyki"
+       onclick="return heroGo('avtomojka','beskontaktnye-robotizirovannye-avtomoyki,avtomaticheskie-konveyernye-avtomoyki-tunnelnogo,portalnye-avtomoyki')">
+      <img src="/assets/icons/hero-avtomatic.jpg" alt="Автоматические автомойки"
+           onerror="this.onerror=null;this.src='/assets/icons/banner.png'">
+      <span class="hero-slide-cap">Автоматические автомойки</span>
+    </a>
+
+    <button class="carousel-btn prev" type="button" aria-label="Назад" onclick="heroStep(-1)"><img src="/assets/icons/arrow-left.png" alt="←"></button>
+    <button class="carousel-btn next" type="button" aria-label="Вперёд" onclick="heroStep(1)"><img src="/assets/icons/arrow-right.png" alt="→"></button>
+    <div class="hero-dots" id="heroDots"></div>
   </div>
 </section>
-
-<!-- STATS BAR -->
-<div class="stats-bar">
-  <div class="stat-item">
-    <img src="/assets/icons/icon-exp.png" alt="">
-    <div><strong>15+</strong><span>лет опыта<br>на рынке</span></div>
-  </div>
-  <div class="stat-sep"></div>
-  <div class="stat-item">
-    <img src="/assets/icons/icon-proj.png" alt="">
-    <div><strong>500+</strong><span>реализованных<br>проектов</span></div>
-  </div>
-  <div class="stat-sep"></div>
-  <div class="stat-item">
-    <img src="/assets/icons/icon-support.png" alt="">
-    <div><strong>24/7</strong><span>сервисная<br>поддержка</span></div>
-  </div>
-  <div class="stat-sep"></div>
-  <div class="stat-item">
-    <img src="/assets/icons/icon-key.png" alt="">
-    <div><strong>Под ключ</strong><span>от проекта<br>до запуска</span></div>
-  </div>
-</div>

@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="robots" content="noindex, nofollow">
 <title>Админ-панель — SIGMA MARKET</title>
-<link rel="stylesheet" href="/style.css?v=20260828g">
+<link rel="stylesheet" href="/style.css?v=20260902z8">
 </head>
 <body class="admin">
 
@@ -18,7 +18,7 @@
     <div class="field"><label>Пароль</label><input type="password" id="loginPass" value="" placeholder="Пароль" onkeydown="if(event.key==='Enter')doLogin()"></div>
     <button class="btn-green" onclick="doLogin()">Войти</button>
     <div id="loginError"></div>
-    <div style="font-size:12px;color:var(--muted);margin-top:12px;text-align:center">По умолчанию: admin / sigma2024</div>
+    <div style="font-size:12px;color:var(--muted);margin-top:12px;text-align:center"></div>
   </div>
 </div>
 
@@ -117,7 +117,7 @@
           <button class="btn-new" onclick="openSubcatForm()">+ Новая подкатегория</button>
         </div>
         <div class="table-wrap"><table>
-          <thead><tr><th>Категория</th><th>Название</th><th>Slug</th><th>Товаров</th><th>Порядок</th><th></th></tr></thead>
+          <thead><tr><th>Иконка</th><th>Категория</th><th>Название</th><th>Slug</th><th>Товаров</th><th>Порядок</th><th></th></tr></thead>
           <tbody id="subcatsTbody"></tbody>
         </table></div>
         <p style="padding:14px 20px;color:var(--muted);font-size:13px">
@@ -300,6 +300,19 @@
       <div class="fg"><label>Slug (необязательно)</label><input id="scSlug" placeholder="polomoechnye — сгенерируется автоматически"></div>
       <div class="fg"><label>Описание</label><input id="scDesc"></div>
       <div class="fg"><label>Порядок сортировки</label><input id="scSort" type="number" value="0"></div>
+      <div class="fg"><label>Иконка</label>
+        <div class="img-manager" style="padding:12px">
+          <div class="img-grid" id="scIconGrid"></div>
+          <div class="img-add-row">
+            <input type="file" id="scIconFile" accept=".png,.jpg,.jpeg,.webp,.svg" style="display:none" onchange="uploadSubcatIcon()">
+            <button type="button" class="action-btn" onclick="document.getElementById('scIconFile').click()">📤 Загрузить</button>
+            <input id="scIconManual" placeholder="или имя файла + Enter"
+              style="flex:1;padding:8px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:13px"
+              onkeydown="if(event.key==='Enter'){event.preventDefault();scIcon=this.value.trim();renderScIcon();this.value=''}">
+          </div>
+          <div id="scIconResult" style="font-size:12px;margin-top:6px"></div>
+        </div>
+      </div>
     </div>
     <div class="form-actions">
       <button class="btn-cancel" onclick="document.getElementById('subcatOverlay').classList.remove('open')">Отмена</button>
@@ -478,10 +491,12 @@ async function deleteCat(id) {
 }
 
 // ===== ПОДКАТЕГОРИИ =====
+let scIcon = '';
 async function loadSubcats() {
   await reloadSubcats();
   const tb = document.getElementById('subcatsTbody');
   tb.innerHTML = subcategories.map(s => `<tr>
+    <td>${s.icon ? `<img src="${catImgSrc(s.icon)}" style="width:30px;height:30px;object-fit:contain" onerror="this.replaceWith('—')">` : '—'}</td>
     <td><span class="tag tag-blue">${esc(s.category_name)}</span></td>
     <td><strong>${esc(s.name)}</strong></td>
     <td style="color:var(--muted)">${esc(s.slug)}</td>
@@ -491,7 +506,30 @@ async function loadSubcats() {
       <button class="action-btn" onclick="openSubcatForm(${s.id})">✏️</button>
       <button class="action-btn del" onclick="deleteSubcat(${s.id})">🗑</button>
     </td>
-  </tr>`).join('') || '<tr><td colspan="6" style="color:var(--muted);padding:16px">Пока нет подкатегорий</td></tr>';
+  </tr>`).join('') || '<tr><td colspan="7" style="color:var(--muted);padding:16px">Пока нет подкатегорий</td></tr>';
+}
+function renderScIcon() {
+  const g = document.getElementById('scIconGrid');
+  document.getElementById('scIconResult').textContent = '';
+  g.innerHTML = scIcon
+    ? `<div class="img-cell main"><img src="${catImgSrc(scIcon)}" onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'img-broken',textContent:'нет файла'}))">
+        <button type="button" class="img-del" onclick="scIcon='';renderScIcon()">✕</button>
+        <div class="img-fn">${esc(scIcon)}</div></div>`
+    : '<div class="img-empty">Иконка не задана</div>';
+}
+async function uploadSubcatIcon() {
+  const f = document.getElementById('scIconFile').files[0];
+  if (!f) return;
+  const res = document.getElementById('scIconResult');
+  res.textContent = 'Загрузка…'; res.style.color = 'var(--muted)';
+  const fd = new FormData(); fd.append('icon', f);
+  try {
+    const r = await fetch('/api/admin/upload-icon', { method: 'POST', headers: { 'x-admin-token': token }, body: fd });
+    const d = await r.json();
+    if (d.filename) { scIcon = d.filename; renderScIcon(); }
+    else { res.textContent = '❌ ' + (d.error || 'Ошибка'); res.style.color = '#ef4444'; }
+  } catch { res.textContent = '❌ Ошибка загрузки'; res.style.color = '#ef4444'; }
+  document.getElementById('scIconFile').value = '';
 }
 function openSubcatForm(id) {
   subcatEditId = id || null;
@@ -502,6 +540,8 @@ function openSubcatForm(id) {
   document.getElementById('scSlug').value = s ? s.slug : '';
   document.getElementById('scDesc').value = s ? (s.description || '') : '';
   document.getElementById('scSort').value = s ? s.sort : 0;
+  scIcon = s ? (s.icon || '') : '';
+  renderScIcon();
   document.getElementById('subcatOverlay').classList.add('open');
 }
 async function saveSubcat() {
@@ -512,7 +552,8 @@ async function saveSubcat() {
     name,
     slug: document.getElementById('scSlug').value.trim(),
     description: document.getElementById('scDesc').value.trim(),
-    sort: document.getElementById('scSort').value || 0
+    sort: document.getElementById('scSort').value || 0,
+    icon: scIcon || null
   };
   const res = subcatEditId
     ? await apiFetch(`/api/admin/subcategories/${subcatEditId}`, 'PUT', data)

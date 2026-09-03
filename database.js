@@ -65,6 +65,7 @@ db.serialize(async () => {
   await addCol('products', 'subtitle', 'TEXT');                   // подзаголовок под названием
   await addCol('products', 'images', "TEXT DEFAULT '[]'");        // доп. изображения (галерея), JSON []
   await addCol('products', 'subcategory_id', 'INTEGER');          // подкатегория (опционально)
+  await addCol('subcategories', 'icon', 'TEXT');                  // иконка подкатегории (опционально)
 
   // ---- Настройки сайта (редактируются в админке) ----
   await db.runAsync(`CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)`);
@@ -75,11 +76,9 @@ db.serialize(async () => {
     subtitle: 'Ответьте на три вопроса — покажем 2–3 подходящие модели',
     steps: [
       { key: 'biz', label: 'Тип бизнеса', options: [
-        { id: 'wash',  label: 'Автомойка',              category: 'avtomoyki' },
-        { id: 'sto',   label: 'СТО / автосервис',        category: 'sto' },
-        { id: 'clean', label: 'Клининговая компания',    category: 'klining' },
-        { id: 'water', label: 'Водоподготовка / стоки',  category: 'voda' },
-        { id: 'prod',  label: 'Производство',            category: 'promyshlennoe' }
+        { id: 'wash',  label: 'Автомойка',           category: 'avtomojka' },
+        { id: 'sto',   label: 'СТО / автосервис',     category: 'sto' },
+        { id: 'clean', label: 'Клининговая компания', category: 'klining' }
       ]},
       { key: 'load', label: 'Поток / объём работы', options: [
         { id: 's', label: 'Небольшой',            perfMax: 15 },
@@ -142,8 +141,13 @@ db.serialize(async () => {
     console.log('✅ Иконки категорий приведены к /icons/');
   }
 
-  // Admin seed
-  await db.runAsync(`INSERT OR IGNORE INTO admins (username,password) VALUES (?,?)`, ['admin','sigma2024']);
+  // Admin seed — пароль из ENV, иначе разовый случайный (печатается в лог)
+  const adminExists = await db.getAsync('SELECT COUNT(*) as c FROM admins');
+  if (adminExists.c === 0) {
+    const pw = process.env.ADMIN_PASSWORD || require('crypto').randomBytes(9).toString('base64url');
+    await db.runAsync(`INSERT INTO admins (username,password) VALUES (?,?)`, ['admin', pw]);
+    if (!process.env.ADMIN_PASSWORD) console.log('⚠️  Сгенерирован пароль администратора:', pw, '— смените командой UPDATE admins.');
+  }
 
   // Products — seed only if empty
   const count = await db.getAsync('SELECT COUNT(*) as cnt FROM products');

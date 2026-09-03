@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SIGMA MARKET — Профессиональное оборудование</title>
-<link rel="stylesheet" href="/style.css?v=20260828g">
+<link rel="stylesheet" href="/style.css?v=20260902z8">
 </head>
 <body class="shop">
 
@@ -17,6 +17,17 @@
 <!-- ========== ГЛАВНАЯ СТРАНИЦА ========== -->
 <div id="homeView">
 
+  <!-- Квиз-подбор — сразу под баннером -->
+  <div class="container quiz-cta-wrap">
+    <div class="quiz-cta" id="quizCta" style="display:none">
+      <div class="quiz-cta-text">
+        <h3 id="quizCtaTitle">Не знаете, что выбрать?</h3>
+        <p id="quizCtaSub">Ответьте на 3 вопроса — подберём подходящее оборудование под ваши задачи.</p>
+      </div>
+      <button class="btn-catalog" type="button" onclick="openQuiz()">Подобрать за 1 минуту →</button>
+    </div>
+  </div>
+
   <!-- КАТЕГОРИИ -->
   <section class="section categories-section">
     <div class="container">
@@ -27,22 +38,13 @@
           Смотреть все направления <img src="/assets/icons/arrow-green.png" alt="">
         </a>
       </div>
-      <!-- Категории + подкатегории — единый слайдер влево/вправо -->
+      <!-- Направления: на десктопе сетка во всю ширину, на мобильном — лента -->
       <div class="subcat-slider" id="homeSubcatSlider" style="display:none">
         <div class="subcat-slider-body">
           <button class="subcat-slider-btn prev" type="button" onclick="slideHomeSubcats(-1)" aria-label="Назад">‹</button>
-          <div class="subcat-slider-track" id="homeSubcatTrack"></div>
+          <div class="subcat-slider-track is-grid" id="homeSubcatTrack"></div>
           <button class="subcat-slider-btn next" type="button" onclick="slideHomeSubcats(1)" aria-label="Вперёд">›</button>
         </div>
-      </div>
-
-      <!-- Квиз-подбор -->
-      <div class="quiz-cta" id="quizCta" style="display:none">
-        <div class="quiz-cta-text">
-          <h3 id="quizCtaTitle">Не знаете, что выбрать?</h3>
-          <p id="quizCtaSub">Ответьте на 3 вопроса — подберём подходящее оборудование под ваши задачи.</p>
-        </div>
-        <button class="btn-catalog" type="button" onclick="openQuiz()">Подобрать оборудование</button>
       </div>
     </div>
   </section>
@@ -56,11 +58,31 @@
         <p>Помогаем бизнесу расти, внедряя надёжное оборудование и обеспечивая полный цикл работ — от проектирования до сервисной поддержки.</p>
         <a href="/about" class="link-more">Подробнее о компании</a>
       </div>
-      <div class="about-img">
-        <img src="/assets/icons/about.png" alt="О компании SIGMA MARKET">
-      </div>
     </div>
   </section>
+
+  <!-- ЦИФРЫ -->
+  <div class="stats-bar">
+    <div class="stat-item">
+      <img src="/assets/icons/icon-exp.png" alt="">
+      <div><strong>15+</strong><span>лет опыта<br>на рынке</span></div>
+    </div>
+    <div class="stat-sep"></div>
+    <div class="stat-item">
+      <img src="/assets/icons/icon-proj.png" alt="">
+      <div><strong>500+</strong><span>реализованных<br>проектов</span></div>
+    </div>
+    <div class="stat-sep"></div>
+    <div class="stat-item">
+      <img src="/assets/icons/icon-support.png" alt="">
+      <div><strong>24/7</strong><span>сервисная<br>поддержка</span></div>
+    </div>
+    <div class="stat-sep"></div>
+    <div class="stat-item">
+      <img src="/assets/icons/icon-key.png" alt="">
+      <div><strong>Под ключ</strong><span>от проекта<br>до запуска</span></div>
+    </div>
+  </div>
 
   <!-- ПАРТНЕРЫ -->
   <section class="section partners-section">
@@ -99,9 +121,9 @@
         <h1 class="section-title" id="catalogTitle">Товары и услуги</h1>
       </div>
 
-      <!-- Фильтр категорий (горизонтальные табы) -->
+      <!-- Фильтр категорий (кнопки-пилюли) -->
       <div class="cat-tabs" id="catTabs">
-        <button class="cat-tab active" data-slug="all" onclick="selectCategory('all',this)">Все</button>
+        <button class="cat-tab cat-tab--all active" data-slug="all" onclick="selectCategory('all',this)">Все</button>
       </div>
 
       <!-- Подкатегории (лента; дублирует фильтр в панели) -->
@@ -223,10 +245,6 @@
         <div class="form-group"><label>Имя *</label><input type="text" id="oName" placeholder="Ваше имя"></div>
         <div class="form-group"><label>Телефон *</label><input type="tel" id="oPhone" placeholder="+7 (___) ___-__-__"></div>
       </div>
-      <div class="form-row">
-        <div class="form-group"><label>Email</label><input type="email" id="oEmail" placeholder="email@example.com"></div>
-        <div class="form-group"><label>Город</label><input type="text" id="oCity" placeholder="Алматы"></div>
-      </div>
       <div class="form-group"><label>Комментарий</label><textarea id="oMessage" placeholder="Вопрос или пожелания…"></textarea></div>
       <button class="btn-primary" onclick="submitOrder()">✅ Отправить заявку</button>
     </div>
@@ -237,7 +255,7 @@
 <!-- TOAST -->
 <div class="toast" id="toast"></div>
 
-<script src="/js/site.js?v=20260828f"></script>
+<script src="/js/site.js?v=20260902z2"></script>
 <script src="/js/product.js?v=20260828f"></script>
 <script>
 let state = {
@@ -364,52 +382,35 @@ async function loadCategories() {
   const cats = await apiFetch('/api/categories');
   state.categories = cats;
 
-  // Заполнить табы в каталоге
+  // Заполнить табы в каталоге (у категорий — короткая подпись)
+  const CAT_SHORT = { avtomojka: 'Автомойка', sto: 'СТО и автосервис', klining: 'Клининг' };
+  const shortCat = c => CAT_SHORT[c.slug] || String(c.name).replace(/^Оборудование для\s+/i, '').trim() || c.name;
   const tabs = document.getElementById('catTabs');
-  tabs.innerHTML = `<button class="cat-tab active" data-slug="all" onclick="selectCategory('all',this)">Все</button>` +
-    cats.map(c => `<button class="cat-tab" data-slug="${c.slug}" onclick="selectCategory('${c.slug}',this)">${c.name}</button>`).join('');
+  tabs.innerHTML = `<button class="cat-tab cat-tab--all active" data-slug="all" onclick="selectCategory('all',this)">Все</button>` +
+    cats.map(c => `<button class="cat-tab cat-tab--cat" data-slug="${c.slug}" onclick="selectCategory('${c.slug}',this)">${shortCat(c)}</button>`).join('');
 
   loadHomeSubcats();
 }
 
 const esc = s => String(s || '').replace(/'/g, "\\'");
 
-// ===== Единый слайдер: направления + популярные подкатегории =====
+// ===== Слайдер направлений (только категории) =====
 async function loadHomeSubcats() {
   const wrap = document.getElementById('homeSubcatSlider');
   const track = document.getElementById('homeSubcatTrack');
   if (!wrap || !track) return;
   const cats = state.categories || [];
-  let subs = [];
-  try { subs = await apiFetch('/api/subcategories'); } catch { subs = []; }
-  subs = (subs || []).filter(s => (s.product_count || 0) > 0)
-    .sort((a, b) => (b.product_count || 0) - (a.product_count || 0));
   if (!cats.length) { wrap.style.display = 'none'; return; }
-
-  const catName = {}, catIcon = {};
-  cats.forEach(c => { catName[c.slug] = c.name; catIcon[c.slug] = c.icon; });
 
   const iconImg = (icon, alt) => `<div class="subcat-slide-icon"><img src="${catIconUrl(icon)}" alt="${esc(alt || '')}" loading="lazy"
     onerror="this.onerror=null;this.src='/assets/icons/cat-wash.png';this.onerror=function(){this.closest('.subcat-slide-icon').style.display='none'}"></div>`;
 
-  const catSlides = cats.map(c => `
+  wrap.style.display = '';
+  track.innerHTML = cats.map(c => `
     <a class="subcat-slide subcat-slide--cat" href="/?category=${esc(c.slug)}" onclick="showCatalog('${esc(c.slug)}');return false;">
       ${iconImg(c.icon, c.name)}
-      <div class="subcat-slide-cat">направление</div>
       <div class="subcat-slide-name">${c.name}</div>
-      <div class="subcat-slide-cnt">${c.product_count != null ? c.product_count + ' тов.' : 'смотреть'}</div>
     </a>`).join('');
-
-  const subSlides = subs.map(s => `
-    <a class="subcat-slide" href="/?category=${esc(s.category_slug)}&subcategory=${esc(s.slug)}" onclick="showCatalog('${esc(s.category_slug)}', ['${esc(s.slug)}']);return false;">
-      ${iconImg(catIcon[s.category_slug], s.name)}
-      <div class="subcat-slide-cat">${catName[s.category_slug] || ''}</div>
-      <div class="subcat-slide-name">${s.name}</div>
-      <div class="subcat-slide-cnt">${s.product_count} тов.</div>
-    </a>`).join('');
-
-  wrap.style.display = '';
-  track.innerHTML = catSlides + subSlides;
   track.onscroll = updateHomeSubcatBtns;
   requestAnimationFrame(updateHomeSubcatBtns);
 }
