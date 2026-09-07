@@ -29,7 +29,7 @@ function ytEmbed(url) {
 async function showProduct(id) {
   state.view = 'product';
   state.productId = id;
-  setUrl('/?product=' + id);
+  setUrl('/product/' + id);
   setView('product');
   setActiveNav('catalog');
   document.getElementById('productViewBody').innerHTML = '<div class="spinner"><div class="spin"></div>&nbsp; Загрузка…</div>';
@@ -42,19 +42,20 @@ async function showProduct(id) {
   if (typeof setMeta === 'function') {
     const brand = p.brand ? p.brand + ' ' : '';
     setMeta(
-      seoClip(p.name + ' — ' + brand + '| SIGMA MARKET', 65),
-      seoClip(p.description || p.subtitle || (p.name + '. Профессиональное оборудование от SIGMA MARKET. Поставка по Казахстану.'), 175),
-      '/?product=' + id
+      p.seo_title ? seoClip(p.seo_title, 70) : seoClip(p.name + ' — ' + brand + '| SIGMA MARKET', 65),
+      seoClip(p.seo_description || p.description || p.subtitle || (p.name + '. Профессиональное оборудование от SIGMA MARKET. Поставка по Казахстану.'), 175),
+      productUrl(p)
     );
   }
+  replaceUrl(productUrl(p));   // уточняем адрес слагом (без новой записи в истории)
   let specs = p.specs;
   if (typeof specs === 'string') { try { specs = JSON.parse(specs); } catch { specs = {}; } }
 
   const S = ' <span class="crumb-sep">›</span> ';
-  let crumb = `<a href="/#catalog" onclick="showCatalog('all');return false;">Товары и услуги</a>` +
-    S + `<a href="/?category=${p.category_slug}" onclick="showCatalog('${p.category_slug}');return false;">${p.category_name}</a>`;
+  let crumb = `<a href="/catalog" onclick="showCatalog('all');return false;">Товары и услуги</a>` +
+    S + `<a href="/catalog/${p.category_slug}" onclick="showCatalog('${p.category_slug}');return false;">${p.category_name}</a>`;
   if (p.subcategory_slug) {
-    crumb += S + `<a href="/?category=${p.category_slug}&subcategory=${p.subcategory_slug}" onclick="showCatalog('${p.category_slug}','${p.subcategory_slug}');return false;">${p.subcategory_name}</a>`;
+    crumb += S + `<a href="/catalog/${p.category_slug}/${p.subcategory_slug}" onclick="showCatalog('${p.category_slug}','${p.subcategory_slug}');return false;">${p.subcategory_name}</a>`;
   }
   crumb += S + `<span class="crumb-current">${p.name}</span>`;
   document.getElementById('pvCrumb').innerHTML = crumb;
@@ -125,7 +126,7 @@ async function showProduct(id) {
     ${block('С этим оборудованием берут', p.bundle)}
     ${block('Похожие модели', p.similar)}
 
-    <a class="pv-back" href="/?category=${p.category_slug}" onclick="showCatalog('${p.category_slug}');return false;">← Вернуться в каталог</a>`;
+    <a class="pv-back" href="/catalog/${p.category_slug}" onclick="showCatalog('${p.category_slug}');return false;">← Вернуться в каталог</a>`;
 
   // Показать кнопку «Далее» только если описание реально не помещается
   requestAnimationFrame(() => {
@@ -164,7 +165,7 @@ function miniCard(p) {
     ? `<img src="/icons/${p.icon}" alt="${p.name}" loading="lazy" onerror="this.style.display='none'">`
     : `<span>${getCatEmoji(p.category_slug)}</span>`;
   const price = p.price_on_request ? 'По запросу' : (p.price ? formatPrice(p.price) : '—');
-  return `<a class="mini-card" href="/?product=${p.id}" onclick="showProduct(${p.id});return false;">
+  return `<a class="mini-card" href="${productUrl(p)}" onclick="showProduct(${p.id});return false;">
     <div class="mini-img">${img}</div>
     <div class="mini-name">${p.name}</div>
     <div class="mini-price">${price}</div>

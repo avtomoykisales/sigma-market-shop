@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="robots" content="noindex, nofollow">
 <title>Админ-панель — SIGMA MARKET</title>
-<link rel="stylesheet" href="/style.css?v=20260902z8">
+<link rel="stylesheet" href="/style.css?v=20260907b">
 </head>
 <body class="admin">
 
@@ -14,7 +14,7 @@
   <div class="login-card">
     <div class="login-logo">Σ SIGMA</div>
     <div class="login-sub">Панель управления магазином</div>
-    <div class="field"><label>Логин</label><input type="text" id="loginUser" value="admin" placeholder="admin"></div>
+    <div class="field"><label>Логин</label><input type="text" id="loginUser" value="" placeholder="Логин"></div>
     <div class="field"><label>Пароль</label><input type="password" id="loginPass" value="" placeholder="Пароль" onkeydown="if(event.key==='Enter')doLogin()"></div>
     <button class="btn-green" onclick="doLogin()">Войти</button>
     <div id="loginError"></div>
@@ -32,6 +32,8 @@
     <div class="nav-item" onclick="showPanel('orders')" id="nav-orders"><span class="icon">📋</span>Заявки</div>
     <div class="nav-item" onclick="showPanel('engage')" id="nav-engage"><span class="icon">⚙️</span>Вовлечённость</div>
     <div class="nav-item" onclick="showPanel('upload')" id="nav-upload"><span class="icon">🖼</span>Иконки (ZIP)</div>
+    <div class="nav-item" onclick="showPanel('logs')" id="nav-logs"><span class="icon">📜</span>Журнал</div>
+    <div class="nav-item" onclick="showPanel('admins')" id="nav-admins"><span class="icon">👥</span>Администраторы</div>
     <div style="flex:1"></div>
     <div class="nav-item" onclick="logout()"><span class="icon">🚪</span>Выход</div>
   </div>
@@ -114,28 +116,30 @@
       <div class="card">
         <div class="card-header">
           <h3>Подкатегории</h3>
-          <button class="btn-new" onclick="openSubcatForm()">+ Новая подкатегория</button>
+          <div style="display:flex;gap:8px;align-items:center">
+            <button class="action-btn" onclick="subcatCollapseAll(true)" title="Свернуть всё">⊟ Свернуть</button>
+            <button class="action-btn" onclick="subcatCollapseAll(false)" title="Развернуть всё">⊞ Развернуть</button>
+            <button class="btn-new" onclick="openSubcatForm()">+ Новая подкатегория</button>
+          </div>
         </div>
         <div class="table-wrap"><table>
-          <thead><tr><th>Иконка</th><th>Категория</th><th>Название</th><th>Slug</th><th>Товаров</th><th>Порядок</th><th></th></tr></thead>
+          <thead><tr><th>Иконка</th><th>Категория</th><th>Название</th><th>Описание</th><th>Товаров</th><th>Порядок</th><th></th></tr></thead>
           <tbody id="subcatsTbody"></tbody>
         </table></div>
-        <p style="padding:14px 20px;color:var(--muted);font-size:13px">
-          Подкатегории делят категорию на группы (напр. «Клининг» → «Поломоечные машины», «Подметальные машины»).
-          Товар привязывается к подкатегории в его карточке.
-        </p>
       </div>
     </div>
 
     <!-- CATEGORY FORM MODAL -->
     <div class="overlay" id="catOverlay">
-      <div class="form-modal" style="width:min(560px,94vw)">
+      <div class="form-modal" style="width:min(900px,95vw)">
         <h3 id="catFormTitle">Новая категория</h3>
-        <div class="form-grid" style="grid-template-columns:1fr">
+        <div class="form-grid" style="grid-template-columns:1fr 1fr">
           <div class="fg"><label>Название *</label><input id="ctName" placeholder="Клининг"></div>
           <div class="fg"><label>Slug (необязательно)</label><input id="ctSlug" placeholder="klining — сгенерируется автоматически"></div>
-          <div class="fg"><label>Описание</label><input id="ctDesc"></div>
-          <div class="fg"><label>Иконка</label>
+          <div class="fg full"><label>Описание <span style="font-weight:400;text-transform:none;color:var(--muted)"></span></label><textarea id="ctDesc" data-rich="1" style="min-height:150px"></textarea></div>
+          <div class="fg"><label>SEO-заголовок (title) <span style="font-weight:400;text-transform:none;color:var(--muted)">— если пусто, генерируется автоматически</span></label><input id="ctSeoTitle" maxlength="120"></div>
+          <div class="fg"><label>SEO-описание (meta description) <span style="font-weight:400;text-transform:none;color:var(--muted)">— если пусто, берётся из «Описание»</span></label><textarea id="ctSeoDesc" maxlength="320" style="min-height:60px"></textarea></div>
+          <div class="fg full"><label>Иконка</label>
             <div class="img-manager" style="padding:12px">
               <div class="img-grid" id="ctIconGrid"></div>
               <div class="img-add-row">
@@ -226,6 +230,56 @@
         </div>
       </div>
     </div>
+
+    <!-- ЖУРНАЛ -->
+    <div class="panel" id="panel-logs">
+      <div class="card">
+        <div class="card-header"><h3>Журнал действий</h3></div>
+        <div class="toolbar">
+          <input class="search-input" id="logSearch" placeholder="Поиск по описанию / IP…" oninput="searchLogs()">
+          <select class="search-input" id="logAdmin" onchange="loadLogs(1)" style="min-width:150px"><option value="">Все админы</option></select>
+          <select class="search-input" id="logAction" onchange="loadLogs(1)" style="min-width:150px">
+            <option value="">Все действия</option>
+            <option value="login">Входы</option>
+            <option value="create">Создание</option>
+            <option value="update">Изменение</option>
+            <option value="delete">Удаление</option>
+          </select>
+        </div>
+        <div class="table-wrap"><table>
+          <thead><tr><th style="width:150px">Дата</th><th style="width:120px">Админ</th><th>Действие</th><th style="width:130px">IP</th></tr></thead>
+          <tbody id="logsTbody"></tbody>
+        </table></div>
+        <div class="toolbar" style="justify-content:space-between">
+          <span id="logsInfo" style="color:var(--muted);font-size:13px"></span>
+          <span>
+            <button class="action-btn" onclick="logsPageStep(-1)">← Назад</button>
+            <button class="action-btn" onclick="logsPageStep(1)">Вперёд →</button>
+          </span>
+        </div>
+      </div>
+    </div>
+
+    <!-- АДМИНИСТРАТОРЫ -->
+    <div class="panel" id="panel-admins">
+      <div class="card" style="max-width:720px">
+        <div class="card-header"><h3>Администраторы</h3></div>
+        <p style="padding:0 20px 4px;color:var(--muted);font-size:13px">Все администраторы равноправны — полный доступ к панели. Пароли храните надёжно.</p>
+        <div class="table-wrap"><table>
+          <thead><tr><th>#</th><th>Логин</th><th style="width:260px">Действия</th></tr></thead>
+          <tbody id="adminsTbody"></tbody>
+        </table></div>
+        <div style="padding:18px 20px;border-top:1px solid var(--border)">
+          <h4 style="margin-bottom:12px">Новый администратор</h4>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+            <input class="search-input" id="newAdminUser" placeholder="Логин (от 3 символов)" style="flex:1;min-width:160px">
+            <input class="search-input" id="newAdminPass" placeholder="Пароль (от 4 символов)" style="flex:1;min-width:160px">
+            <button class="btn-save" onclick="createAdmin()">＋ Создать</button>
+          </div>
+          <div id="adminFormMsg" style="margin-top:10px;font-size:13px"></div>
+        </div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -235,8 +289,8 @@
     <h3 id="formTitle">Новый товар</h3>
     <div class="form-grid">
       <div class="fg full"><label>Название *</label><input id="fName" placeholder="Название товара"></div>
-      <div class="fg"><label>Артикул</label><input id="fArticle" placeholder="HP-212"></div>
-      <div class="fg"><label>Бренд</label><input id="fBrand" placeholder="PORTOTECNICA"></div>
+      <div class="fg"><label>Артикул</label><input id="fArticle"></div>
+      <div class="fg"><label>Бренд</label><input id="fBrand"></div>
       <div class="fg"><label>Категория *</label><select id="fCategory" onchange="fillSubcatSelect()"></select></div>
       <div class="fg"><label>Подкатегория</label><select id="fSubcategory"><option value="">— нет —</option></select></div>
       <div class="fg"><label>Цена (тенге)</label><input id="fPrice" type="number" placeholder="0"></div>
@@ -253,7 +307,7 @@
         </div>
       </div>
       <input type="hidden" id="fIcon">
-      <div class="fg full"><label>Подзаголовок (под названием на странице товара)</label><input id="fSubtitle" placeholder="Туннельная автомойка конвейерного типа"></div>
+      <div class="fg full"><label>Подзаголовок (под названием на странице товара)</label><input id="fSubtitle"></div>
       <div class="fg full"><label>Видео-обзор (ссылка YouTube)</label><input id="fYoutube" placeholder="https://youtu.be/..."></div>
       <div class="fg"><label>Тип (для фильтра)</label><input id="fSubtype" placeholder="Портальная / Туннельная …"></div>
       <div class="fg"><label>Производительность (число + ед.)</label>
@@ -262,8 +316,10 @@
           <input id="fPerfUnit" placeholder="авто/час" style="flex:1.4">
         </div>
       </div>
-      <div class="fg full"><label>Описание</label><textarea id="fDesc" placeholder="Описание товара…"></textarea></div>
+      <div class="fg full"><label>Описание <span style="font-weight:400;text-transform:none;color:var(--muted)">— форматирование кнопками, либо «&lt;/&gt; HTML» для кода</span></label><textarea id="fDesc" data-rich="1" style="min-height:150px"></textarea></div>
       <div class="fg full"><label>Технические характеристики (JSON)</label><textarea id="fSpecs" placeholder='{"Давление":"200 бар","Расход":"15 л/мин"}' style="font-family:monospace;font-size:12px"></textarea></div>
+      <div class="fg full"><label>SEO-заголовок (title) <span style="font-weight:400;text-transform:none;color:var(--muted)">— если пусто, сформируется из названия и бренда</span></label><input id="fSeoTitle" maxlength="120"></div>
+      <div class="fg full"><label>SEO-описание (meta description) <span style="font-weight:400;text-transform:none;color:var(--muted)">— если пусто, берётся из описания товара</span></label><textarea id="fSeoDesc" maxlength="320"></textarea></div>
       <div class="fg full"><label>Аксессуары и запчасти для этой модели</label>
         <div class="rel-picker" data-field="related"></div>
       </div>
@@ -292,15 +348,18 @@
 
 <!-- SUBCATEGORY FORM MODAL -->
 <div class="overlay" id="subcatOverlay">
-  <div class="form-modal" style="width:min(520px,94vw)">
+  <div class="form-modal" style="width:min(900px,95vw)">
     <h3 id="subcatFormTitle">Новая подкатегория</h3>
-    <div class="form-grid" style="grid-template-columns:1fr">
-      <div class="fg"><label>Категория *</label><select id="scCategory"></select></div>
+    <div class="form-grid" style="grid-template-columns:1fr 1fr">
+      <div class="fg"><label>Категория *</label><select id="scCategory" onchange="fillScParent()"></select></div>
+      <div class="fg"><label>Родительская подкатегория <span style="font-weight:400;text-transform:none;color:var(--muted)">— для дерева (группа → подгруппа)</span></label><select id="scParent"><option value="">— нет (верхний уровень) —</option></select></div>
       <div class="fg"><label>Название *</label><input id="scName" placeholder="Поломоечные машины"></div>
       <div class="fg"><label>Slug (необязательно)</label><input id="scSlug" placeholder="polomoechnye — сгенерируется автоматически"></div>
-      <div class="fg"><label>Описание</label><input id="scDesc"></div>
+      <div class="fg full"><label>Описание <span style="font-weight:400;text-transform:none;color:var(--muted)"></span></label><textarea id="scDesc" data-rich="1" style="min-height:150px"></textarea></div>
+      <div class="fg"><label>SEO-заголовок (title) <span style="font-weight:400;text-transform:none;color:var(--muted)">— если пусто, генерируется автоматически</span></label><input id="scSeoTitle" maxlength="120"></div>
+      <div class="fg"><label>SEO-описание (meta description) <span style="font-weight:400;text-transform:none;color:var(--muted)">— если пусто, берётся из «Описание»</span></label><textarea id="scSeoDesc" maxlength="320" style="min-height:60px"></textarea></div>
       <div class="fg"><label>Порядок сортировки</label><input id="scSort" type="number" value="0"></div>
-      <div class="fg"><label>Иконка</label>
+      <div class="fg full"><label>Иконка</label>
         <div class="img-manager" style="padding:12px">
           <div class="img-grid" id="scIconGrid"></div>
           <div class="img-add-row">
@@ -333,6 +392,68 @@ let prodPage = 1;
 let ordPage = 1;
 let prodSearchTimer;
 
+// ===== ПРОСТОЙ HTML-РЕДАКТОР (для «Описание» категорий/подкатегорий) =====
+function initRichEditor(taId) {
+  const ta = document.getElementById(taId);
+  if (!ta || ta._rich) return;
+  ta._rich = true;
+  ta.style.display = 'none';
+  const wrap = document.createElement('div');
+  wrap.className = 'rich-ed';
+  wrap.innerHTML =
+    '<div class="rich-tb">' +
+      '<button type="button" data-cmd="bold" title="Жирный"><b>Ж</b></button>' +
+      '<button type="button" data-cmd="italic" title="Курсив"><i>К</i></button>' +
+      '<button type="button" data-cmd="formatBlock" data-val="h3">Заголовок</button>' +
+      '<button type="button" data-cmd="formatBlock" data-val="p">Абзац</button>' +
+      '<button type="button" data-cmd="insertUnorderedList">• Список</button>' +
+      '<button type="button" data-cmd="createLink">Ссылка</button>' +
+      '<button type="button" data-cmd="unlink">Убрать ссылку</button>' +
+      '<button type="button" data-cmd="removeFormat">Очистить</button>' +
+      '<button type="button" data-act="html" title="Редактировать HTML-код">&lt;/&gt; HTML</button>' +
+    '</div>' +
+    '<div class="rich-body" contenteditable="true"></div>';
+  ta.parentNode.insertBefore(wrap, ta.nextSibling);
+  const body = wrap.querySelector('.rich-body');
+  wrap.insertBefore(ta, body);   // textarea (HTML-код) внутрь редактора
+  const sync = () => {
+    if (ta.style.display === 'none') {
+      let h = body.innerHTML.trim();
+      if (h === '<br>' || h === '<p><br></p>') h = '';
+      ta.value = h;
+    } else {
+      body.innerHTML = ta.value;
+    }
+  };
+  body.addEventListener('input', sync);
+  body.addEventListener('blur', sync);
+  ta.addEventListener('input', () => { if (ta.style.display !== 'none') body.innerHTML = ta.value; });
+  wrap.querySelectorAll('.rich-tb button').forEach(b => b.addEventListener('mousedown', e => {
+    e.preventDefault();
+    if (b.dataset.act === 'html') {
+      const toCode = ta.style.display === 'none';
+      if (toCode) { ta.value = body.innerHTML; ta.style.display = ''; body.style.display = 'none'; wrap.classList.add('is-code'); ta.focus(); }
+      else { body.innerHTML = ta.value; ta.style.display = 'none'; body.style.display = ''; wrap.classList.remove('is-code'); body.focus(); }
+      return;
+    }
+    body.focus();
+    if (b.dataset.cmd === 'createLink') {
+      const url = prompt('Адрес ссылки (например https://…)');
+      if (url) document.execCommand('createLink', false, url);
+    } else {
+      document.execCommand(b.dataset.cmd, false, b.dataset.val || null);
+    }
+    sync();
+  }));
+  ta._richSet = v => {
+    v = v || '';
+    body.innerHTML = v;
+    ta.value = v;
+    ta.style.display = 'none'; body.style.display = ''; wrap.classList.remove('is-code');
+  };
+  ta._richSync = sync;
+}
+
 // ===== AUTH =====
 async function doLogin() {
   const username = document.getElementById('loginUser').value;
@@ -342,6 +463,7 @@ async function doLogin() {
     if (res.token) {
       token = res.token;
       localStorage.setItem('adminToken', token);
+      if (res.username) localStorage.setItem('adminUser', res.username);
       document.getElementById('loginScreen').style.display = 'none';
       document.getElementById('appScreen').style.display = 'flex';
       document.getElementById('appScreen').style.flexDirection = 'column';
@@ -355,6 +477,7 @@ async function doLogin() {
 function logout() {
   token = '';
   localStorage.removeItem('adminToken');
+  localStorage.removeItem('adminUser');
   location.reload();
 }
 
@@ -402,27 +525,108 @@ function showPanel(name) {
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
   document.getElementById('panel-'+name).classList.add('active');
   document.getElementById('nav-'+name).classList.add('active');
-  const titles = {dashboard:'Дашборд',products:'Управление товарами',subcats:'Категории и подкатегории',orders:'Заявки клиентов',engage:'Вовлечённость и подбор',upload:'Загрузка иконок'};
+  const titles = {dashboard:'Дашборд',products:'Управление товарами',subcats:'Категории и подкатегории',orders:'Заявки клиентов',engage:'Вовлечённость и подбор',upload:'Загрузка иконок',logs:'Журнал действий',admins:'Администраторы'};
   document.getElementById('panelTitle').textContent = titles[name] || name;
   if (name === 'products') loadProducts();
   if (name === 'orders') loadOrders();
   if (name === 'dashboard') loadDashboard();
   if (name === 'engage') loadEngage();
   if (name === 'subcats') { loadCats(); loadSubcats(); }
+  if (name === 'logs') loadLogs(1);
+  if (name === 'admins') loadAdmins();
+}
+
+// ===== ЖУРНАЛ =====
+let logsPage = 1, logsTotal = 0, logsLimit = 60, logSearchTimer;
+function searchLogs() { clearTimeout(logSearchTimer); logSearchTimer = setTimeout(() => loadLogs(1), 350); }
+function logsPageStep(d) {
+  const max = Math.max(1, Math.ceil(logsTotal / logsLimit));
+  const p = Math.min(max, Math.max(1, logsPage + d));
+  if (p !== logsPage) loadLogs(p);
+}
+async function loadLogs(page = 1) {
+  logsPage = page;
+  const q = document.getElementById('logSearch').value.trim();
+  const admin = document.getElementById('logAdmin').value;
+  const action = document.getElementById('logAction').value;
+  const params = new URLSearchParams({ page, limit: logsLimit });
+  if (q) params.set('q', q);
+  if (admin) params.set('admin', admin);
+  if (action) params.set('action', action);
+  const data = await apiFetch('/api/admin/logs?' + params);
+  logsTotal = data.total || 0;
+  const sel = document.getElementById('logAdmin');
+  if (sel.options.length <= 1 && data.admins) {
+    sel.innerHTML = '<option value="">Все админы</option>' + data.admins.map(a => `<option>${esc(a)}</option>`).join('');
+    if (admin) sel.value = admin;
+  }
+  const ICON = { login:'🔓', login_fail:'⛔', create:'➕', update:'✏️', delete:'🗑' };
+  document.getElementById('logsTbody').innerHTML = (data.rows || []).map(r => `
+    <tr${r.action === 'login_fail' ? ' style="background:#fef2f2"' : ''}>
+      <td>${fmtDate(r.ts && r.ts.replace(' ', 'T') + 'Z')}</td>
+      <td>${esc(r.admin || '—')}</td>
+      <td>${ICON[r.action] || ''} ${esc(r.label || r.action)}${r.detail ? `<div style="color:var(--muted);font-size:12px;margin-top:3px;white-space:normal">${esc(r.detail)}</div>` : ''}</td>
+      <td style="color:var(--muted);font-size:12px">${esc(r.ip || '')}</td>
+    </tr>`).join('') || '<tr><td colspan="4" style="padding:20px;color:var(--muted)">Записей нет</td></tr>';
+  const max = Math.max(1, Math.ceil(logsTotal / logsLimit));
+  document.getElementById('logsInfo').textContent = `Всего: ${logsTotal} · страница ${logsPage} из ${max}`;
+}
+
+// ===== АДМИНИСТРАТОРЫ =====
+async function loadAdmins() {
+  const list = await apiFetch('/api/admin/admins');
+  document.getElementById('adminsTbody').innerHTML = (list || []).map(a => `
+    <tr>
+      <td>${a.id}</td>
+      <td><b>${esc(a.username)}</b>${a.me ? ' <span style="color:var(--muted);font-size:12px">— вы</span>' : ''}</td>
+      <td>
+        <button class="action-btn" onclick="changeAdminPass(${a.id}, '${esc(a.username)}')">🔑 Сменить пароль</button>
+        ${a.me ? '' : `<button class="action-btn" style="color:#dc2626" onclick="deleteAdmin(${a.id}, '${esc(a.username)}')">🗑</button>`}
+      </td>
+    </tr>`).join('');
+}
+async function createAdmin() {
+  const username = document.getElementById('newAdminUser').value.trim();
+  const password = document.getElementById('newAdminPass').value;
+  const msg = document.getElementById('adminFormMsg');
+  const res = await apiFetch('/api/admin/admins', 'POST', { username, password });
+  if (res.error) { msg.style.color = '#dc2626'; msg.textContent = res.error; return; }
+  msg.style.color = '#16a34a'; msg.textContent = 'Администратор создан';
+  document.getElementById('newAdminUser').value = '';
+  document.getElementById('newAdminPass').value = '';
+  loadAdmins();
+}
+async function changeAdminPass(id, username) {
+  const password = prompt(`Новый пароль для «${username}» (от 4 символов):`);
+  if (password == null) return;
+  const res = await apiFetch('/api/admin/admins/' + id, 'PUT', { password });
+  if (res.error) return showToast(res.error, 'error');
+  showToast('Пароль обновлён');
+  if (username === localStorage.getItem('adminUser')) {
+    showToast('Пароль вашего аккаунта изменён — войдите заново');
+    setTimeout(logout, 1200);
+  }
+}
+async function deleteAdmin(id, username) {
+  if (!confirm(`Удалить администратора «${username}»?`)) return;
+  const res = await apiFetch('/api/admin/admins/' + id, 'DELETE');
+  if (res.error) return showToast(res.error, 'error');
+  showToast('Администратор удалён');
+  loadAdmins();
 }
 
 // ===== КАТЕГОРИИ =====
 let catEditId = null, ctIcon = '';
 async function loadCats() {
   const list = await apiFetch('/api/admin/categories');
-  categories = list.map(c => ({ id: c.id, name: c.name, slug: c.slug, description: c.description, icon: c.icon }));
+  categories = list.map(c => ({ id: c.id, name: c.name, slug: c.slug, description: c.description, icon: c.icon, seo_title: c.seo_title, seo_description: c.seo_description }));
   fillCatSelect(); fillCatFilter();
   const tb = document.getElementById('catsTbody');
   tb.innerHTML = list.map(c => `<tr>
     <td>${c.icon ? `<img src="${catImgSrc(c.icon)}" style="width:30px;height:30px;object-fit:contain" onerror="this.replaceWith('—')">` : '—'}</td>
     <td><strong>${esc(c.name)}</strong></td>
     <td style="color:var(--muted)">${esc(c.slug)}</td>
-    <td style="color:var(--muted);max-width:280px;font-size:12px">${esc(c.description || '')}</td>
+    <td style="color:var(--muted);max-width:280px;font-size:12px" class="td-clip">${esc(plainText(c.description))}</td>
     <td>${c.product_count}</td>
     <td>${c.subcat_count}</td>
     <td>
@@ -461,7 +665,10 @@ function openCatForm(id) {
   document.getElementById('catFormTitle').textContent = id ? 'Редактировать категорию' : 'Новая категория';
   document.getElementById('ctName').value = c ? c.name : '';
   document.getElementById('ctSlug').value = c ? c.slug : '';
-  document.getElementById('ctDesc').value = c ? (c.description || '') : '';
+  initRichEditor('ctDesc');
+  document.getElementById('ctDesc')._richSet(c ? (c.description || '') : '');
+  document.getElementById('ctSeoTitle').value = c ? (c.seo_title || '') : '';
+  document.getElementById('ctSeoDesc').value = c ? (c.seo_description || '') : '';
   ctIcon = c ? (c.icon || '') : '';
   renderCtIcon();
   document.getElementById('catOverlay').classList.add('open');
@@ -469,11 +676,15 @@ function openCatForm(id) {
 async function saveCat() {
   const name = document.getElementById('ctName').value.trim();
   if (!name) { showToast('Укажите название'); return; }
+  const dEl = document.getElementById('ctDesc');
+  if (dEl._richSync) dEl._richSync();
   const data = {
     name,
     slug: document.getElementById('ctSlug').value.trim(),
-    description: document.getElementById('ctDesc').value.trim(),
-    icon: ctIcon || null
+    description: dEl.value.trim(),
+    icon: ctIcon || null,
+    seo_title: document.getElementById('ctSeoTitle').value.trim() || null,
+    seo_description: document.getElementById('ctSeoDesc').value.trim() || null
   };
   const res = catEditId
     ? await apiFetch(`/api/admin/categories/${catEditId}`, 'PUT', data)
@@ -492,21 +703,70 @@ async function deleteCat(id) {
 
 // ===== ПОДКАТЕГОРИИ =====
 let scIcon = '';
+let subcatCollapsed = new Set();
+try { subcatCollapsed = new Set(JSON.parse(localStorage.getItem('subcatCollapsed') || '[]')); } catch {}
+
 async function loadSubcats() {
   await reloadSubcats();
+  renderSubcatTree();
+}
+function toggleSubcatNode(id) {
+  if (subcatCollapsed.has(id)) subcatCollapsed.delete(id); else subcatCollapsed.add(id);
+  try { localStorage.setItem('subcatCollapsed', JSON.stringify([...subcatCollapsed])); } catch {}
+  renderSubcatTree();
+}
+function subcatCollapseAll(collapse) {
+  subcatCollapsed = collapse
+    ? new Set(subcategories.filter(s => subcategories.some(k => k.parent_id === s.id)).map(s => s.id))
+    : new Set();
+  try { localStorage.setItem('subcatCollapsed', JSON.stringify([...subcatCollapsed])); } catch {}
+  renderSubcatTree();
+}
+function renderSubcatTree() {
   const tb = document.getElementById('subcatsTbody');
-  tb.innerHTML = subcategories.map(s => `<tr>
-    <td>${s.icon ? `<img src="${catImgSrc(s.icon)}" style="width:30px;height:30px;object-fit:contain" onerror="this.replaceWith('—')">` : '—'}</td>
-    <td><span class="tag tag-blue">${esc(s.category_name)}</span></td>
-    <td><strong>${esc(s.name)}</strong></td>
-    <td style="color:var(--muted)">${esc(s.slug)}</td>
-    <td>${s.product_count}</td>
-    <td>${s.sort}</td>
-    <td>
-      <button class="action-btn" onclick="openSubcatForm(${s.id})">✏️</button>
-      <button class="action-btn del" onclick="deleteSubcat(${s.id})">🗑</button>
-    </td>
-  </tr>`).join('') || '<tr><td colspan="7" style="color:var(--muted);padding:16px">Пока нет подкатегорий</td></tr>';
+  const byId = Object.fromEntries(subcategories.map(s => [s.id, s]));
+  const kids = pid => subcategories
+    .filter(s => s.parent_id === pid)
+    .sort((a, b) => (a.sort - b.sort) || a.name.localeCompare(b.name, 'ru'));
+
+  const row = (s, depth, hidden) => {
+    const has = kids(s.id).length;
+    const open = !subcatCollapsed.has(s.id);
+    const twist = has
+      ? `<button class="tree-tw" onclick="toggleSubcatNode(${s.id})">${open ? '▾' : '▸'}</button>`
+      : `<span class="tree-tw tree-tw-leaf"></span>`;
+    const branch = depth ? `<span class="tree-line">${'│&nbsp;&nbsp;&nbsp;'.repeat(depth - 1)}└─&nbsp;</span>` : '';
+    const desc = plainText(s.description);
+    return `<tr${hidden ? ' hidden' : ''}>
+      <td>${s.icon ? `<img src="${catImgSrc(s.icon)}" style="width:30px;height:30px;object-fit:contain" onerror="this.replaceWith('—')">` : '—'}</td>
+      <td>${depth ? '' : `<span class="tag tag-blue">${esc(s.category_name)}</span>`}</td>
+      <td style="padding-left:${depth * 20}px">${branch}${twist}<strong${depth ? ' style="font-weight:600"' : ''}>${esc(s.name)}</strong>${has ? ` <span style="color:var(--muted);font-weight:400">(${has})</span>` : ''}</td>
+      <td class="td-clip" style="max-width:300px;font-size:12px">${desc
+        ? `<span style="color:var(--muted)">${esc(desc)}</span>`
+        : `<span style="color:#c0392b;font-weight:600">— нет описания</span>`}</td>
+      <td>${s.product_count}</td>
+      <td>${s.sort}</td>
+      <td>
+        <button class="action-btn" onclick="openSubcatForm(${s.id})">✏️</button>
+        <button class="action-btn del" onclick="deleteSubcat(${s.id})">🗑</button>
+      </td>
+    </tr>`;
+  };
+
+  const catOrder = [...new Set(subcategories.map(s => s.category_id))];
+  let html = '';
+  const walk = (s, depth, hidden) => {
+    html += row(s, depth, hidden);
+    const childHidden = hidden || subcatCollapsed.has(s.id);
+    kids(s.id).forEach(k => walk(k, depth + 1, childHidden));
+  };
+  for (const cid of catOrder) {
+    subcategories
+      .filter(s => s.category_id === cid && (!s.parent_id || !byId[s.parent_id]))
+      .sort((a, b) => (a.sort - b.sort) || a.name.localeCompare(b.name, 'ru'))
+      .forEach(s => walk(s, 0, false));
+  }
+  tb.innerHTML = html || '<tr><td colspan="7" style="color:var(--muted);padding:16px">Пока нет подкатегорий</td></tr>';
 }
 function renderScIcon() {
   const g = document.getElementById('scIconGrid');
@@ -531,14 +791,26 @@ async function uploadSubcatIcon() {
   } catch { res.textContent = '❌ Ошибка загрузки'; res.style.color = '#ef4444'; }
   document.getElementById('scIconFile').value = '';
 }
+function fillScParent(selectedId) {
+  const catId = +document.getElementById('scCategory').value;
+  const sel = document.getElementById('scParent');
+  const opts = subcategories.filter(x => x.category_id === catId && x.id !== subcatEditId);
+  sel.innerHTML = '<option value="">— нет (верхний уровень) —</option>' +
+    opts.map(x => `<option value="${x.id}">${esc(x.name)}</option>`).join('');
+  if (selectedId) sel.value = selectedId;
+}
 function openSubcatForm(id) {
   subcatEditId = id || null;
   document.getElementById('subcatFormTitle').textContent = id ? 'Редактировать подкатегорию' : 'Новая подкатегория';
   const s = id ? subcategories.find(x => x.id === id) : null;
   document.getElementById('scCategory').value = s ? s.category_id : (categories[0] && categories[0].id);
+  fillScParent(s ? s.parent_id : '');
   document.getElementById('scName').value = s ? s.name : '';
   document.getElementById('scSlug').value = s ? s.slug : '';
-  document.getElementById('scDesc').value = s ? (s.description || '') : '';
+  initRichEditor('scDesc');
+  document.getElementById('scDesc')._richSet(s ? (s.description || '') : '');
+  document.getElementById('scSeoTitle').value = s ? (s.seo_title || '') : '';
+  document.getElementById('scSeoDesc').value = s ? (s.seo_description || '') : '';
   document.getElementById('scSort').value = s ? s.sort : 0;
   scIcon = s ? (s.icon || '') : '';
   renderScIcon();
@@ -547,13 +819,18 @@ function openSubcatForm(id) {
 async function saveSubcat() {
   const name = document.getElementById('scName').value.trim();
   if (!name) { showToast('Укажите название'); return; }
+  const dEl = document.getElementById('scDesc');
+  if (dEl._richSync) dEl._richSync();
   const data = {
     category_id: document.getElementById('scCategory').value,
     name,
     slug: document.getElementById('scSlug').value.trim(),
-    description: document.getElementById('scDesc').value.trim(),
+    description: dEl.value.trim(),
     sort: document.getElementById('scSort').value || 0,
-    icon: scIcon || null
+    icon: scIcon || null,
+    seo_title: document.getElementById('scSeoTitle').value.trim() || null,
+    seo_description: document.getElementById('scSeoDesc').value.trim() || null,
+    parent_id: document.getElementById('scParent').value || null
   };
   const res = subcatEditId
     ? await apiFetch(`/api/admin/subcategories/${subcatEditId}`, 'PUT', data)
@@ -775,6 +1052,7 @@ function searchProds() {
 async function openProductForm(id = null) {
   editId = id;
   document.getElementById('formTitle').textContent = id ? 'Редактировать товар' : 'Новый товар';
+  initRichEditor('fDesc');
   const parseIds = v => { try { return Array.isArray(v) ? v : JSON.parse(v || '[]'); } catch { return []; } };
   if (id) {
     const p = await apiFetch(`/api/products/${id}`);
@@ -783,13 +1061,15 @@ async function openProductForm(id = null) {
     document.getElementById('fBrand').value = p.brand||'';
     document.getElementById('fPrice').value = p.price||'';
     setImgList([p.icon, ...parseIds(p.images)].filter(Boolean));
-    document.getElementById('fDesc').value = p.description||'';
+    document.getElementById('fDesc')._richSet(p.description || '');
     document.getElementById('fSubtype').value = p.subtype||'';
     document.getElementById('fSubtitle').value = p.subtitle||'';
     document.getElementById('fYoutube').value = p.youtube||'';
     document.getElementById('fPerf').value = p.perf||'';
     document.getElementById('fPerfUnit').value = p.perf_unit||'';
     document.getElementById('fSpecs').value = typeof p.specs === 'object' ? JSON.stringify(p.specs,null,2) : (p.specs||'{}');
+    document.getElementById('fSeoTitle').value = p.seo_title||'';
+    document.getElementById('fSeoDesc').value = p.seo_description||'';
     document.getElementById('fRequest').checked = !!p.price_on_request;
     document.getElementById('fFeatured').checked = !!p.featured;
     document.getElementById('fInStock').checked = !!p.in_stock;
@@ -798,7 +1078,8 @@ async function openProductForm(id = null) {
     initRelPicker(document.querySelector('.rel-picker[data-field="related"]'), parseIds(p.related_ids));
     initRelPicker(document.querySelector('.rel-picker[data-field="bundle"]'), parseIds(p.bundle_ids));
   } else {
-    ['fName','fArticle','fBrand','fPrice','fIcon','fDesc','fSubtype','fSubtitle','fYoutube','fPerf','fPerfUnit'].forEach(id => document.getElementById(id).value = '');
+    ['fName','fArticle','fBrand','fPrice','fIcon','fSubtype','fSubtitle','fYoutube','fPerf','fPerfUnit','fSeoTitle','fSeoDesc'].forEach(id => document.getElementById(id).value = '');
+    document.getElementById('fDesc')._richSet('');
     setImgList([]);
     document.getElementById('fSpecs').value = '{}';
     document.getElementById('fRequest').checked = false;
@@ -816,6 +1097,8 @@ function closeForm() { document.getElementById('productOverlay').classList.remov
 async function saveProduct() {
   const name = document.getElementById('fName').value.trim();
   if (!name) { showToast('Укажите название товара'); return; }
+  const _fd = document.getElementById('fDesc');
+  if (_fd._richSync) _fd._richSync();
   let specs = '{}';
   try { JSON.parse(document.getElementById('fSpecs').value); specs = document.getElementById('fSpecs').value; } catch {}
   const data = {
@@ -838,7 +1121,9 @@ async function saveProduct() {
     perf: document.getElementById('fPerf').value || null,
     perf_unit: document.getElementById('fPerfUnit').value.trim() || 'ед./час',
     related_ids: relPickerValue('related'),
-    bundle_ids: relPickerValue('bundle')
+    bundle_ids: relPickerValue('bundle'),
+    seo_title: document.getElementById('fSeoTitle').value.trim() || null,
+    seo_description: document.getElementById('fSeoDesc').value.trim() || null
   };
   if (editId) {
     await apiFetch(`/api/admin/products/${editId}`, 'PUT', data);
@@ -955,6 +1240,7 @@ function statusTag(s) { return {new:'tag-blue',processing:'tag-yellow',done:'tag
 function fmtDate(d) { return d ? new Date(d).toLocaleString('ru',{day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'}) : '—'; }
 function fmtPrice(n) { return n ? Number(n).toLocaleString('ru-KZ',{maximumFractionDigits:0}) + ' ₸' : '—'; }
 function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function plainText(s) { const d = document.createElement('div'); d.innerHTML = String(s||''); return (d.textContent || '').replace(/\s+/g,' ').trim(); }
 
 async function apiFetch(url, method='GET', body=null) {
   const opts = { method, headers: { 'Content-Type': 'application/json', 'x-admin-token': token } };

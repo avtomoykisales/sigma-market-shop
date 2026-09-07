@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SIGMA MARKET — Профессиональное оборудование</title>
-<link rel="stylesheet" href="/style.css?v=20260902z8">
+<link rel="stylesheet" href="/style.css?v=20260907b">
 </head>
 <body class="shop">
 
@@ -33,8 +33,8 @@
     <div class="container">
       <div class="section-label">наши направления</div>
       <div class="section-heading-row">
-        <h1 class="section-title">Решения под любые задачи</h1>
-        <a href="/#catalog" class="link-all" onclick="showCatalog('all');return false;">
+        <h1 class="section-title" id="homeH1">Оборудование для автомоек, СТО и клининга</h1>
+        <a href="/catalog" class="link-all" onclick="showCatalog('all');return false;">
           Смотреть все направления <img src="/assets/icons/arrow-green.png" alt="">
         </a>
       </div>
@@ -119,6 +119,7 @@
       <div class="breadcrumb" id="breadcrumb">
         <span class="section-label" id="catalogLabel">каталог оборудования</span>
         <h1 class="section-title" id="catalogTitle">Товары и услуги</h1>
+        <nav class="crumb-trail" id="crumbTrail" aria-label="Хлебные крошки"></nav>
       </div>
 
       <!-- Фильтр категорий (кнопки-пилюли) -->
@@ -193,6 +194,13 @@
   </div>
 </section>
 
+<!-- ========== ОПИСАНИЕ РАЗДЕЛА (SEO-текст) ========== -->
+<section class="section catalog-about" id="catalogAbout" style="display:none">
+  <div class="container">
+    <div class="catalog-about-inner" id="catalogAboutBody"></div>
+  </div>
+</section>
+
 </main><!-- /#main -->
 
 <!-- partial:consult -->
@@ -256,7 +264,7 @@
 <div class="toast" id="toast"></div>
 
 <script src="/js/site.js?v=20260902z2"></script>
-<script src="/js/product.js?v=20260828f"></script>
+<script src="/js/product.js?v=20260905a"></script>
 <script>
 let state = {
   view: 'home',      // 'home' | 'catalog' | 'favorites'
@@ -282,16 +290,31 @@ function setUrl(url) {
   const cur = location.pathname + location.search + location.hash;
   if (cur !== url) { try { history.pushState(null, '', url); } catch {} }
 }
+function replaceUrl(url) {
+  const cur = location.pathname + location.search + location.hash;
+  if (cur !== url) { try { history.replaceState(null, '', url); } catch {} }
+}
+// ---- ЧПУ ----
+const _TRANSLIT = { а:'a',б:'b',в:'v',г:'g',д:'d',е:'e',ё:'e',ж:'zh',з:'z',и:'i',й:'y',к:'k',л:'l',м:'m',н:'n',о:'o',п:'p',р:'r',с:'s',т:'t',у:'u',ф:'f',х:'h',ц:'c',ч:'ch',ш:'sh',щ:'sch',ъ:'',ы:'y',ь:'',э:'e',ю:'yu',я:'ya' };
+function slugName(s) {
+  return String(s || '').toLowerCase()
+    .replace(/[а-яё]/g, c => (_TRANSLIT[c] != null ? _TRANSLIT[c] : c))
+    .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 70).replace(/-+$/, '');
+}
+function productUrl(p) { return '/product/' + p.id + (p && p.name ? '-' + slugName(p.name) : ''); }
 function catalogUrl() {
   const sub = (state.filters.subcat || []);
-  if (state.category === 'all' && !sub.length) return '/#catalog';
-  return '/?category=' + state.category + (sub.length ? '&subcategory=' + sub.join(',') : '');
+  if (state.category === 'all' && !sub.length) return '/catalog';
+  let u = '/catalog/' + state.category;
+  if (sub.length === 1) u += '/' + sub[0];
+  else if (sub.length > 1) u += '?subcategory=' + sub.join(',');
+  return u;
 }
 
 // ===== SEO: обновление <title>/description/canonical на клиенте =====
 const SEO_HOME_TITLE = 'SIGMA MARKET — профессиональное оборудование для автомоек, СТО и клининга';
 const SEO_HOME_DESC = 'SIGMA MARKET — профессиональное оборудование для автомоек, СТО и автосервиса, клининга. Поставка, монтаж и сервис по всему Казахстану с 2012 года.';
-function setMeta(title, desc, path) {
+function setMeta(title, desc, path, robots) {
   if (title) document.title = title;
   const d = document.getElementById('metaDescription');
   if (d && desc) d.setAttribute('content', desc);
@@ -307,7 +330,8 @@ function setMeta(title, desc, path) {
   if (title) { attr('meta[property="og:title"]', 'content', title); attr('meta[name="twitter:title"]', 'content', title); }
   if (desc) { attr('meta[property="og:description"]', 'content', desc); attr('meta[name="twitter:description"]', 'content', desc); }
   const r = document.querySelector('meta[name="robots"]');
-  if (r) r.setAttribute('content', /favorites|Избранное/.test(title || '') ? 'noindex, follow' : 'index, follow');
+  if (r) r.setAttribute('content', window.SITE_NOINDEX ? 'noindex, nofollow'
+    : (robots || (/favorites|Избранное/.test(title || '') ? 'noindex, follow' : 'index, follow')));
 }
 function seoClip(s, n) {
   s = String(s || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
@@ -359,6 +383,17 @@ function handleRoute() {
       return;
     }
     if (cat) { showCatalog(cat, (params.get('subcategory') || '').split(',').filter(Boolean)); return; }
+    // ЧПУ
+    let mProd = location.pathname.match(/^\/product\/(\d+)/);
+    if (mProd) { showProduct(+mProd[1]); return; }
+    let mCat = location.pathname.match(/^\/catalog(?:\/([^/]+)(?:\/([^/]+))?)?\/?$/);
+    if (mCat) {
+      if (!mCat[1]) { showCatalog('all'); return; }
+      const qsub = params.get('subcategory');
+      const subs = mCat[2] ? [mCat[2]] : (qsub ? qsub.split(',').filter(Boolean) : []);
+      showCatalog(mCat[1], subs);
+      return;
+    }
     if (location.hash === '#catalog') { showCatalog('all'); return; }
     if (location.hash === '#favorites') { showFavorites(); return; }
     if (location.hash === '#quiz') { openQuiz(); return; }
@@ -407,7 +442,7 @@ async function loadHomeSubcats() {
 
   wrap.style.display = '';
   track.innerHTML = cats.map(c => `
-    <a class="subcat-slide subcat-slide--cat" href="/?category=${esc(c.slug)}" onclick="showCatalog('${esc(c.slug)}');return false;">
+    <a class="subcat-slide subcat-slide--cat" href="/catalog/${esc(c.slug)}" onclick="showCatalog('${esc(c.slug)}');return false;">
       ${iconImg(c.icon, c.name)}
       <div class="subcat-slide-name">${c.name}</div>
     </a>`).join('');
@@ -446,7 +481,27 @@ function setView(name) {
   ['homeView', 'catalogView', 'productView'].forEach(id => {
     document.getElementById(id).style.display = (id === name + 'View') ? '' : 'none';
   });
+  syncViewHeadings(name);
   renderSubcatBar();
+  renderCatalogAbout();
+}
+
+// На странице должен быть ровно один <h1> — заголовок активного вида.
+// Заголовки скрытых видов понижаем до <h2>, чтобы не плодить дубли для SEO.
+function retagHeading(el, tag) {
+  if (!el || el.tagName === tag) return;
+  const n = document.createElement(tag);
+  for (const a of el.attributes) n.setAttribute(a.name, a.value);
+  n.innerHTML = el.innerHTML;
+  el.replaceWith(n);
+}
+function syncViewHeadings(name) {
+  const map = {
+    home: document.getElementById('homeH1'),
+    catalog: document.getElementById('catalogTitle'),
+    product: document.querySelector('#productView .pv-name'),
+  };
+  for (const [view, el] of Object.entries(map)) retagHeading(el, view === name ? 'H1' : 'H2');
 }
 
 function showHome() {
@@ -473,19 +528,36 @@ const SEO_CAT_DESC = {
 function applyCatalogMeta() {
   const sub = state.filters.subcat || [];
   const cat = (state.categories || []).find(c => c.slug === state.category);
-  if (!cat) { setMeta(SEO_HOME_TITLE, SEO_HOME_DESC, '/#catalog'); return; }
-  let subName = '';
-  if (sub.length === 1) {
-    const f = (state.facets && state.facets.subcategories || []).find(s => s.slug === sub[0]);
-    subName = f ? f.name : '';
+  if (!cat) {
+    if (state.search) {
+      setMeta('Поиск: ' + state.search + ' — SIGMA MARKET',
+        'Результаты поиска по каталогу SIGMA MARKET.', '/catalog', 'noindex, follow');
+    } else {
+      setMeta('Каталог оборудования — SIGMA MARKET',
+        'Каталог профессионального оборудования SIGMA MARKET: для автомоек, СТО и клининга. Поставка и монтаж по Казахстану.',
+        '/catalog');
+    }
+    return;
   }
+  let subRow = null;
+  if (sub.length === 1) {
+    subRow = (state.facets && state.facets.subcategories || []).find(s => s.slug === sub[0]) || null;
+  }
+  const subName = subRow ? subRow.name : '';
   const title = subName
-    ? seoClip(subName + ' — ' + cat.name + ' | SIGMA MARKET', 65)
-    : (SEO_CAT_TITLE[cat.slug] || (cat.name + ' — SIGMA MARKET'));
+    ? (subRow.seo_title ? seoClip(subRow.seo_title, 70)
+        : seoClip(subName + ' — ' + cat.name + ' | SIGMA MARKET', 65))
+    : (cat.seo_title ? seoClip(cat.seo_title, 70)
+        : (SEO_CAT_TITLE[cat.slug] || (cat.name + ' — SIGMA MARKET')));
   const desc = subName
-    ? seoClip(subName + ' — ' + cat.name + '. Поставка, монтаж и сервис по Казахстану от SIGMA MARKET.', 175)
-    : (SEO_CAT_DESC[cat.slug] || seoClip(cat.name + '. Профессиональное оборудование от SIGMA MARKET. Поставка по Казахстану.', 175));
-  setMeta(title, desc, catalogUrl());
+    ? (subRow.seo_description
+        || seoClip(subName + ' — ' + cat.name + '. Поставка, монтаж и сервис по Казахстану от SIGMA MARKET.', 175))
+    : (cat.seo_description
+        || SEO_CAT_DESC[cat.slug]
+        || seoClip(cat.name + '. Профессиональное оборудование от SIGMA MARKET. Поставка по Казахстану.', 175));
+  // Несколько подкатегорий сразу — комбинация фильтров: не индексируем, canonical на категорию
+  const multiSub = sub.length > 1;
+  setMeta(title, desc, multiSub ? '/catalog/' + cat.slug : catalogUrl(), multiSub ? 'noindex, follow' : undefined);
 }
 
 function showCatalog(slug, subcat) {
@@ -516,6 +588,7 @@ function showFavorites() {
   document.getElementById('catalogFilters').style.display = 'none';
   document.getElementById('catalogLabel').textContent = 'сохранённое';
   document.getElementById('catalogTitle').textContent = `Избранное (${favIds.length})`;
+  document.getElementById('crumbTrail').innerHTML = '';
   setActiveNav('favorites');
   setMeta('Избранное — SIGMA MARKET', 'Сохранённые товары в SIGMA MARKET.', '/#favorites');
   loadFavorites();
@@ -539,18 +612,48 @@ function selectCategory(slug, btn) {
 function updateBreadcrumb() {
   document.getElementById('catalogFilters').style.display = state.settings.filters.enabled === false ? 'none' : '';
   const cat = state.categories.find(c => c.slug === state.category);
-  const sep = '<span style="color:#999;font-weight:400">›</span>';
-  const title = document.getElementById('catalogTitle');
-  let html = 'Товары и услуги';
-  if (state.category !== 'all') html += ` ${sep} ${cat ? cat.name : state.category}`;
   const sub = state.filters.subcat || [];
+  const allSubs = (state.facets && state.facets.subcategories) || [];
+  const bySlug = Object.fromEntries(allSubs.map(s => [s.slug, s]));
+  let subName = '', subChain = [];   // subChain = [[name, slug]...] родители сверху вниз
   if (sub.length === 1) {
-    const sc = (state.facets && state.facets.subcategories || []).find(s => s.slug === sub[0]);
-    html += ` ${sep} ${sc ? sc.name : sub[0]}`;
-  } else if (sub.length > 1) {
-    html += ` ${sep} подкатегорий: ${sub.length}`;
+    let curS = bySlug[sub[0]];
+    subName = curS ? curS.name : sub[0];
+    const seen = new Set();
+    while (curS && curS.parent_slug && !seen.has(curS.parent_slug)) {
+      seen.add(curS.parent_slug);
+      const par = bySlug[curS.parent_slug];
+      if (!par) break;
+      subChain.unshift([par.name, par.slug]);
+      curS = par;
+    }
   }
-  title.innerHTML = html;
+  // H1 = самое конкретное название раздела
+  let h1 = 'Товары и услуги';
+  if (subName) h1 = subName;
+  else if (state.category !== 'all') h1 = cat ? cat.name : state.category;
+  document.getElementById('catalogTitle').textContent = h1;
+  // Хлебные крошки — отдельной строкой
+  const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const sep = ' <span style="color:#9aa39a">›</span> ';
+  const parts = [
+    '<a href="/" onclick="showHome();return false">Главная</a>',
+    '<a href="/catalog" onclick="showCatalog(\'all\');return false">Товары и услуги</a>',
+  ];
+  if (state.category !== 'all') {
+    const cs = state.category;
+    if (subName || sub.length > 1) {
+      parts.push(`<a href="/catalog/${esc(cs)}" onclick="showCatalog('${esc(cs)}');return false">${esc(cat ? cat.name : cs)}</a>`);
+    } else {
+      parts.push(esc(cat ? cat.name : cs));
+    }
+    for (const [pName, pSlug] of subChain) {
+      parts.push(`<a href="/catalog/${esc(cs)}/${esc(pSlug)}" onclick="pickSubcat('${esc(pSlug)}');return false">${esc(pName)}</a>`);
+    }
+  }
+  if (subName) parts.push(esc(subName));
+  else if (sub.length > 1) parts.push('подкатегорий: ' + sub.length);
+  document.getElementById('crumbTrail').innerHTML = parts.join(sep);
 }
 
 // ===== PRODUCTS =====
@@ -582,6 +685,7 @@ async function loadProducts() {
     document.querySelector('.btn-filters-mobile').style.display = 'none';
   }
   if (state.view === 'catalog') { updateBreadcrumb(); applyCatalogMeta(); }
+  renderCatalogAbout();
   renderActiveFilters();
   document.getElementById('resultsCount').textContent = `Найдено: ${data.total} товаров`;
 
@@ -621,10 +725,16 @@ function buildFilters() {
 
   const subs = fc.subcategories || [];
   if (state.category !== 'all' && subs.length) {
+    const cur = (f.subcat || [])[0] || null;
+    const row = (sc, depth) => `<label class="filter-check${depth ? ' filter-check-child' : ''}"${depth ? ` style="padding-left:${6 + depth * 16}px"` : ''}>
+        <input type="radio" name="fltSubcat" value="${sc.slug}" ${cur === sc.slug ? 'checked' : ''}
+          onchange="pickSubcat(this.value)">
+        <span class="fc-name">${sc.name}</span> <span class="fc-cnt">${sc.cnt}</span></label>`;
+    const kidsOf = ps => subs.filter(sc => sc.parent_slug === ps);
+    const branch = (sc, depth) => row(sc, depth) + kidsOf(sc.slug).map(k => branch(k, depth + 1)).join('');
     html += `<div class="filter-group filter-subcat"><h4>Подкатегория</h4>` +
-      subs.map(sc => `<label class="filter-check"><input type="checkbox" value="${sc.slug}"
-        ${(f.subcat||[]).includes(sc.slug)?'checked':''} onchange="toggleArrFilter('subcat',this.value)">
-        <span class="fc-name">${sc.name}</span> <span class="fc-cnt">${sc.cnt}</span></label>`).join('') +
+      `<label class="filter-check"><input type="radio" name="fltSubcat" value="" ${cur ? '' : 'checked'} onchange="clearSubcatFilter()"><span class="fc-name">Все</span></label>` +
+      subs.filter(sc => !sc.parent_slug).map(sc => branch(sc, 0)).join('') +
       `</div>`;
   }
 
@@ -681,20 +791,57 @@ function syncFilterChecks() {
     const m = (cb.getAttribute('onchange') || '').match(/toggleArrFilter\('(\w+)'/);
     if (m) cb.checked = (f[m[1]] || []).includes(cb.value);
   });
+  const curSub = (f.subcat || [])[0] || '';
+  document.querySelectorAll('#filtersBody input[name="fltSubcat"]').forEach(r => { r.checked = (r.value === curSub); });
   renderSubcatBar();
 }
 
-// Лента подкатегорий над каталогом (дублирует фильтр «Подкатегория»)
+// Лента подкатегорий над каталогом — «проваливание»: один ряд текущего уровня
 function renderSubcatBar() {
   const bar = document.getElementById('subcatBar');
-  const subs = (state.facets && state.facets.subcategories) || [];
-  if (state.view !== 'catalog' || state.category === 'all' || subs.length < 2) { bar.style.display = 'none'; return; }
-  const sel = state.filters.subcat || [];
-  bar.style.display = 'flex';
-  bar.innerHTML =
-    `<button class="subcat-chip${sel.length ? '' : ' active'}" onclick="clearSubcatFilter()">Все</button>` +
-    subs.map(s => `<button class="subcat-chip${sel.includes(s.slug) ? ' active' : ''}"
-      onclick="toggleArrFilter('subcat','${s.slug}')">${s.name} <span>${s.cnt}</span></button>`).join('');
+  const all = (state.facets && state.facets.subcategories) || [];
+  if (state.view !== 'catalog' || state.category === 'all' || all.length < 2) { bar.style.display = 'none'; return; }
+  const sel = (state.filters.subcat || [])[0] || null;
+  const bySlug = Object.fromEntries(all.map(s => [s.slug, s]));
+  const kidsOf = ps => all.filter(s => s.parent_slug === ps);
+
+  // раскрытый уровень: выбрана группа с детьми → она сама; выбран лист → его родитель; иначе — верх
+  let level = null;
+  if (sel && bySlug[sel]) {
+    const s = bySlug[sel];
+    level = kidsOf(sel).length ? sel : (s.parent_slug || null);
+  }
+  const rowItems = level ? kidsOf(level) : all.filter(s => !s.parent_slug);
+  const par = level ? bySlug[level] : null;
+  // внутри группы убираем из названий подгрупп повторяющийся префикс родителя
+  const label = s => {
+    if (par) {
+      const pn = par.name.replace(/\s*\([^)]*\)\s*$/, '').trim();
+      const re = new RegExp('^' + pn.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s*', 'i');
+      const cut = s.name.replace(re, '').trim();
+      if (cut && cut.length < s.name.length) return cut.charAt(0).toUpperCase() + cut.slice(1);
+    }
+    return s.name;
+  };
+  const chip = s => `<button class="subcat-chip${sel === s.slug ? ' active' : ''}" onclick="pickSubcat('${esc(s.slug)}')">${label(s)} <span>${s.cnt}</span></button>`;
+
+  let html = '';
+  if (level) {
+    const upSlug = par.parent_slug || '';
+    const upLabel = upSlug ? bySlug[upSlug].name : 'Все разделы';
+    html += `<button class="subcat-chip subcat-chip-up" onclick="pickSubcat('${esc(upSlug)}')">‹ ${upLabel}</button>`;
+    html += `<button class="subcat-chip subcat-chip-group${sel === level ? ' active' : ''}" onclick="pickSubcat('${esc(level)}')">Все «${par.name}» <span>${par.cnt}</span></button>`;
+  } else {
+    html += `<button class="subcat-chip${sel ? '' : ' active'}" onclick="clearSubcatFilter()">Все</button>`;
+  }
+  html += rowItems.map(chip).join('');
+  bar.style.display = 'block';
+  bar.innerHTML = `<div class="subcat-row">${html}</div>`;
+}
+function pickSubcat(slug) {
+  state.filters.subcat = slug ? [slug] : [];
+  setUrl(catalogUrl());
+  reloadFiltered();
 }
 function clearSubcatFilter() {
   state.filters.subcat = [];
@@ -757,12 +904,12 @@ function cardHtml(p) {
     </div>
     <div class="card-body">
       ${p.brand ? `<div class="card-brand">${p.brand}</div>` : ''}
-      <a class="card-name" href="/?product=${p.id}" onclick="event.stopPropagation();openModal(${p.id});return false;">${p.name}</a>
+      <a class="card-name" href="${productUrl(p)}" onclick="event.stopPropagation();openModal(${p.id});return false;">${p.name}</a>
       ${p.article ? `<div class="card-article">Арт: ${p.article}</div>` : ''}
     </div>
     <div class="card-footer-row">
       ${priceHtml}
-      <a class="btn-detail" href="/?product=${p.id}" onclick="event.stopPropagation();openModal(${p.id});return false;">Подробнее <img src="/assets/icons/arrow-green.png" alt="→"></a>
+      <a class="btn-detail" href="${productUrl(p)}" onclick="event.stopPropagation();openModal(${p.id});return false;">Подробнее <img src="/assets/icons/arrow-green.png" alt="→"></a>
     </div>
     <div class="card-actions-row">${addBtn}${cmpBtn}</div>
   </div>`;
@@ -944,6 +1091,37 @@ async function renderRecent() {
   const items = (await Promise.all(ids.map(id => apiFetch('/api/products/' + id).catch(() => null)))).filter(Boolean);
   if (items.length < 2) { sec.style.display = 'none'; return; }
   document.getElementById('recentStrip').innerHTML = items.map(miniCard).join('');
+  sec.style.display = '';
+}
+
+// ===== ОПИСАНИЕ РАЗДЕЛА (SEO-текст внизу каталога) =====
+function renderCatalogAbout() {
+  const sec = document.getElementById('catalogAbout');
+  const cat = (state.categories || []).find(c => c.slug === state.category);
+  // показываем только на странице категории/подкатегории (не поиск, не избранное, не «Все»)
+  if (state.view !== 'catalog' || !cat || state.search) { sec.style.display = 'none'; return; }
+
+  const escH = s => String(s == null ? '' : s).replace(/[&<>"]/g,
+    c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const nl2p = t => escH(t).trim().split(/\n{2,}/).map(x => `<p>${x.replace(/\n/g, '<br>')}</p>`).join('');
+
+  const allSubs = (state.facets && state.facets.subcategories) || [];
+  const bySlug = Object.fromEntries(allSubs.map(s => [s.slug, s]));
+  const curSub = (state.filters && state.filters.subcat) || [];
+  const sel = curSub.length === 1 ? curSub[0] : null;
+  const selRow = sel ? bySlug[sel] : null;
+
+  // описание текущего раздела
+  const descText = selRow
+    ? (selRow.description || selRow.seo_description || '')
+    : (cat.description || cat.seo_description || SEO_CAT_DESC[cat.slug] || '');
+
+  if (!descText || !String(descText).trim()) { sec.style.display = 'none'; return; }
+  // если в описании есть html-теги (задано редактором в админке) — вставляем как есть,
+  // иначе — простой текст разбиваем на абзацы по пустой строке
+  const bodyHtml = /<[a-z][\s\S]*>/i.test(descText) ? descText : nl2p(descText);
+  document.getElementById('catalogAboutBody').innerHTML =
+    `<div class="catalog-about-text">${bodyHtml}</div>`;
   sec.style.display = '';
 }
 

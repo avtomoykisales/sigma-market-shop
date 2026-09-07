@@ -66,6 +66,27 @@ db.serialize(async () => {
   await addCol('products', 'images', "TEXT DEFAULT '[]'");        // доп. изображения (галерея), JSON []
   await addCol('products', 'subcategory_id', 'INTEGER');          // подкатегория (опционально)
   await addCol('subcategories', 'icon', 'TEXT');                  // иконка подкатегории (опционально)
+  await addCol('subcategories', 'parent_id', 'INTEGER');         // родительская подкатегория (иерархия)
+
+  // ---- SEO-переопределения (пусто → генерируется автоматически) ----
+  await addCol('products', 'seo_title', 'TEXT');
+  await addCol('products', 'seo_description', 'TEXT');
+  await addCol('categories', 'seo_title', 'TEXT');
+  await addCol('categories', 'seo_description', 'TEXT');
+  await addCol('subcategories', 'seo_title', 'TEXT');
+  await addCol('subcategories', 'seo_description', 'TEXT');
+
+  // ---- Журнал действий администраторов ----
+  await db.runAsync(`CREATE TABLE IF NOT EXISTS admin_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts TEXT DEFAULT (datetime('now')),
+    admin TEXT,                 -- логин администратора (или '—' при неудачном входе)
+    action TEXT,                -- login | login_fail | create | update | delete
+    label TEXT,                 -- человекочитаемое описание («Добавлен товар «X»»)
+    detail TEXT,                -- доп. детали (опционально)
+    ip TEXT
+  )`);
+  await db.runAsync(`CREATE INDEX IF NOT EXISTS idx_admin_log_ts ON admin_log(id DESC)`);
 
   // ---- Настройки сайта (редактируются в админке) ----
   await db.runAsync(`CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)`);
@@ -470,6 +491,37 @@ db.serialize(async () => {
     }
     await db.runAsync(`INSERT OR REPLACE INTO settings (key, value) VALUES ('subcats_v1','done')`);
     console.log('✅ Подкатегории созданы и привязаны');
+  }
+
+  // ---- Иерархия подкатегорий: восстановить дерево «групп» со старого сайта avtomoyki.kz ----
+  const treeDone = await db.getAsync(`SELECT value FROM settings WHERE key='subcat_tree_v1'`);
+  if (!treeDone) {
+    const TREE = {   // родитель(slug) -> [дети(slug)]
+      'professionalnye-pylesosy': ['moyuschie-pylesosy-elsea', 'professionalnye-pylesosy-soteco',
+        'professionalnye-pylesosy-chancee', 'professionalnye-moyuschie-pylesosy',
+        'professionalnye-pylevodososy', 'pylesosy-ekstraktory'],
+      'avtomaticheskie-moyki-dlya-mashin-robotizirovann': ['portalnye-avtomoyki',
+        'avtomaticheskie-konveyernye-avtomoyki-tunnelnogo', 'beskontaktnye-robotizirovannye-avtomoyki'],
+      'apparaty-vysokogo-davleniya-avd': ['moyki-vysokogo-davleniya-dlya-avto'],
+      'moyki-vysokogo-davleniya-dlya-avto': ['professionalnye-moyki-vysokogo-davleniya',
+        'moyki-vysokogo-davleniya-s-podogrevom-vody', 'promyshlennye-moyki-vysokogo-davleniya',
+        'benzinovye-moyki-vysokogo-davleniya'],
+      'avtopodemniki-dlya-sto-i-avtoservisa': ['dvuhstoechnye-podemniki',
+        'chetyrehstoechnye-podemniki', 'nozhnichnye-podemniki-dlya-avto'],
+      'pnevmaticheskoe-oborudovanie': ['professionalnye-kompressory-porshnevye-marki-sob',
+        'pnevmaticheskoe-oborudovanie-chicago-pneumatic'],
+      'oborudovanie-dlya-zameny-masla-samoa': ['maslorazdatochnoe-oborudovanie',
+        'oborudovanie-dlya-konsistentnoy-smazki'],
+    };
+    for (const [parentSlug, childSlugs] of Object.entries(TREE)) {
+      const par = await db.getAsync('SELECT id FROM subcategories WHERE slug = ?', [parentSlug]);
+      if (!par) continue;
+      for (const cs of childSlugs) {
+        await db.runAsync('UPDATE subcategories SET parent_id = ? WHERE slug = ? AND parent_id IS NULL', [par.id, cs]);
+      }
+    }
+    await db.runAsync(`INSERT OR REPLACE INTO settings (key, value) VALUES ('subcat_tree_v1','done')`);
+    console.log('✅ Иерархия подкатегорий восстановлена');
   }
 });
 

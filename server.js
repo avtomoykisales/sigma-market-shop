@@ -16,6 +16,15 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// Пред-запусковый режим: весь сайт закрыт от индексации.
+// Включается переменной SITE_NOINDEX=1 (deploy/ecosystem.config.js). Снять в день запуска.
+const SITE_NOINDEX = /^(1|true|yes)$/i.test(process.env.SITE_NOINDEX || '');
+if (SITE_NOINDEX) {
+  console.log('⚠️  SITE_NOINDEX=1 — сайт закрыт от поисковиков (noindex на всех страницах)');
+  app.use((req, res, next) => { res.set('X-Robots-Tag', 'noindex, nofollow'); next(); });
+}
+app.locals.SITE_NOINDEX = SITE_NOINDEX;
+
 // ==================== HTML PAGES + PARTIALS ====================
 // Renders any *.html page (and "/" -> index, "/about" -> about.html),
 // replacing <!-- partial:name --> markers with public/partials/name.html
@@ -38,6 +47,33 @@ app.get('/robots.txt', async (req, res) => {
 app.get('/sitemap.xml', async (req, res) => {
   try { res.type('application/xml').send(await seo.sitemap(req)); }
   catch (e) { res.status(500).type('text/plain').send('sitemap error'); }
+});
+
+// ЧПУ каталога/товаров + 301 со старого ?category=/?product=
+app.get(/.*/, async (req, res, next) => {
+  if (req.method !== 'GET' && req.method !== 'HEAD') return next();
+  const p = decodeURIComponent(req.path);
+
+  // старый query-формат → 301 на новый ЧПУ
+  if (p === '/' && (req.query.product || req.query.category)) {
+    try {
+      const to = await seo.legacyRedirect(req);
+      if (to) return res.redirect(301, to);
+    } catch (e) { /* отдадим обычную главную ниже */ }
+    return next();
+  }
+
+  // /catalog, /catalog/{cat}, /catalog/{cat}/{sub}, /product/{id}-{slug}
+  if (p === '/catalog' || /^\/catalog\/[^/]+/.test(p) || /^\/product\/\d/.test(p)) {
+    try {
+      let html = renderPage(fs.readFileSync(path.join(PUBLIC_DIR, 'index.html'), 'utf8'));
+      html = seo.inject(html, await seo.build(req, '/index.html'));
+      return res.type('html').send(html);
+    } catch (e) {
+      console.error('ЧПУ render failed:', e.message);
+    }
+  }
+  next();
 });
 
 app.get(/.*/, async (req, res, next) => {
@@ -137,8 +173,15 @@ app.get('/api/products', async (req, res) => {
     if (category && category !== 'all') { where.push('c.slug = ?'); params.push(category); }
     if (subcategory) {
       const subs = subcategory.split(',').filter(Boolean);
-      where.push('sc.slug IN (' + subs.map(() => '?').join(',') + ')');
-      params.push(...subs);
+      // раскрываем каждую подкатегорию до её поддерева: родитель → все потомки
+      const idRows = subs.length ? await db.allAsync(
+        `WITH RECURSIVE tree(id) AS (
+           SELECT id FROM subcategories WHERE slug IN (${subs.map(() => '?').join(',')})
+           UNION ALL SELECT s.id FROM subcategories s JOIN tree t ON s.parent_id = t.id
+         ) SELECT id FROM tree`, subs) : [];
+      const ids = idRows.map(r => r.id);
+      if (ids.length) { where.push('p.subcategory_id IN (' + ids.map(() => '?').join(',') + ')'); params.push(...ids); }
+      else where.push('1=0');
     }
     if (search) {
       // SQLite LIKE не регистронезависим для кириллицы — добавляем вариант с заглавной буквы
@@ -192,13 +235,27 @@ app.get('/api/products', async (req, res) => {
         `SELECT MIN(NULLIF(p.price,0)) as pmin, MAX(p.price) as pmax,
                 MIN(p.perf) as perfmin, MAX(p.perf) as perfmax
          FROM products p JOIN categories c ON p.category_id=c.id WHERE 1=1 ${catWhere}`, fParams);
-      const subcats = await db.allAsync(
-        `SELECT s.name, s.slug, s.icon, COUNT(p.id) as cnt
+      const subcatRows = await db.allAsync(
+        `SELECT s.id, s.name, s.slug, s.icon, s.description, s.seo_title, s.seo_description, s.sort, s.parent_id,
+                par.slug AS parent_slug,
+                (SELECT COUNT(*) FROM products x WHERE x.subcategory_id = s.id) AS own_cnt
          FROM subcategories s
          JOIN categories c ON s.category_id = c.id
-         LEFT JOIN products p ON p.subcategory_id = s.id
+         LEFT JOIN subcategories par ON s.parent_id = par.id
          WHERE 1=1 ${catWhere}
-         GROUP BY s.id HAVING cnt > 0 ORDER BY s.sort, s.name`, fParams);
+         ORDER BY s.sort, s.name`, fParams);
+      // свернуть own_cnt вверх по дереву → cnt поддерева
+      const _byId = new Map(subcatRows.map(r => [r.id, r]));
+      subcatRows.forEach(r => { r.cnt = r.own_cnt; });
+      subcatRows.forEach(r => {
+        let pid = r.parent_id;
+        while (pid && _byId.has(pid)) { _byId.get(pid).cnt += r.own_cnt; pid = _byId.get(pid).parent_id; }
+      });
+      const subcats = subcatRows.filter(r => r.cnt > 0).map(r => ({
+        name: r.name, slug: r.slug, icon: r.icon, description: r.description,
+        seo_title: r.seo_title, seo_description: r.seo_description,
+        cnt: r.cnt, parent_slug: r.parent_slug, sort: r.sort,
+      }));
       facets = {
         brands: brands.map(b => b.brand).filter(Boolean),
         subtypes: subtypes.map(s => s.subtype).filter(Boolean),
@@ -332,31 +389,236 @@ app.post('/api/orders', async (req, res) => {
 });
 
 // ==================== ADMIN AUTH ====================
+// Токен = "логин:пароль" любого администратора из таблицы admins (все равноправны).
 async function adminAuth(req, res, next) {
   try {
-    const auth = req.headers['x-admin-token'];
-    const admin = await db.getAsync('SELECT * FROM admins WHERE username = ?', ['admin']);
-    if (!admin || auth !== `${admin.username}:${admin.password}`) {
+    const auth = String(req.headers['x-admin-token'] || '');
+    const sep = auth.indexOf(':');
+    const u = sep >= 0 ? auth.slice(0, sep) : '';
+    const p = sep >= 0 ? auth.slice(sep + 1) : '';
+    const admin = u ? await db.getAsync('SELECT * FROM admins WHERE username = ?', [u]) : null;
+    if (!admin || p !== admin.password) {
       return res.status(401).json({ error: 'Нет доступа' });
     }
+    req.admin = admin;
     next();
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
 }
 
+// ---- Журнал действий ----
+function clientIp(req) {
+  return String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || '')
+    .split(',')[0].trim().replace(/^::ffff:/, '');
+}
+async function logAdmin(req, action, label, detail) {
+  try {
+    await db.runAsync(
+      `INSERT INTO admin_log (admin, action, label, detail, ip) VALUES (?,?,?,?,?)`,
+      [(req.admin && req.admin.username) || req._logUser || '—', action, label || null, detail || null, clientIp(req)]
+    );
+    await db.runAsync(`DELETE FROM admin_log WHERE id <= (SELECT MAX(id) - 10000 FROM admin_log)`);
+  } catch { /* журнал не должен ломать основной запрос */ }
+}
+function adminActionLabel(req) {
+  const u = req.originalUrl.split('?')[0];
+  const m = req.method;
+  const id = (u.match(/\/(\d+)(?:\/[a-z]+)?$/) || [])[1];
+  const nm = (req.body && (req.body.name || req.body.title || req.body.username)) || '';
+  const tail = nm ? ` «${nm}»` : (id ? ` #${id}` : '');
+  const R = [
+    [/\/products$/,            { POST: ['create', 'Добавлен товар'] }],
+    [/\/products\/\d+$/,       { PUT: ['update', 'Изменён товар'], DELETE: ['delete', 'Удалён товар'] }],
+    [/\/categories$/,          { POST: ['create', 'Добавлена категория'] }],
+    [/\/categories\/\d+$/,     { PUT: ['update', 'Изменена категория'], DELETE: ['delete', 'Удалена категория'] }],
+    [/\/subcategories$/,       { POST: ['create', 'Добавлена подкатегория'] }],
+    [/\/subcategories\/\d+$/,  { PUT: ['update', 'Изменена подкатегория'], DELETE: ['delete', 'Удалена подкатегория'] }],
+    [/\/orders\/\d+\/status$/, { PUT: ['update', `Статус заявки #${id}: ${(req.body && req.body.status) || ''}`] }],
+    [/\/settings\/reset-quiz$/,{ POST: ['update', 'Сброс квиза к стандартному'] }],
+    [/\/settings$/,            { PUT: ['update', 'Изменены настройки сайта'] }],
+    [/\/upload-/,              { POST: ['update', 'Загрузка файлов'] }],
+    [/\/admins$/,              { POST: ['create', 'Создан администратор'] }],
+    [/\/admins\/\d+$/,         { PUT: ['update', 'Изменён администратор'], DELETE: ['delete', 'Удалён администратор'] }],
+  ];
+  for (const [re, map] of R) {
+    if (re.test(u) && map[m]) {
+      const [action, base] = map[m];
+      const label = /Статус заявки|Сброс|настройки|Загрузка/.test(base) ? base : base + tail;
+      return { action, label };
+    }
+  }
+  return { action: m.toLowerCase(), label: `${m} ${u}` };
+}
+// Какие поля показывать в diff-е при редактировании (ключ поля -> подпись, либо {label, bool})
+const DIFF_FIELDS = {
+  products: {
+    name: 'Название', article: 'Артикул', brand: 'Бренд',
+    category_id: 'Категория (id)', subcategory_id: 'Подкатегория (id)',
+    price: 'Цена', price_on_request: { label: 'Цена по запросу', bool: true },
+    in_stock: { label: 'В наличии', bool: true }, featured: { label: 'Хит', bool: true },
+    subtitle: 'Подзаголовок', description: 'Описание',
+    perf: 'Производительность', perf_unit: 'Ед. произв.', subtype: 'Тип',
+    youtube: 'Видео', icon: 'Иконка',
+    seo_title: 'SEO-заголовок', seo_description: 'SEO-описание',
+  },
+  categories: { name: 'Название', slug: 'Slug', description: 'Описание', icon: 'Иконка', seo_title: 'SEO-заголовок', seo_description: 'SEO-описание' },
+  subcategories: { category_id: 'Категория (id)', name: 'Название', slug: 'Slug', description: 'Описание', sort: 'Порядок', icon: 'Иконка', seo_title: 'SEO-заголовок', seo_description: 'SEO-описание' },
+};
+function diffEntity(u) {
+  if (/\/products\/\d+$/.test(u)) return 'products';
+  if (/\/categories\/\d+$/.test(u)) return 'categories';
+  if (/\/subcategories\/\d+$/.test(u)) return 'subcategories';
+  return null;
+}
+async function snapshotBefore(req) {
+  const u = req.originalUrl.split('?')[0];
+  const id = (u.match(/\/(\d+)(?:\/[a-z]+)?$/) || [])[1];
+  if (!id) return null;
+  const ent = diffEntity(u);
+  if (ent) return db.getAsync(`SELECT * FROM ${ent} WHERE id = ?`, [id]);
+  if (/\/orders\/\d+\/status$/.test(u)) return db.getAsync('SELECT id, status FROM orders WHERE id = ?', [id]);
+  return null;
+}
+function shortVal(v) {
+  v = (v == null ? '' : String(v)).replace(/\s+/g, ' ').trim();
+  if (!v) return '∅';
+  return v.length > 80 ? v.slice(0, 80) + '…' : v;
+}
+function diffDetail(req) {
+  const u = req.originalUrl.split('?')[0];
+  const before = req._before, body = req.body || {};
+  if (req.method === 'DELETE') {
+    if (before && before.name) {
+      return 'Было: «' + before.name + '»' +
+        (before.article ? ` (арт. ${before.article})` : '') +
+        (before.slug ? ` [${before.slug}]` : '');
+    }
+    return null;
+  }
+  if (/\/orders\/\d+\/status$/.test(u)) {
+    return before ? `${before.status || '?'} → ${body.status || '?'}` : null;
+  }
+  const ent = diffEntity(u);
+  const map = ent && DIFF_FIELDS[ent];
+  if (!map || !before) return null;
+  const norm = (cfg, val) => (cfg && cfg.bool)
+    ? (val && String(val) !== '0' && val !== 'false' ? 'да' : 'нет')
+    : (val == null ? '' : String(val));
+  const parts = [];
+  for (const [f, cfg] of Object.entries(map)) {
+    if (!(f in body)) continue;
+    const label = typeof cfg === 'string' ? cfg : cfg.label;
+    const ov = norm(cfg, before[f]);
+    const nv = norm(cfg, body[f]);
+    if (ov === nv) continue;
+    if (!cfg.bool && ov !== '' && nv !== '' && !isNaN(ov) && !isNaN(nv) && Number(ov) === Number(nv)) continue;
+    parts.push(`${label}: ${shortVal(ov)} → ${shortVal(nv)}`);
+  }
+  return parts.length ? parts.join('; ') : 'поля не изменились';
+}
+
+// Пишем в журнал любое успешное изменение под /api/admin (кроме входа — он логируется отдельно)
+app.use('/api/admin', async (req, res, next) => {
+  if (req.method === 'GET' || req.path === '/login') return next();
+  if (req.method === 'PUT' || req.method === 'DELETE') {
+    try { req._before = await snapshotBefore(req); } catch { /* игнор */ }
+  }
+  res.on('finish', () => {
+    if (res.statusCode < 200 || res.statusCode >= 300) return;
+    const { action, label } = adminActionLabel(req);
+    logAdmin(req, action, label, diffDetail(req));
+  });
+  next();
+});
+
 app.post('/api/admin/login', async (req, res) => {
   try {
-    const { username, password } = req.body;
+    const { username, password } = req.body || {};
+    req._logUser = (username || '—').toString().slice(0, 60);
     const admin = await db.getAsync(
       'SELECT * FROM admins WHERE username = ? AND password = ?',
       [username, password]
     );
-    if (!admin) return res.status(401).json({ error: 'Неверный логин или пароль' });
-    res.json({ token: `${admin.username}:${admin.password}` });
+    if (!admin) {
+      await logAdmin(req, 'login_fail', 'Неудачный вход');
+      return res.status(401).json({ error: 'Неверный логин или пароль' });
+    }
+    await logAdmin(req, 'login', 'Вход в панель');
+    res.json({ token: `${admin.username}:${admin.password}`, username: admin.username });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
+});
+
+// ==================== ADMIN: АДМИНИСТРАТОРЫ ====================
+app.get('/api/admin/admins', adminAuth, async (req, res) => {
+  try {
+    const rows = await db.allAsync('SELECT id, username FROM admins ORDER BY id');
+    res.json(rows.map(r => ({ ...r, me: r.id === req.admin.id })));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post('/api/admin/admins', adminAuth, async (req, res) => {
+  try {
+    const username = String((req.body && req.body.username) || '').trim();
+    const password = String((req.body && req.body.password) || '');
+    if (username.length < 3 || password.length < 4) {
+      return res.status(400).json({ error: 'Логин от 3 символов, пароль от 4 символов' });
+    }
+    try {
+      const r = await db.runAsync('INSERT INTO admins (username, password) VALUES (?, ?)', [username, password]);
+      res.json({ success: true, id: r.lastID });
+    } catch { res.status(400).json({ error: 'Такой логин уже существует' }); }
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.put('/api/admin/admins/:id', adminAuth, async (req, res) => {
+  try {
+    const cur = await db.getAsync('SELECT * FROM admins WHERE id = ?', [req.params.id]);
+    if (!cur) return res.status(404).json({ error: 'Не найдено' });
+    const username = String((req.body && req.body.username) || cur.username).trim() || cur.username;
+    const password = String((req.body && req.body.password) || '') || cur.password;
+    try {
+      await db.runAsync('UPDATE admins SET username = ?, password = ? WHERE id = ?', [username, password, req.params.id]);
+      res.json({ success: true });
+    } catch { res.status(400).json({ error: 'Такой логин уже существует' }); }
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.delete('/api/admin/admins/:id', adminAuth, async (req, res) => {
+  try {
+    const cur = await db.getAsync('SELECT id FROM admins WHERE id = ?', [req.params.id]);
+    if (!cur) return res.status(404).json({ error: 'Не найдено' });
+    const total = (await db.getAsync('SELECT COUNT(*) AS c FROM admins')).c;
+    if (total <= 1) return res.status(400).json({ error: 'Нельзя удалить последнего администратора' });
+    if (String(req.admin.id) === String(req.params.id)) {
+      return res.status(400).json({ error: 'Нельзя удалить свой аккаунт' });
+    }
+    await db.runAsync('DELETE FROM admins WHERE id = ?', [req.params.id]);
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ==================== ADMIN: ЖУРНАЛ ====================
+app.get('/api/admin/logs', adminAuth, async (req, res) => {
+  try {
+    const page = Math.max(1, Number(req.query.page) || 1);
+    const limit = Math.min(200, Number(req.query.limit) || 60);
+    const where = [], params = [];
+    if (req.query.admin) { where.push('admin = ?'); params.push(req.query.admin); }
+    if (req.query.action === 'login') { where.push("action IN ('login','login_fail')"); }
+    else if (req.query.action) { where.push('action = ?'); params.push(req.query.action); }
+    if (req.query.q) {
+      where.push('(label LIKE ? OR detail LIKE ? OR ip LIKE ?)');
+      const like = `%${req.query.q}%`; params.push(like, like, like);
+    }
+    const w = where.length ? 'WHERE ' + where.join(' AND ') : '';
+    const total = (await db.getAsync(`SELECT COUNT(*) AS c FROM admin_log ${w}`, params)).c;
+    const rows = await db.allAsync(
+      `SELECT * FROM admin_log ${w} ORDER BY id DESC LIMIT ? OFFSET ?`,
+      [...params, limit, (page - 1) * limit]
+    );
+    const admins = (await db.allAsync('SELECT DISTINCT admin FROM admin_log ORDER BY admin')).map(r => r.admin);
+    res.json({ total, page, limit, rows, admins });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // ==================== ADMIN PRODUCTS ====================
@@ -385,17 +647,31 @@ app.get('/api/admin/products', adminAuth, async (req, res) => {
 
 const jsonArr = (v) => { try { return JSON.stringify(Array.isArray(v) ? v : JSON.parse(v || '[]')); } catch { return '[]'; } };
 
+// Частичный UPDATE: в SET попадают только те колонки, ключи которых реально есть в теле запроса.
+// cols — { колонка: fn(value, body) | null }. Пустой результат = ничего не меняем.
+function partialUpdate(cols, body) {
+  const sets = [], params = [];
+  for (const [col, transform] of Object.entries(cols)) {
+    if (!(col in body)) continue;
+    sets.push(col + ' = ?');
+    params.push(transform ? transform(body[col], body) : body[col]);
+  }
+  return { sets, params };
+}
+
 app.post('/api/admin/products', adminAuth, async (req, res) => {
   try {
     const b = req.body;
     const result = await db.runAsync(
       `INSERT INTO products (category_id, name, article, brand, description, price, price_on_request, icon, in_stock, featured, specs,
-                             subtype, perf, perf_unit, related_ids, bundle_ids, youtube, subtitle, images, subcategory_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                             subtype, perf, perf_unit, related_ids, bundle_ids, youtube, subtitle, images, subcategory_id,
+                             seo_title, seo_description)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [b.category_id, b.name, b.article || '', b.brand || '', b.description || '', b.price || 0,
        b.price_on_request ? 1 : 0, b.icon || null, b.in_stock ? 1 : 0, b.featured ? 1 : 0, b.specs || '{}',
        b.subtype || null, b.perf || null, b.perf_unit || 'ед./час', jsonArr(b.related_ids), jsonArr(b.bundle_ids),
-       b.youtube || null, b.subtitle || null, jsonArr(b.images), b.subcategory_id || null]
+       b.youtube || null, b.subtitle || null, jsonArr(b.images), b.subcategory_id || null,
+       (b.seo_title || '').trim() || null, (b.seo_description || '').trim() || null]
     );
     res.json({ success: true, id: result.lastID });
   } catch (e) {
@@ -405,16 +681,35 @@ app.post('/api/admin/products', adminAuth, async (req, res) => {
 
 app.put('/api/admin/products/:id', adminAuth, async (req, res) => {
   try {
-    const b = req.body;
-    await db.runAsync(
-      `UPDATE products SET category_id=?, name=?, article=?, brand=?, description=?, price=?,
-       price_on_request=?, icon=?, in_stock=?, featured=?, specs=?,
-       subtype=?, perf=?, perf_unit=?, related_ids=?, bundle_ids=?, youtube=?, subtitle=?, images=?, subcategory_id=? WHERE id=?`,
-      [b.category_id, b.name, b.article || '', b.brand || '', b.description || '', b.price || 0,
-       b.price_on_request ? 1 : 0, b.icon || null, b.in_stock ? 1 : 0, b.featured ? 1 : 0, b.specs || '{}',
-       b.subtype || null, b.perf || null, b.perf_unit || 'ед./час', jsonArr(b.related_ids), jsonArr(b.bundle_ids),
-       b.youtube || null, b.subtitle || null, jsonArr(b.images), b.subcategory_id || null, req.params.id]
-    );
+    const b = req.body || {};
+    const cur = await db.getAsync('SELECT id FROM products WHERE id = ?', [req.params.id]);
+    if (!cur) return res.status(404).json({ error: 'Товар не найден' });
+    const { sets, params } = partialUpdate({
+      category_id: null,
+      subcategory_id: v => v || null,
+      name: null,
+      article: v => v || '',
+      brand: v => v || '',
+      description: v => v || '',
+      price: v => v || 0,
+      price_on_request: v => (v ? 1 : 0),
+      icon: v => v || null,
+      in_stock: v => (v ? 1 : 0),
+      featured: v => (v ? 1 : 0),
+      specs: v => v || '{}',
+      subtype: v => v || null,
+      perf: v => v || null,
+      perf_unit: v => v || 'ед./час',
+      related_ids: v => jsonArr(v),
+      bundle_ids: v => jsonArr(v),
+      youtube: v => v || null,
+      subtitle: v => v || null,
+      images: v => jsonArr(v),
+      seo_title: v => (v || '').trim() || null,
+      seo_description: v => (v || '').trim() || null,
+    }, b);
+    if (!sets.length) return res.json({ success: true });
+    await db.runAsync(`UPDATE products SET ${sets.join(', ')} WHERE id = ?`, [...params, req.params.id]);
     res.json({ success: true });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -461,18 +756,27 @@ app.post('/api/admin/categories', adminAuth, async (req, res) => {
     if (!name) return res.status(400).json({ error: 'Укажите название' });
     const slug = req.body.slug ? slugify(req.body.slug) : slugify(name);
     const r = await db.runAsync(
-      `INSERT INTO categories (name, slug, description, icon) VALUES (?,?,?,?)`,
-      [name, slug, description || '', icon || null]);
+      `INSERT INTO categories (name, slug, description, icon, seo_title, seo_description) VALUES (?,?,?,?,?,?)`,
+      [name, slug, description || '', icon || null,
+       (req.body.seo_title || '').trim() || null, (req.body.seo_description || '').trim() || null]);
     res.json({ success: true, id: r.lastID });
   } catch (e) { res.status(500).json({ error: /UNIQUE/.test(e.message) ? 'Такой slug уже есть' : e.message }); }
 });
 app.put('/api/admin/categories/:id', adminAuth, async (req, res) => {
   try {
-    const { name, description, icon } = req.body;
-    const slug = req.body.slug ? slugify(req.body.slug) : slugify(name);
-    await db.runAsync(
-      `UPDATE categories SET name=?, slug=?, description=?, icon=? WHERE id=?`,
-      [name, slug, description || '', icon || null, req.params.id]);
+    const b = req.body || {};
+    const cur = await db.getAsync('SELECT * FROM categories WHERE id = ?', [req.params.id]);
+    if (!cur) return res.status(404).json({ error: 'Не найдено' });
+    const { sets, params } = partialUpdate({
+      name: null,
+      slug: (v, body) => (v ? slugify(v) : slugify(body.name || cur.name)),
+      description: v => v || '',
+      icon: v => v || null,
+      seo_title: v => (v || '').trim() || null,
+      seo_description: v => (v || '').trim() || null,
+    }, b);
+    if (!sets.length) return res.json({ success: true });
+    await db.runAsync(`UPDATE categories SET ${sets.join(', ')} WHERE id = ?`, [...params, req.params.id]);
     res.json({ success: true });
   } catch (e) { res.status(500).json({ error: /UNIQUE/.test(e.message) ? 'Такой slug уже есть' : e.message }); }
 });
@@ -495,8 +799,10 @@ app.get('/api/admin/subcategories', adminAuth, async (req, res) => {
   try {
     res.json(await db.allAsync(
       `SELECT s.*, c.name as category_name, c.slug as category_slug,
+              par.name AS parent_name,
               (SELECT COUNT(*) FROM products p WHERE p.subcategory_id = s.id) as product_count
        FROM subcategories s JOIN categories c ON s.category_id = c.id
+       LEFT JOIN subcategories par ON s.parent_id = par.id
        ORDER BY s.category_id, s.sort, s.name`));
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -506,20 +812,33 @@ app.post('/api/admin/subcategories', adminAuth, async (req, res) => {
     if (!category_id || !name) return res.status(400).json({ error: 'Укажите категорию и название' });
     const slug = req.body.slug ? slugify(req.body.slug) : slugify(name);
     const r = await db.runAsync(
-      `INSERT INTO subcategories (category_id, name, slug, description, sort, icon) VALUES (?,?,?,?,?,?)`,
-      [category_id, name, slug, description || '', sort || 0, icon || null]);
+      `INSERT INTO subcategories (category_id, name, slug, description, sort, icon, seo_title, seo_description, parent_id) VALUES (?,?,?,?,?,?,?,?,?)`,
+      [category_id, name, slug, description || '', sort || 0, icon || null,
+       (req.body.seo_title || '').trim() || null, (req.body.seo_description || '').trim() || null,
+       req.body.parent_id || null]);
     res.json({ success: true, id: r.lastID });
   } catch (e) { res.status(500).json({ error: /UNIQUE/.test(e.message) ? 'Такой slug уже есть в этой категории' : e.message }); }
 });
 app.put('/api/admin/subcategories/:id', adminAuth, async (req, res) => {
   try {
-    const { category_id, name, description, sort, icon } = req.body;
-    const slug = req.body.slug ? slugify(req.body.slug) : slugify(name);
-    await db.runAsync(
-      `UPDATE subcategories SET category_id=?, name=?, slug=?, description=?, sort=?, icon=? WHERE id=?`,
-      [category_id, name, slug, description || '', sort || 0, icon || null, req.params.id]);
+    const b = req.body || {};
+    const cur = await db.getAsync('SELECT * FROM subcategories WHERE id = ?', [req.params.id]);
+    if (!cur) return res.status(404).json({ error: 'Не найдено' });
+    const { sets, params } = partialUpdate({
+      category_id: null,
+      name: null,
+      slug: (v, body) => (v ? slugify(v) : slugify(body.name || cur.name)),
+      description: v => v || '',
+      sort: v => v || 0,
+      icon: v => v || null,
+      seo_title: v => (v || '').trim() || null,
+      seo_description: v => (v || '').trim() || null,
+      parent_id: v => (v && Number(v) !== Number(req.params.id) ? Number(v) : null),
+    }, b);
+    if (!sets.length) return res.json({ success: true });
+    await db.runAsync(`UPDATE subcategories SET ${sets.join(', ')} WHERE id = ?`, [...params, req.params.id]);
     res.json({ success: true });
-  } catch (e) { res.status(500).json({ error: e.message }); }
+  } catch (e) { res.status(500).json({ error: /UNIQUE/.test(e.message) ? 'Такой slug уже есть в этой категории' : e.message }); }
 });
 app.delete('/api/admin/subcategories/:id', adminAuth, async (req, res) => {
   try {
