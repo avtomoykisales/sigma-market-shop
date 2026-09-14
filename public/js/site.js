@@ -87,6 +87,82 @@
     return Number(n).toLocaleString('ru-KZ', { maximumFractionDigits: 0 }) + ' ₸';
   };
 
+  /* ---------- КОНТАКТЫ: WhatsApp + звонок ---------- */
+  // Цифры номера в международном формате для wa.me / tel: ("8 (707)…" -> "7707…")
+  window.waDigits = function (raw) {
+    var d = String(raw || '').replace(/\D/g, '');
+    if (d.length === 11 && d.charAt(0) === '8') d = '7' + d.slice(1);
+    return d;
+  };
+  var WA_SVG = '<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true">' +
+    '<path d="M17.5 14.4c-.3-.2-1.7-.9-2-1-.3-.1-.5-.1-.7.1-.2.3-.7 1-.9 1.2-.2.2-.3.2-.6.1-1.7-.9-2.9-1.6-4-3.6-.3-.5.3-.5.8-1.6.1-.2 0-.4 0-.5 0-.2-.7-1.6-.9-2.2-.2-.6-.5-.5-.7-.5h-.6c-.2 0-.5.1-.8.4-.3.3-1 1-1 2.5s1.1 2.9 1.2 3.1c.2.2 2.1 3.3 5.2 4.6 2 .8 2.7.9 3.7.8.6-.1 1.7-.7 2-1.4.2-.7.2-1.2.2-1.4-.1-.1-.3-.2-.6-.3zM12 2a10 10 0 0 0-8.6 15l-1.3 4.7 4.8-1.3A10 10 0 1 0 12 2z"/></svg>';
+  var CALL_SVG = '<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true">' +
+    '<path d="M6.6 10.8a15.9 15.9 0 0 0 6.6 6.6l2.2-2.2c.3-.3.7-.4 1-.2 1.1.4 2.3.6 3.5.6.6 0 1 .5 1 1V20c0 .6-.4 1-1 1A17 17 0 0 1 3 4c0-.6.5-1 1-1h3.5c.6 0 1 .4 1 1 0 1.2.2 2.4.6 3.5.1.4 0 .8-.3 1l-2.2 2.3z"/></svg>';
+  var attr = function (s) { return String(s == null ? '' : s).replace(/"/g, '&quot;'); };
+
+  // contacts = { phone1, phone2 } из настроек; primary = '1' | '2' | '' (какой номер первым).
+  // opts.text — предзаполненное сообщение для WhatsApp; opts.compact — версия для карточки.
+  // Один номер → кнопки ведут сразу. Два → клик открывает маленькое окно выбора номера.
+  window.contactActions = function (contacts, primary, opts) {
+    contacts = contacts || {};
+    opts = opts || {};
+    var nums = [contacts.phone1, contacts.phone2]
+      .map(function (raw) { return { raw: (raw || '').trim(), wa: window.waDigits(raw) }; })
+      .filter(function (c) { return c.wa.length >= 10; });
+    if (!nums.length) return '';
+    if (String(primary) === '2' && nums.length > 1) nums.reverse();
+
+    var q = opts.text ? '?text=' + encodeURIComponent(opts.text) : '';
+    var wa, call;
+
+    if (nums.length > 1) {
+      var data = attr(JSON.stringify(nums));
+      wa = '<button type="button" class="btn-wa" data-ck="wa" data-q="' + attr(q) + '" data-nums="' + data + '" ' +
+        'onclick="event.stopPropagation();contactPick(this)" aria-label="Написать в WhatsApp">' + WA_SVG + '<span>WhatsApp</span></button>';
+      call = '<button type="button" class="btn-call" data-ck="call" data-nums="' + data + '" ' +
+        'onclick="event.stopPropagation();contactPick(this)" aria-label="Позвонить">' + CALL_SVG + '<span>Позвонить</span></button>';
+    } else {
+      var c = nums[0], tel = '+' + c.wa;
+      wa = '<a class="btn-wa" href="https://wa.me/' + c.wa + q + '" target="_blank" rel="noopener" ' +
+        'onclick="event.stopPropagation()" aria-label="Написать в WhatsApp ' + tel + '">' + WA_SVG + '<span>WhatsApp</span></a>';
+      call = '<a class="btn-call" href="tel:' + tel + '" onclick="event.stopPropagation()" aria-label="Позвонить ' + tel + '">' +
+        CALL_SVG + '<span>Позвонить</span></a>';
+    }
+    return '<div class="contact-actions' + (opts.compact ? ' contact-actions--compact' : '') + '">' +
+      '<div class="contact-row">' + wa + call + '</div></div>';
+  };
+
+  // Маленькое окно выбора номера (когда номеров два)
+  window.contactPick = function (el) {
+    var kind = el.getAttribute('data-ck');
+    var q = el.getAttribute('data-q') || '';
+    var nums;
+    try { nums = JSON.parse(el.getAttribute('data-nums') || '[]'); } catch (e) { nums = []; }
+    if (!nums.length) return;
+
+    var ov = document.getElementById('cpickOverlay');
+    if (!ov) {
+      ov = document.createElement('div');
+      ov.id = 'cpickOverlay';
+      ov.className = 'cpick-overlay';
+      ov.addEventListener('click', function (e) { if (e.target === ov) ov.classList.remove('open'); });
+      document.body.appendChild(ov);
+    }
+    var close = "document.getElementById('cpickOverlay').classList.remove('open')";
+    var rows = nums.map(function (c) {
+      var href = kind === 'wa' ? 'https://wa.me/' + c.wa + q : 'tel:+' + c.wa;
+      var tgt = kind === 'wa' ? ' target="_blank" rel="noopener"' : '';
+      return '<a class="cpick-num" href="' + href + '"' + tgt + ' onclick="' + close + '">' +
+        (kind === 'wa' ? WA_SVG : CALL_SVG) + '<span>' + (c.raw || ('+' + c.wa)) + '</span></a>';
+    }).join('');
+    ov.innerHTML = '<div class="cpick">' +
+      '<div class="cpick-head">' + (kind === 'wa' ? 'Написать в WhatsApp' : 'Позвонить') + '</div>' +
+      rows +
+      '<button type="button" class="cpick-cancel" onclick="' + close + '">Отмена</button>' +
+      '</div>';
+    ov.classList.add('open');
+  };
+
   /* ---------- ФОРМА КОНСУЛЬТАЦИИ ---------- */
   window.scrollToConsult = function () {
     var s = $('consultSection');
@@ -140,7 +216,7 @@
       });
     }
     function go(n) { idx = (n % slides.length + slides.length) % slides.length; render(); restart(); }
-    function restart() { clearInterval(timer); timer = setInterval(function () { go(idx + 1); }, 2000); }
+    function restart() { clearInterval(timer); timer = setInterval(function () { go(idx + 1); }, 5000); }
 
     window.heroStep = function (d) { go(idx + d); };
 

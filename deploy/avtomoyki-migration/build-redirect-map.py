@@ -113,6 +113,81 @@ KW = [
     (r'ochistn|ochistk', ('avtomojka','ochistnye-sooruzheniya-dlya-avtomoyki')),
 ]
 
+# Ручные правки — точные карточки/разделы, которые SEO-менеджер (Евгений) нашёл вручную
+# и которые автоматическое сопоставление не смогло найти (код/название не совпали),
+# плюс разделы, которых нет на ЖИВОМ avtomoyki.kz (поэтому наш скрипт их не видит вообще).
+# Перекрывают автоматический результат для тех же старых адресов. Сверено с базой sigma.db
+# 2026-09-11 (все id товаров и слаги подкатегорий существуют на момент проверки).
+MANUAL_OVERRIDES = {
+    # ИСПРАВЛЕНО 2026-09-14 (Евгений поймал на живом сайте): подкатегория на боевом
+    # сервере называется длиннее, чем в локальной sigma.db на момент первой сборки карты
+    # (локальная копия базы отстала от боевой). Проверено через живой /api/products —
+    # реальный слаг: avtomaticheskie-moyki-dlya-mashin-robotizirovann.
+    '/g9248215-avtomaticheskie-mojki-dlya': '/catalog/avtomojka/avtomaticheskie-moyki-dlya-mashin-robotizirovann',
+    # 239/240 — новые товары, добавлены в магазин 2026-09-11 (id совпали с тем, что
+    # предсказал Евгений); в момент генерации карты их ещё не было в sigma.db, поэтому
+    # прописаны явно, а не найдены автосопоставлением.
+    '/p134844871-monoschetochnaya-moechnaya-ustanovka.html': '/product/239-monoschetochnaya-moechnaya-ustanovka-dlya-gruzovogo-transporta-mono-ro',
+    '/p128286202-portalnaya-avtomaticheskaya-mojka.html': '/product/240-portalnaya-avtomaticheskaya-moyka-dlya-gruzovogo-avtobusnogo-avtotrans',
+    '/g508383-professionalnye-kompressory-porshnevye-marki-sobekpro': '/catalog/sto/professionalnye-kompressory-porshnevye-marki-sob',
+    '/g9469291-chetyrehstoechnye-podemniki': '/catalog/sto/chetyrehstoechnye-podemniki',
+    '/g9469295-nozhnichnye-podemniki-dlya': '/catalog/sto/nozhnichnye-podemniki-dlya-avto',
+    '/p122771497-dvuhstoechnyj-podemnik-445s.html': '/product/158-dvuhstoechnyy-podemnik-4-45s',
+    '/p122804735-dvuhstoechnyj-podemnik-345.html': '/product/159-dvuhstoechnyy-podemnik-3-45-a',
+    '/p122911976-dvuhstoechnyj-podemnik-342s.html': '/product/160-dvuhstoechnyy-podemnik-3-42s',
+    '/p122912114-dvuhstoechnyj-podemnik-242s.html': '/product/161-dvuhstoechnyy-podemnik-2-42s',
+    '/p122912167-dvuhstoechnyj-podemnik-power.html': '/product/162-dvuhstoechnyy-podemnik-power-lift-slh-4600-advanced',
+    '/p122912320-dvuhstoechnyj-avtopodemnik-power.html': '/product/163-dvuhstoechnyy-avtopodemnik-power-lift-hf-3s-3500dt',
+    '/p122912360-dvuhstoechnyj-avtopodemnik-smart.html': '/product/164-dvuhstoechnyy-avtopodemnik-smart-lift-2-30-sl-dt',
+    '/p122922666-stanok-shinomontazhnyj-s110.html': '/product/165-stanok-shinomontazhnyy-s110',
+    '/p122922705-stanok-shinomontazhnyj-c110.html': '/product/166-stanok-shinomontazhnyy-c110-te',
+    '/p122923037-stanok-shinomontazhnyj-s222.html': '/product/167-stanok-shinomontazhnyy-s222',
+    '/p122923077-stanok-shinomontazhnyj-c224.html': '/product/168-stanok-shinomontazhnyy-c224-e',
+    '/p125223792-yangzi-s13-promyshlennaya.html': '/product/174-yangzi-s13-promyshlennaya-podmetalnaya-mashina-dlya-pola',
+    '/p125313103-yangzi-s14-podmetalno.html': '/product/175-yangzi-s14-podmetalno-uborochnaya-mashina',
+    '/p125325272-yangzi-s10-privodnaya.html': '/product/176-yangzi-s10-privodnaya-promyshlennaya-podmetalno-uborochnaya-mashina-dl',
+    '/p125329524-yangzi-podmetalnaya-mashinu.html': '/product/177-yangzi-s8-podmetalnaya-mashinu-dlya-promyshlennyh-polov',
+    '/p125332199-s12-promyshlennaya-podmetalnaya.html': '/product/178-yz-s12-promyshlennaya-podmetalnaya-mashina-dlya-pola-s-privodom',
+    '/p125332208-yangzi-s11-podmetalno.html': '/product/179-yangzi-s11-podmetalno-uborochnaya-mashina-dlya-ulic',
+    '/p125332339-yangzi-s15-polnostyu.html': '/product/180-yangzi-s15-polnostyu-zakrytaya-podmetalnaya-mashina-dlya-pola',
+    '/p126915413-avtomaticheskaya-portalnaya-schetochnaya.html': '/product/190-avtomaticheskaya-portalnaya-schetochnaya-avtomoyka-risense-cf-340',
+    '/p126915607-avtomaticheskaya-portalnaya-schetochnaya.html': '/product/191-avtomaticheskaya-portalnaya-schetochnaya-moyka-risense-cf-360',
+    '/p126915920-portalnaya-robotizirovannaya-schetochnaya.html': '/product/192-portalnaya-robotizirovannaya-schetochnaya-moechnaya-ustanovka-dlya-moy',
+    '/p126916565-robotizirovannaya-beskontaktnaya-moechnaya.html': '/product/193-robotizirovannaya-beskontaktnaya-moechnaya-ustanovka-risense-hp-232',
+    '/p126919797-beskontaktnaya-robotizirovannaya-obraznaya.html': '/product/194-beskontaktnaya-robotizirovannaya-g-obraznaya-avtomaticheskaya-moyka-ri',
+    '/p126920013-avtomaticheskaya-portalnaya-beskontaktnaya.html': '/product/195-avtomaticheskaya-portalnaya-beskontaktnaya-dvuhrychazhnaya-moyka-risen',
+    '/p126920049-konvejernaya-avtomojka-tunnelnogo.html': '/product/196-konveyernaya-avtomoyka-tunnelnogo-tipa-risense-cc-650',
+    '/p126938920-podmetalnaya-uborochnaya-mashina.html': '/product/197-podmetalnaya-uborochnaya-mashina-yangzi-s4',
+    '/p126939182-podmetalnaya-uborochnaya-mashina.html': '/product/198-podmetalnaya-uborochnaya-mashina-yangzi-s5',
+    '/p126939193-podmetalnaya-uborochnaya-mashina.html': '/product/199-podmetalnaya-uborochnaya-mashina-yangzi-s6',
+    '/p126939231-podmetalnaya-uborochnaya-mashina.html': '/product/200-podmetalnaya-uborochnaya-mashina-yangzi-s18f',
+    '/p126939328-avtomaticheskaya-tunnelnaya-avtomojka.html': '/product/201-avtomaticheskaya-tunnelnaya-avtomoyka-risense-cc-670',
+    '/p126939552-avtomaticheskaya-tunnelnaya-avtomojka.html': '/product/202-avtomaticheskaya-tunnelnaya-avtomoyka-risense-cc-690',
+    '/p126939647-konvejernaya-avtomojka-tunnelnogo.html': '/product/203-konveyernaya-avtomoyka-tunnelnogo-tipa-risense-cc-692',
+    '/p126939702-avtomaticheskaya-tunnelnaya-konvejernaya.html': '/product/204-avtomaticheskaya-tunnelnaya-konveyernaya-avtomoyka-risense-cc-695',
+    '/p126973503-beskontaktnaya-obraznaya-mojka.html': '/product/205-beskontaktnaya-g-obraznaya-moyka-ekonom-klassa-risense-nr-212',
+    '/p126978244-robotizirovannaya-podmetalnaya-mashina.html': '/product/206-robotizirovannaya-podmetalnaya-mashina-s100n',
+    '/p126978350-avtonomnaya-polomoechnaya-mashina.html': '/product/207-avtonomnaya-polomoechnaya-mashina-yangzi-sc50',
+    '/p126978529-avtomatizirovannaya-polomoechnaya-mashinasc80.html': '/product/208-avtomatizirovannaya-polomoechnaya-mashinasc80',
+    '/p127456350-kompressor-401-tandem.html': '/product/209-kompressor-ae-401-tandem',
+    '/p134666385-beskontaktnaya-robotizirovannaya-avtomaticheskaya.html': '/product/238-beskontaktnaya-robotizirovannaya-avtomaticheskaya-moyka-risense-hp-262',
+    '/p2464547-professionalnyj-moyuschij-pylevodosos.html': '/product/10-professionalnyy-moyuschiy-pylevodosos-ekstraktor-gamma-700',
+    '/p2476841-resiver-arv-500.html': '/product/28-resiver-arv-500',
+    '/p2575781-podmetalnaya-mashina-ruchnaya.html': '/product/34-podmetalnaya-mashina-ruchnaya-chancee-u90-skylight',
+    '/p46093309-filtr-setka-dlya.html': '/product/70-filtr-setka-dlya-penokomplekta-idrobase-tabletka',
+    '/p46093383-stanok-balansirovochnyj-dlya.html': '/product/72-stanok-balansirovochnyy-dlya-l-a-geodyna-4500-2',
+    '/p46093440-stanok-balansirovochnyj-dlya.html': '/product/75-stanok-balansirovochnyy-dlya-g-a-geodyna-980-l',
+    '/p46144200-kompressor-porshnevoj-301.html': '/product/77-kompressor-porshnevoy-ae-301',
+    '/p49937623-kompressor-porshnevoj-302.html': '/product/82-kompressor-porshnevoy-ae-302',
+    '/p52411212-zaschita-shlangov-vysokogo.html': '/product/83-zaschita-shlangov-vysokogo-davleniya-opletka-na-rvd',
+    '/p59194898-bortorasshiritel-td102.html': '/product/95-bortorasshiritel-td102',
+    '/p59199872-vulkanizator-101.html': '/product/96-vulkanizator-te-101',
+    '/p59437441-shlang-dlya-nasosa.html': '/product/105-shlang-dlya-nasosa-605000',
+    '/p59437642-pistolet-dlya-razdachi.html': '/product/108-pistolet-dlya-razdachi-masla-365535',
+    '/p59437706-katushka-maslostojkim-shlangom.html': '/product/109-katushka-s-maslostoykim-shlangom-501200',
+    '/p76345458-derzhatel-kolchan-dlya.html': '/product/122-derzhatel-kolchan-dlya-pistoletov-na-avtomoyke-iz-nerzhaveyuschey-stal',
+}
+
 rules, unmapped, review = [], [], []
 
 def add(old, new, note):
@@ -199,6 +274,22 @@ for old, new, note in rules:
     if old in seen: continue
     seen.add(old); uniq.append((old, new, note))
 
+# применяем ручные правки: либо заменяем найденный автоматически результат, либо
+# добавляем новую строку (для разделов, которых нет на живом sitemap вообще)
+m_manual = 0
+by_old = {old: i for i, (old, _, _) in enumerate(uniq)}
+for old, new in MANUAL_OVERRIDES.items():
+    note = 'ручная правка (Евгений/проверено)'
+    if old in by_old:
+        i = by_old[old]
+        if uniq[i][1] != new:
+            uniq[i] = (old, new, note)
+            m_manual += 1
+    else:
+        uniq.append((old, new, note))
+        by_old[old] = len(uniq) - 1
+        m_manual += 1
+
 import os
 OUT = os.path.dirname(os.path.abspath(__file__))
 with open(os.path.join(OUT, 'avtomoyki-map.conf'), 'w') as f:
@@ -224,6 +315,7 @@ print(f'     в раздел (экспорт): {m_grp}')
 print(f'     в раздел (кл.слова):{m_kw}')
 print(f'     в общий каталог:    {m_fb}')
 print(f'  + карточки снятых с Satu товаров: {m_extra}')
-print(f'\nВ общий каталог (нужна ручная привязка или свежий экспорт): {m_fb}')
-for u in unmapped:
-    if u.startswith('/p'): print('  ', u)
+print(f'  + ручные правки (сверка с файлом Евгения): {m_manual}')
+still_unmapped = [u for u in unmapped if u.startswith('/p') and u not in MANUAL_OVERRIDES]
+print(f'\nВ общий каталог, БЕЗ ручной правки (нужна привязка или свежий экспорт): {len(still_unmapped)}')
+for u in still_unmapped: print('  ', u)

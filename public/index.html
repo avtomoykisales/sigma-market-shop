@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SIGMA MARKET — Профессиональное оборудование</title>
-<link rel="stylesheet" href="/style.css?v=20260907b">
+<link rel="stylesheet" href="/style.css?v=20260911a">
 </head>
 <body class="shop">
 
@@ -186,6 +186,21 @@
   </section>
 </div><!-- /productView -->
 
+<!-- ========== СТРАНИЦА НЕ НАЙДЕНА (404) ========== -->
+<div id="notFoundView" style="display:none">
+  <section class="section notfound-section">
+    <div class="container notfound-inner">
+      <div class="notfound-code">404</div>
+      <h2 class="notfound-title" id="nfTitle">Страница не найдена</h2>
+      <p class="notfound-text">Такой страницы нет — возможно, она была перемещена, удалена или адрес введён с ошибкой.</p>
+      <div class="notfound-actions">
+        <a href="/" class="btn-catalog" onclick="showHome();return false;">На главную</a>
+        <a href="/catalog" class="btn-consult-outline" onclick="showCatalog('all');return false;">Перейти в каталог</a>
+      </div>
+    </div>
+  </section>
+</div><!-- /notFoundView -->
+
 <!-- ========== НЕДАВНО ПРОСМОТРЕННЫЕ ========== -->
 <section class="section recent-section" id="recentSection" style="display:none">
   <div class="container">
@@ -263,8 +278,8 @@
 <!-- TOAST -->
 <div class="toast" id="toast"></div>
 
-<script src="/js/site.js?v=20260902z2"></script>
-<script src="/js/product.js?v=20260905a"></script>
+<script src="/js/site.js?v=20260911a"></script>
+<script src="/js/product.js?v=20260911a"></script>
 <script>
 let state = {
   view: 'home',      // 'home' | 'catalog' | 'favorites'
@@ -289,6 +304,17 @@ function setUrl(url) {
   if (_routing) return;
   const cur = location.pathname + location.search + location.hash;
   if (cur !== url) { try { history.pushState(null, '', url); } catch {} }
+}
+// Яндекс.Метрика: засчитать просмотр SPA-«страницы». Зовётся из setMeta (когда уже готов
+// title) и из popstate. Первый вызов пропускаем — его считает сам счётчик в ym('init').
+// Дедуп по URL, чтобы повторный setMeta для той же страницы не плодил просмотры.
+let _ymLastHref = null;
+function ymHit() {
+  var href = location.href;
+  if (href === _ymLastHref) return;
+  if (_ymLastHref === null) { _ymLastHref = href; return; }   // первый — за счётчиком
+  _ymLastHref = href;
+  try { if (window.ym && window.YM_ID) ym(window.YM_ID, 'hit', href, { title: document.title }); } catch (e) {}
 }
 function replaceUrl(url) {
   const cur = location.pathname + location.search + location.hash;
@@ -332,10 +358,15 @@ function setMeta(title, desc, path, robots) {
   const r = document.querySelector('meta[name="robots"]');
   if (r) r.setAttribute('content', window.SITE_NOINDEX ? 'noindex, nofollow'
     : (robots || (/favorites|Избранное/.test(title || '') ? 'noindex, follow' : 'index, follow')));
+  ymHit();   // Метрика: title/URL уже финальные — засчитываем просмотр
 }
 function seoClip(s, n) {
   s = String(s || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
   return s.length <= n ? s : s.slice(0, n - 1).replace(/[\s.,;:–—-]+\S*$/, '') + '…';
+}
+// ручной SEO-текст из админки — без обрезки, только чистка тегов/пробелов
+function seoRaw(s) {
+  return String(s || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
 state.cart      = lsGet('cart', []);
@@ -354,7 +385,7 @@ async function init() {
   initQuizCta();
   handleRoute();
   window.addEventListener('hashchange', handleRoute);
-  window.addEventListener('popstate', handleRoute);
+  window.addEventListener('popstate', () => { handleRoute(); ymHit(); });
   document.querySelectorAll('[data-nav="home"]').forEach(a => a.addEventListener('click', e => {
     e.preventDefault(); closeDrawer(); showHome();
   }));
@@ -402,7 +433,8 @@ function handleRoute() {
       if (!document.getElementById('cartPanel').classList.contains('open')) toggleCart();
       return;
     }
-    showHome();   // чистый "/" → главная
+    if (location.pathname === '/') { showHome(); return; }   // чистый "/" → главная
+    showNotFound();   // неизвестный адрес → 404
   } finally { _routing = false; }
 }
 
@@ -478,7 +510,7 @@ function scrollToView(id) {
 }
 
 function setView(name) {
-  ['homeView', 'catalogView', 'productView'].forEach(id => {
+  ['homeView', 'catalogView', 'productView', 'notFoundView'].forEach(id => {
     document.getElementById(id).style.display = (id === name + 'View') ? '' : 'none';
   });
   syncViewHeadings(name);
@@ -500,6 +532,7 @@ function syncViewHeadings(name) {
     home: document.getElementById('homeH1'),
     catalog: document.getElementById('catalogTitle'),
     product: document.querySelector('#productView .pv-name'),
+    notFound: document.getElementById('nfTitle'),
   };
   for (const [view, el] of Object.entries(map)) retagHeading(el, view === name ? 'H1' : 'H2');
 }
@@ -544,23 +577,41 @@ function applyCatalogMeta() {
     subRow = (state.facets && state.facets.subcategories || []).find(s => s.slug === sub[0]) || null;
   }
   const subName = subRow ? subRow.name : '';
+  // Title не обрезаем ни ручной, ни авто (Евгений просил)
   const title = subName
-    ? (subRow.seo_title ? seoClip(subRow.seo_title, 70)
-        : seoClip(subName + ' — ' + cat.name + ' | SIGMA MARKET', 65))
-    : (cat.seo_title ? seoClip(cat.seo_title, 70)
+    ? (subRow.seo_title ? seoRaw(subRow.seo_title)
+        : seoRaw(subName + ' — ' + cat.name + ' | SIGMA MARKET'))
+    : (cat.seo_title ? seoRaw(cat.seo_title)
         : (SEO_CAT_TITLE[cat.slug] || (cat.name + ' — SIGMA MARKET')));
   const desc = subName
-    ? (subRow.seo_description
-        || seoClip(subName + ' — ' + cat.name + '. Поставка, монтаж и сервис по Казахстану от SIGMA MARKET.', 175))
-    : (cat.seo_description
-        || SEO_CAT_DESC[cat.slug]
-        || seoClip(cat.name + '. Профессиональное оборудование от SIGMA MARKET. Поставка по Казахстану.', 175));
+    ? (subRow.seo_description ? seoRaw(subRow.seo_description)
+        : seoClip(subName + ' — ' + cat.name + '. Поставка, монтаж и сервис по Казахстану от SIGMA MARKET.', 175))
+    : (cat.seo_description ? seoRaw(cat.seo_description)
+        : (SEO_CAT_DESC[cat.slug]
+        || seoClip(cat.name + '. Профессиональное оборудование от SIGMA MARKET. Поставка по Казахстану.', 175)));
   // Несколько подкатегорий сразу — комбинация фильтров: не индексируем, canonical на категорию
   const multiSub = sub.length > 1;
   setMeta(title, desc, multiSub ? '/catalog/' + cat.slug : catalogUrl(), multiSub ? 'noindex, follow' : undefined);
 }
 
+// 404: адрес не распознан ЛИБО категория/товар с таким slug/id не существует
+function showNotFound() {
+  state.view = 'notfound';
+  setView('notFound');
+  setActiveNav('');
+  setMeta('Страница не найдена — 404 | SIGMA MARKET',
+    'Запрошенная страница не существует или была перемещена. Посмотрите каталог оборудования SIGMA MARKET.',
+    location.pathname, 'noindex, follow');
+  scrollToView('notFoundView');
+}
+
 function showCatalog(slug, subcat) {
+  // категория с таким slug не существует (и это не служебное "все") → 404
+  if (slug && slug !== 'all' && state.categories && state.categories.length &&
+      !state.categories.some(c => c.slug === slug)) {
+    showNotFound();
+    return;
+  }
   state.view = 'catalog';
   state.category = slug || 'all';
   state.page = 1;
@@ -896,6 +947,7 @@ function cardHtml(p) {
     ? `<button class="card-fav${favOn?' on':''}" title="В избранное" onclick="event.stopPropagation();toggleFav(${p.id})">${favOn?'♥':'♡'}</button>` : '';
   const cmpBtn = state.settings.compare !== false
     ? `<label class="card-compare" onclick="event.stopPropagation()"><input type="checkbox" ${cmpOn?'checked':''} onchange="toggleCompare(${p.id})"> Сравнить</label>` : '';
+  // Кнопки WhatsApp/Позвонить — только на странице товара, не на карточках каталога
   return `<div class="product-card${p.featured?' featured':''}" onclick="openModal(${p.id})">
     <div class="card-img-wrap">
       ${p.featured ? '<span class="badge-hit">⭐ Хит</span>' : ''}
@@ -1111,12 +1163,10 @@ function renderCatalogAbout() {
   const sel = curSub.length === 1 ? curSub[0] : null;
   const selRow = sel ? bySlug[sel] : null;
 
-  // описание текущего раздела
-  const descText = selRow
-    ? (selRow.description || selRow.seo_description || '')
-    : (cat.description || cat.seo_description || SEO_CAT_DESC[cat.slug] || '');
+  // только поле «Описание» из админки; нет описания → блок не показываем
+  const descText = selRow ? (selRow.description || '') : (cat.description || '');
 
-  if (!descText || !String(descText).trim()) { sec.style.display = 'none'; return; }
+  if (!descText || !String(descText).replace(/<[^>]*>/g, '').trim()) { sec.style.display = 'none'; return; }
   // если в описании есть html-теги (задано редактором в админке) — вставляем как есть,
   // иначе — простой текст разбиваем на абзацы по пустой строке
   const bodyHtml = /<[a-z][\s\S]*>/i.test(descText) ? descText : nl2p(descText);

@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="robots" content="noindex, nofollow">
 <title>Админ-панель — SIGMA MARKET</title>
-<link rel="stylesheet" href="/style.css?v=20260907b">
+<link rel="stylesheet" href="/style.css?v=20260911a">
 </head>
 <body class="admin">
 
@@ -181,6 +181,24 @@
         <label class="eng-check"><input type="checkbox" id="opt-compare"> Кнопка «Сравнить» на карточках</label>
         <label class="eng-check"><input type="checkbox" id="opt-favorites"> Избранное (♥)</label>
 
+        <h3 style="margin:26px 0 6px">Контактные номера</h3>
+        <p style="color:var(--muted);font-size:13px;margin-bottom:12px">Кнопки «WhatsApp» и «Позвонить» на карточках товаров. Формат любой — <code>+7 (707) 420-20-03</code> или <code>87074202003</code>.</p>
+        <div class="fg"><label>Номер 1 (основной)</label><input id="contact-phone1" placeholder="+7 (707) 420-20-03"></div>
+        <div class="fg" style="margin-top:10px"><label>Номер 2</label><input id="contact-phone2" placeholder="+7 (700) 000-00-00 — необязательно"></div>
+
+        <h3 style="margin:26px 0 6px">CRM — Bitrix24</h3>
+        <p style="color:var(--muted);font-size:13px;margin-bottom:12px">
+          Заявки с сайта («Получить консультацию» и корзина) будут падать в Bitrix24 как лиды.<br>
+          В Bitrix24: <b>Приложения → Разработчикам → Другое → Входящий вебхук</b>, права <code>crm</code>,
+          скопировать адрес вида <code>https://ваш-портал.bitrix24.kz/rest/1/xxxxxxxx/</code> и вставить сюда.
+          Пусто — интеграция выключена.
+        </p>
+        <div class="fg"><label>Адрес входящего вебхука</label><input id="crm-bitrix" placeholder="https://sigmamarket.bitrix24.kz/rest/1/xxxxxxxx/"></div>
+        <div class="form-actions" style="justify-content:flex-start;margin-top:10px">
+          <button class="action-btn" onclick="testCrm()">🔌 Проверить связь</button>
+          <span id="crm-test-result" style="font-size:13px;align-self:center"></span>
+        </div>
+
         <div class="form-actions" style="justify-content:flex-start;margin-top:24px">
           <button class="btn-save" onclick="saveEngage()">💾 Сохранить настройки</button>
         </div>
@@ -325,6 +343,13 @@
       </div>
       <div class="fg full"><label>С этим оборудованием берут</label>
         <div class="rel-picker" data-field="bundle"></div>
+      </div>
+      <div class="fg"><label>Первый контакт для этого товара <span style="font-weight:400;text-transform:none;color:var(--muted)">— какой номер показывать первым в кнопках WhatsApp/звонок</span></label>
+        <select id="fContactPrimary">
+          <option value="">Основной (номер 1)</option>
+          <option value="1">Номер 1</option>
+          <option value="2">Номер 2</option>
+        </select>
       </div>
       <div class="fg" style="gap:10px">
         <label>Настройки</label>
@@ -482,12 +507,23 @@ function logout() {
 }
 
 // ===== INIT =====
+let siteContacts = {};
 async function initApp() {
   categories = await apiFetch('/api/categories');
   await reloadSubcats();
+  try { siteContacts = (await apiFetch('/api/admin/settings')).contacts || {}; } catch { siteContacts = {}; }
   fillCatSelect();
   fillCatFilter();
   loadDashboard();
+}
+function fillContactPrimarySelect() {
+  const sel = document.getElementById('fContactPrimary');
+  if (!sel) return;
+  const p1 = siteContacts.phone1 ? `Номер 1 (${siteContacts.phone1})` : 'Номер 1';
+  const p2 = siteContacts.phone2 ? `Номер 2 (${siteContacts.phone2})` : 'Номер 2 (не задан)';
+  sel.options[0].textContent = siteContacts.phone1 ? `Основной — ${siteContacts.phone1}` : 'Основной (номер 1)';
+  sel.options[1].textContent = p1;
+  sel.options[2].textContent = p2;
 }
 
 if (token) {
@@ -862,14 +898,35 @@ async function loadEngage() {
   document.getElementById('quiz-title').value = q.title || '';
   document.getElementById('quiz-subtitle').value = q.subtitle || '';
   document.getElementById('quiz-steps').value = JSON.stringify(q.steps || [], null, 2);
+  const c = engSettings.contacts || {};
+  document.getElementById('contact-phone1').value = c.phone1 || '';
+  document.getElementById('contact-phone2').value = c.phone2 || '';
+  document.getElementById('crm-bitrix').value = (engSettings.crm || {}).bitrix_webhook || '';
+}
+async function testCrm() {
+  const out = document.getElementById('crm-test-result');
+  const hook = document.getElementById('crm-bitrix').value.trim();
+  if (!hook) { out.textContent = '⚠️ Вставьте адрес вебхука'; out.style.color = '#c0392b'; return; }
+  out.textContent = 'Проверяю…'; out.style.color = 'var(--muted)';
+  const res = await apiFetch('/api/admin/crm-test', 'POST', { bitrix_webhook: hook });
+  if (res.success) { out.textContent = '✅ Связь есть — в Bitrix24 создан тестовый лид #' + res.leadId; out.style.color = 'var(--green)'; }
+  else { out.textContent = '❌ ' + (res.error || 'ошибка'); out.style.color = '#c0392b'; }
 }
 async function saveEngage() {
   const on = id => document.getElementById(id).checked;
+  const contacts = {
+    phone1: document.getElementById('contact-phone1').value.trim(),
+    phone2: document.getElementById('contact-phone2').value.trim()
+  };
   await apiFetch('/api/admin/settings', 'PUT', {
     blocks: { accessories: on('blk-accessories'), bundle: on('blk-bundle'), similar: on('blk-similar'), recent: on('blk-recent') },
     filters: { enabled: on('flt-enabled'), brand: on('flt-brand'), subtype: on('flt-subtype'), price: on('flt-price'), perf: on('flt-perf') },
-    compare: on('opt-compare'), favorites: on('opt-favorites')
+    compare: on('opt-compare'), favorites: on('opt-favorites'),
+    contacts,
+    crm: { bitrix_webhook: document.getElementById('crm-bitrix').value.trim() }
   });
+  siteContacts = contacts;
+  fillContactPrimarySelect();
   showToast('✅ Настройки сохранены', 'green');
 }
 async function saveQuiz() {
@@ -1053,6 +1110,7 @@ async function openProductForm(id = null) {
   editId = id;
   document.getElementById('formTitle').textContent = id ? 'Редактировать товар' : 'Новый товар';
   initRichEditor('fDesc');
+  fillContactPrimarySelect();
   const parseIds = v => { try { return Array.isArray(v) ? v : JSON.parse(v || '[]'); } catch { return []; } };
   if (id) {
     const p = await apiFetch(`/api/products/${id}`);
@@ -1074,6 +1132,7 @@ async function openProductForm(id = null) {
     document.getElementById('fFeatured').checked = !!p.featured;
     document.getElementById('fInStock').checked = !!p.in_stock;
     document.getElementById('fCategory').value = p.category_id;
+    document.getElementById('fContactPrimary').value = (p.contact_primary === '1' || p.contact_primary === '2') ? p.contact_primary : '';
     fillSubcatSelect(p.subcategory_id || '');
     initRelPicker(document.querySelector('.rel-picker[data-field="related"]'), parseIds(p.related_ids));
     initRelPicker(document.querySelector('.rel-picker[data-field="bundle"]'), parseIds(p.bundle_ids));
@@ -1085,6 +1144,7 @@ async function openProductForm(id = null) {
     document.getElementById('fRequest').checked = false;
     document.getElementById('fFeatured').checked = false;
     document.getElementById('fInStock').checked = true;
+    document.getElementById('fContactPrimary').value = '';
     fillSubcatSelect('');
     initRelPicker(document.querySelector('.rel-picker[data-field="related"]'), []);
     initRelPicker(document.querySelector('.rel-picker[data-field="bundle"]'), []);
@@ -1123,7 +1183,8 @@ async function saveProduct() {
     related_ids: relPickerValue('related'),
     bundle_ids: relPickerValue('bundle'),
     seo_title: document.getElementById('fSeoTitle').value.trim() || null,
-    seo_description: document.getElementById('fSeoDesc').value.trim() || null
+    seo_description: document.getElementById('fSeoDesc').value.trim() || null,
+    contact_primary: document.getElementById('fContactPrimary').value || null
   };
   if (editId) {
     await apiFetch(`/api/admin/products/${editId}`, 'PUT', data);

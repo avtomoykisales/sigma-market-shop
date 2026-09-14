@@ -11,6 +11,23 @@ const db = require('./database');
 // + заголовок X-Robots-Tag в server.js). Включается SITE_NOINDEX=1. Снять в день запуска.
 const NOINDEX = /^(1|true|yes)$/i.test(process.env.SITE_NOINDEX || '');
 
+// Яндекс.Метрика. Пусто (YM_ID='') — счётчик не вставляется.
+const METRIKA_ID = (process.env.YM_ID != null ? String(process.env.YM_ID) : '112428503').trim();
+function metrikaTag() {
+  if (!METRIKA_ID) return '';
+  const tag = `https://mc.yandex.ru/metrika/tag.js?id=${METRIKA_ID}`;
+  return `<link rel="preconnect" href="https://mc.yandex.ru" crossorigin>` +
+    `<link rel="preload" as="script" href="${tag}" fetchpriority="high">` +
+    `<script>window.YM_ID=${JSON.stringify(METRIKA_ID)};` +
+    `(function(m,e,t,r,i,k,a){m[i]=m[i]||function(){(m[i].a=m[i].a||[]).push(arguments)};` +
+    `m[i].l=1*new Date();for(var j=0;j<e.scripts.length;j++){if(e.scripts[j].src===r){return;}}` +
+    `k=e.createElement(t),a=e.getElementsByTagName(t)[0],k.async=1,k.src=r,a.parentNode.insertBefore(k,a)})` +
+    `(window,document,'script','${tag}','ym');` +
+    `ym(${METRIKA_ID},'init',{ssr:true,webvisor:true,clickmap:true,ecommerce:"dataLayer",` +
+    `accurateTrackBounce:true,trackLinks:true});</script>` +
+    `<noscript><div><img src="https://mc.yandex.ru/watch/${METRIKA_ID}" style="position:absolute;left:-9999px" alt=""></div></noscript>`;
+}
+
 const SITE_NAME = 'SIGMA MARKET';
 const DEFAULT_TITLE = 'SIGMA MARKET — профессиональное оборудование для автомоек, СТО и клининга';
 const DEFAULT_DESC =
@@ -40,6 +57,10 @@ function clip(s, n = 160) {
   s = String(s || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
   if (s.length <= n) return s;
   return s.slice(0, n - 1).replace(/[\s.,;:–—-]+\S*$/, '') + '…';
+}
+// Ручной SEO-текст из админки: отдаём КАК ЕСТЬ (только чистим теги/пробелы), без обрезки.
+function clean(s) {
+  return String(s || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
 const jsonLd = (obj) =>
@@ -175,6 +196,21 @@ const CAT_COPY = {
   },
 };
 
+// ЕДИНЫЙ источник правды для <title>/<meta description> товара.
+// Используется и сервером (productSeo ниже), и клиентом (через /api/products/:id → p.seo).
+// Меняешь формулу — только здесь.
+function productMeta(p) {
+  return {
+    title: p.seo_title
+      ? clean(p.seo_title)
+      : clean(p.name + ' купить в Казахстане - ' + SITE_NAME),
+    description: p.seo_description
+      ? clean(p.seo_description)
+      : clean('Купить ' + (p.name || p.subtitle || 'оборудование') + ' в ' + SITE_NAME +
+          ', выгодная цена, надёжная продукция, быстрая доставка по Казахстану.'),
+  };
+}
+
 async function productSeo(base, id, seo) {
   const p = await db.getAsync(
     `SELECT p.*, c.name AS category_name, c.slug AS category_slug,
@@ -184,20 +220,19 @@ async function productSeo(base, id, seo) {
      WHERE p.id = ?`, [id]);
 
   if (!p) {
-    seo.title = 'Товар не найден — ' + SITE_NAME;
-    seo.description = 'Запрошенный товар не найден. Посмотрите каталог оборудования SIGMA MARKET.';
+    seo.title = 'Страница не найдена — 404 | ' + SITE_NAME;
+    seo.description = 'Запрошенный товар не найден — возможно, он был снят с продажи. Посмотрите каталог оборудования SIGMA MARKET.';
+    seo.h1 = 'Страница не найдена';
     seo.robots = 'noindex, follow';
     seo.canonical = base + '/';
+    seo.notFound = true;
     return seo;
   }
 
-  const brand = p.brand ? p.brand + ' ' : '';
-  seo.title = p.seo_title
-    ? clip(p.seo_title, 70)
-    : clip(p.name + ' — ' + brand + '| ' + SITE_NAME, 65);
+  const meta = productMeta(p);
+  seo.title = meta.title;
   seo.h1 = p.name;
-  seo.description = clip(p.seo_description || p.description || p.subtitle ||
-    (p.name + '. Профессиональное оборудование от ' + SITE_NAME + '. Поставка по Казахстану.'), 175);
+  seo.description = meta.description;
   seo.canonical = base + productPath(p);
 
   let gallery = [];
@@ -208,7 +243,7 @@ async function productSeo(base, id, seo) {
   const product = {
     '@context': 'https://schema.org',
     '@type': 'Product',
-    name: p.name,
+    name: seo.title,
     description: seo.description,
     sku: p.article || String(p.id),
     category: p.subcategory_name || p.category_name,
@@ -241,7 +276,15 @@ async function productSeo(base, id, seo) {
 
 async function categorySeo(base, slug, subSlug, seo) {
   const cat = await db.getAsync('SELECT * FROM categories WHERE slug = ?', [slug]);
-  if (!cat) { seo.robots = 'noindex, follow'; return seo; }
+  if (!cat) {
+    seo.title = 'Страница не найдена — 404 | ' + SITE_NAME;
+    seo.description = 'Запрошенный раздел каталога не найден. Посмотрите каталог оборудования SIGMA MARKET.';
+    seo.h1 = 'Страница не найдена';
+    seo.robots = 'noindex, follow';
+    seo.canonical = base + '/catalog';
+    seo.notFound = true;
+    return seo;
+  }
 
   const subs = String(subSlug || '').split(',').filter(Boolean);
   let sub = null;
@@ -263,17 +306,21 @@ async function categorySeo(base, slug, subSlug, seo) {
   seo.h1 = sub ? sub.name : cat.name;
   if (sub) {
     seo.title = sub.seo_title
-      ? clip(sub.seo_title, 70)
-      : clip(sub.name + ' — ' + cat.name + ' | ' + SITE_NAME, 65);
-    seo.description = clip(sub.seo_description || sub.description ||
-      (sub.name + ' — ' + cat.name.toLowerCase() + '. Поставка, монтаж и сервис по Казахстану от ' + SITE_NAME + '.'), 175);
+      ? clean(sub.seo_title)
+      : clean(sub.name + ' — ' + cat.name + ' | ' + SITE_NAME);
+    seo.description = sub.seo_description
+      ? clean(sub.seo_description)
+      : clip(sub.description ||
+          (sub.name + ' — ' + cat.name.toLowerCase() + '. Поставка, монтаж и сервис по Казахстану от ' + SITE_NAME + '.'), 175);
     seo.canonical = base + catalogPath(slug, sub.slug);
   } else {
     seo.title = cat.seo_title
-      ? clip(cat.seo_title, 70)
+      ? clean(cat.seo_title)
       : (copy.title || (cat.name + ' — ' + SITE_NAME));
-    seo.description = cat.seo_description || copy.desc || clip(cat.description ||
-      (cat.name + '. Профессиональное оборудование от ' + SITE_NAME + '. Поставка по Казахстану.'), 175);
+    seo.description = cat.seo_description
+      ? clean(cat.seo_description)
+      : (copy.desc || clip(cat.description ||
+          (cat.name + '. Профессиональное оборудование от ' + SITE_NAME + '. Поставка по Казахстану.'), 175));
     seo.canonical = base + catalogPath(slug);
     if (subs.length > 1) seo.robots = 'noindex, follow';
   }
@@ -333,8 +380,12 @@ async function build(req, relPath, opts = {}) {
   }
 
   if (opts.softFallback && req.path !== '/') {
+    seo.title = 'Страница не найдена — 404 | ' + SITE_NAME;
+    seo.description = 'Запрошенная страница не существует или была перемещена. Посмотрите каталог оборудования SIGMA MARKET.';
+    seo.h1 = 'Страница не найдена';
     seo.robots = 'noindex, follow';
     seo.canonical = base + '/';
+    seo.notFound = true;
     return seo;
   }
 
@@ -342,7 +393,7 @@ async function build(req, relPath, opts = {}) {
     if (q.product) return productSeo(base, q.product, seo);
     if (q.category) return categorySeo(base, q.category, q.subcategory, seo);
     if (q.q) {
-      seo.title = clip('Поиск: ' + q.q + ' — ' + SITE_NAME, 65);
+      seo.title = clean('Поиск: ' + q.q + ' — ' + SITE_NAME);
       seo.description = 'Результаты поиска по каталогу SIGMA MARKET: ' + clip(q.q, 80) + '.';
       seo.h1 = clip('Поиск: ' + q.q, 80);
       seo.robots = 'noindex, follow';
@@ -404,6 +455,11 @@ function setH1(html, id, tag, text) {
 /* Вставить SEO в готовый html-документ */
 function inject(html, seo) {
   const head = renderHead(seo);
+  // Яндекс.Метрика — как можно раньше, сразу после <head>
+  const ym = metrikaTag();
+  if (ym && !html.includes('mc.yandex.ru/metrika')) {
+    html = html.replace(/<head>/i, '<head>\n' + ym);
+  }
   if (/<title>[\s\S]*?<\/title>/i.test(html)) {
     html = html.replace(/<title>[\s\S]*?<\/title>/i, `<title>${esc(seo.title)}</title>`);
   } else {
@@ -490,4 +546,4 @@ async function sitemap(req) {
     body + '\n</urlset>\n';
 }
 
-module.exports = { build, inject, robots, sitemap, baseUrl, legacyRedirect, productPath, catalogPath, slugName };
+module.exports = { build, inject, robots, sitemap, baseUrl, legacyRedirect, productPath, catalogPath, slugName, productMeta };

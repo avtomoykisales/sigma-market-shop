@@ -474,6 +474,65 @@ body.shop .btn-buy {
 body.shop .btn-buy:hover { background: var(--green-dark); }
 body.shop .btn-buy img { width: 15px; height: 15px; object-fit: contain; }
 
+/* КОНТАКТЫ: WhatsApp + позвонить */
+body.shop .contact-actions { display: flex; flex-direction: column; gap: 8px; }
+body.shop .contact-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+body.shop .contact-row .btn-wa,
+body.shop .contact-row .btn-call {
+  flex: 1 1 0; min-width: 120px; padding: 9px 10px; border-radius: 8px;
+  font-size: 13px; font-weight: 600; cursor: pointer; text-decoration: none;
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  transition: background .2s, opacity .2s; font-family: inherit;
+}
+body.shop .contact-row .btn-wa { background: #25D366; color: #fff; border: none; }
+body.shop .contact-row .btn-wa:hover { background: #1ebe5b; }
+body.shop .contact-row .btn-call {
+  background: var(--white); color: var(--green); border: 2px solid var(--green);
+}
+body.shop .contact-row .btn-call:hover { background: var(--green-light); }
+
+/* компактный вид на карточке товара */
+body.shop .product-card .contact-actions {
+  margin: 4px 16px 14px; padding-top: 12px; border-top: 1px dashed var(--border);
+}
+body.shop .contact-actions--compact .contact-row .btn-wa,
+body.shop .contact-actions--compact .contact-row .btn-call {
+  padding: 8px; font-size: 12px; min-width: 96px;
+}
+
+/* на странице товара — в один ряд с action-кнопками по ширине */
+body.shop .pv-info .contact-actions { margin: -2px 0 12px; }
+
+/* маленькое окно выбора номера (когда номеров два) */
+body.shop .cpick-overlay {
+  position: fixed; inset: 0; z-index: 400; display: none;
+  align-items: center; justify-content: center; padding: 20px;
+  background: rgba(20, 24, 20, .45);
+}
+body.shop .cpick-overlay.open { display: flex; }
+body.shop .cpick {
+  background: var(--white); border-radius: 14px; padding: 18px 18px 12px;
+  width: min(330px, 100%); box-shadow: 0 16px 44px rgba(0, 0, 0, .28);
+}
+body.shop .cpick-head {
+  font-size: 14px; font-weight: 700; color: var(--black);
+  text-align: center; margin-bottom: 12px;
+}
+body.shop .cpick-num {
+  display: flex; align-items: center; gap: 10px;
+  padding: 12px 14px; margin-bottom: 8px;
+  border: 1.5px solid var(--border); border-radius: 10px;
+  font-size: 15px; font-weight: 600; color: var(--black); text-decoration: none;
+}
+body.shop .cpick-num svg { flex: 0 0 auto; color: var(--green); }
+body.shop .cpick-num:hover { border-color: var(--green); background: var(--green-light); }
+body.shop .cpick-cancel {
+  width: 100%; padding: 10px; margin-top: 2px;
+  background: none; border: none; font-family: inherit;
+  font-size: 13px; font-weight: 600; color: var(--text-muted); cursor: pointer;
+}
+body.shop .cpick-cancel:hover { color: var(--black); }
+
 /* PAGINATION */
 body.shop .pagination {
   display: flex; justify-content: center; gap: 8px; margin-top: 36px; flex-wrap: wrap;
@@ -1127,6 +1186,24 @@ body.shop .mini-img img { width: 100%; height: 100%; object-fit: contain; }
 body.shop .mini-name { font-size: 12.5px; font-weight: 600; line-height: 1.35; margin-bottom: 4px; }
 body.shop .mini-price { font-size: 12px; font-weight: 700; color: var(--green); }
 body.shop .recent-section { background: #f7f9f7; padding: 48px 0; }
+
+/* ===== Страница не найдена (404) ===== */
+body.shop .notfound-section { padding: 90px 0 100px; }
+body.shop .notfound-inner { max-width: 480px; margin: 0 auto; text-align: center; }
+body.shop .notfound-code {
+  font-size: 84px; font-weight: 900; line-height: 1; color: var(--green);
+  margin-bottom: 8px;
+}
+body.shop .notfound-title { font-size: 24px; font-weight: 800; color: var(--black); margin: 0 0 12px; }
+body.shop .notfound-text { font-size: 14.5px; line-height: 1.6; color: var(--text-muted); margin: 0 0 28px; }
+body.shop .notfound-actions { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
+body.shop .notfound-actions .btn-catalog,
+body.shop .notfound-actions .btn-consult-outline { display: inline-flex; align-items: center; justify-content: center; min-width: 180px; }
+@media (max-width: 640px) {
+  body.shop .notfound-section { padding: 60px 0 70px; }
+  body.shop .notfound-code { font-size: 64px; }
+  body.shop .notfound-actions { flex-direction: column; align-items: stretch; }
+}
 
 /* ===== Описание раздела (SEO-текст внизу каталога) ===== */
 body.shop .catalog-about { padding: 40px 0; border-top: 1px solid var(--border); }

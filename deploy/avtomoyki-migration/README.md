@@ -9,23 +9,47 @@
 |---|---|---|
 | `avtomoyki-map.conf` | `/etc/nginx/conf.d/avtomoyki-map.conf` | `map` со всеми правилами (старый путь → новый) |
 | `nginx-avtomoyki.conf` | `/etc/nginx/sites-available/avtomoyki` (+ symlink в `sites-enabled/`) | server-блок для домена |
+| `nginx-map-hash-size.conf` | `/etc/nginx/conf.d/00-map-hash-size.conf` | увеличивает `map_hash_bucket_size` — без него `nginx -t` падает (карта длинная) |
 | `redirect-map.csv` | — | человекочитаемая карта для проверки SEO-менеджером |
-| `build-redirect-map.py` | — | генератор карты (перезапустить со свежим экспортом Satu) |
+| `build-redirect-map.py` | — | генератор карты (⚠️ больше нельзя просто перезапускать, см. ниже) |
+| `apply-overrides.py` | — | безопасно накатывает новые `MANUAL_OVERRIDES` на уже готовую карту, без обращения к живым sitemap |
 
-## Что покрыто (карта от 2026-09-07, 279 правил)
+## Что покрыто (карта от 2026-09-11, 284 правила — сверена с Евгением, 252/253)
 
 Новый сайт использует ЧПУ-адреса: `/catalog/{категория}/{подкатегория}` и
 `/product/{id}-{слаг}`. Карта ведёт сразу на них.
 
 - **Главная** → `b2btech.kz/`
 - **8 статических страниц** (о нас, контакты, доставка, отзывы …) → соответствующие
-- **35 разделов** `avtomoyki.kz/g…` → `b2btech.kz/catalog/{кат}/{подкат}`
-- **235 товаров** `avtomoyki.kz/p…`:
-  - 208 — в живом sitemap Satu; из них **154 → точная карточка**, 54 → их подраздел
-    (этих товаров нет на b2btech.kz)
-  - +27 — сняты с публикации на Satu, но старые адреса ещё в индексе → **точная карточка**
-  - **Итого 181 → точная карточка, 54 → раздел.** Битых ссылок 0 (все id и слаги сверены с b2btech.kz).
+- **37 разделов** `avtomoyki.kz/g…` → `b2btech.kz/catalog/{кат}/{подкат}` (35 с живого
+  sitemap + 2 вручную — их нет на живом avtomoyki.kz, но они есть в экспорте Satu)
+- **237 товаров** `avtomoyki.kz/p…` → **все 237 на точные карточки** товара на b2btech.kz
 - Всё неизвестное → главная b2btech.kz
+
+### Проверка от Евгения (2026-09-11, дополнено 2026-09-14)
+
+Карту сверили с файлом SEO-менеджера `Редиректы для нового домена.xlsx` (253 адреса
+им проверены вручную). 59 адресов в нашей карте были улучшены его ручными находками
+(карточки товаров, которые автоматическое сопоставление не нашло, + 2 товара,
+добавленных в магазин уже после первой сверки) — всё встроено в `build-redirect-map.py`
+как `MANUAL_OVERRIDES`, переживёт пересборку карты.
+
+14.09.2026 Евгений поймал на живом сайте ещё один баг: `/g9248215-avtomaticheskie-mojki-dlya`
+редиректил на `/catalog/avtomojka/avtomaticheskie-moyki-dlya` — такой подкатегории на
+боевом сервере не существует (в прошлый раз я ошибочно посчитал это неточной находкой
+Евгения, сверяя со своей отставшей локальной копией базы). Проверка через живой
+`/api/products` подтвердила: Евгений был прав, реальный слаг —
+`avtomaticheskie-moyki-dlya-mashin-robotizirovann`. Исправлено в `MANUAL_OVERRIDES`.
+
+**Важно:** живые sitemap `avtomoyki.kz` (на которых строится автосопоставление в
+`build-redirect-map.py`) с 2026-09-11/12 больше недоступны в исходном виде — домен
+теперь сам указывает на наш сервер и любой запрос к нему улетает 301-редиректом на
+b2btech.kz. Поэтому **`build-redirect-map.py` больше нельзя просто перезапускать** —
+он тихо (без ошибки) получит 0 разделов и 0 товаров с sitemap и сломает карту. Новые
+точечные правки теперь нужно вносить только через `MANUAL_OVERRIDES` в самом скрипте
+(`build-redirect-map.py`) и накатывать командой `python3 apply-overrides.py` (она берёт
+текущий `avtomoyki-map.conf`/`redirect-map.csv` как базу и добавляет только новые/
+изменённые пары `old → new`) — не через полный перезапуск генератора.
 
 **Иерархия разделов восстановлена.** На b2btech.kz у подкатегорий появился «родитель»
 (поле `subcategories.parent_id`), дерево «групп» Satu воссоздано (миграция `subcat_tree_v1`
@@ -33,9 +57,9 @@
 пылесосы, Автоподъёмники и т.д.) — теперь настоящие страницы, показывают товары всех
 дочерних подгрупп, индексируются. Редиректы `g…` ведут прямо в эти разделы.
 
-> Чтобы поднять 154 → ~200 точных карточек: сделать **свежий экспорт из Satu**
-> (Товары + Группы), заменить `SATU_XLSX` в скрипте и перезапустить
-> `python3 build-redirect-map.py` — он пересоберёт `avtomoyki-map.conf`.
+> Если добавите в магазин ещё товары/разделы со старого сайта — впишите пару
+> `old → new` в `MANUAL_OVERRIDES` (шапка `build-redirect-map.py`) и запустите
+> `python3 apply-overrides.py` (см. предупреждение выше про сам генератор).
 
 ## Порядок деплоя (без простоя)
 
@@ -46,10 +70,11 @@
 - A-запись: `avtomoyki.kz` → `185.146.1.112`
 - A-запись: `www` → `185.146.1.112` (или CNAME `www` → `avtomoyki.kz`)
 
-### 2. Свежий экспорт Satu + пересборка карты (по желанию, для полноты)
-```
-python3 deploy/avtomoyki-migration/build-redirect-map.py
-```
+### 2. Точечные правки карты (по необходимости)
+
+Если нужно добавить/исправить адрес — допишите пару в `MANUAL_OVERRIDES` в шапке
+`build-redirect-map.py` и запустите `python3 deploy/avtomoyki-migration/apply-overrides.py`
+(⚠️ не сам `build-redirect-map.py` — см. предупреждение выше).
 
 ### 3. Залить конфиги на сервер
 С Мака:
@@ -57,15 +82,19 @@ python3 deploy/avtomoyki-migration/build-redirect-map.py
 scp -o PubkeyAuthentication=no -o PreferredAuthentications=password \
   deploy/avtomoyki-migration/avtomoyki-map.conf \
   deploy/avtomoyki-migration/nginx-avtomoyki.conf \
+  deploy/avtomoyki-migration/nginx-map-hash-size.conf \
   ubuntu@185.146.1.112:/tmp/
 ```
 На сервере:
 ```bash
-sudo mv /tmp/avtomoyki-map.conf   /etc/nginx/conf.d/avtomoyki-map.conf
-sudo mv /tmp/nginx-avtomoyki.conf /etc/nginx/sites-available/avtomoyki
+sudo mv /tmp/avtomoyki-map.conf      /etc/nginx/conf.d/avtomoyki-map.conf
+sudo mv /tmp/nginx-avtomoyki.conf    /etc/nginx/sites-available/avtomoyki
+sudo mv /tmp/nginx-map-hash-size.conf /etc/nginx/conf.d/00-map-hash-size.conf
 sudo ln -s /etc/nginx/sites-available/avtomoyki /etc/nginx/sites-enabled/
 sudo nginx -t && sudo systemctl reload nginx
 ```
+(`00-map-hash-size.conf` увеличивает `map_hash_bucket_size` — без него `nginx -t`
+падает с `could not build map_hash`, в карте много длинных адресов)
 (конфиг пока только на порту 80 — этого достаточно, чтобы редиректы заработали
 сразу после смены NS; HTTPS добавит certbot в шаге 5)
 

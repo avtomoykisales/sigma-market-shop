@@ -13,10 +13,8 @@ module.exports = {
         NODE_ENV: 'production',
         PORT: 3001,
         SITE_URL: 'https://b2btech.kz',
-        // Пред-запуск: закрыть сайт от поисковиков (robots.txt Disallow: /,
-        // <meta robots noindex>, заголовок X-Robots-Tag). В день запуска — убрать строку
-        // и `pm2 restart sigma-shop --update-env`.
-        SITE_NOINDEX: '1',
+        SITE_NOINDEX: '0',
+        YM_ID: 112428503,
       },
     },
   ],

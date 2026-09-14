@@ -5,6 +5,7 @@ const multer = require('multer');
 const cors = require('cors');
 const db = require('./database');
 const seo = require('./seo');
+const bitrix = require('./bitrix');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -67,8 +68,9 @@ app.get(/.*/, async (req, res, next) => {
   if (p === '/catalog' || /^\/catalog\/[^/]+/.test(p) || /^\/product\/\d/.test(p)) {
     try {
       let html = renderPage(fs.readFileSync(path.join(PUBLIC_DIR, 'index.html'), 'utf8'));
-      html = seo.inject(html, await seo.build(req, '/index.html'));
-      return res.type('html').send(html);
+      const seoData = await seo.build(req, '/index.html');
+      html = seo.inject(html, seoData);
+      return res.status(seoData.notFound ? 404 : 200).type('html').send(html);
     } catch (e) {
       console.error('ЧПУ render failed:', e.message);
     }
@@ -142,7 +144,7 @@ app.get('/api/settings', async (req, res) => {
     res.json({
       blocks: s.blocks || {}, filters: s.filters || {},
       compare: s.compare !== false, favorites: s.favorites !== false,
-      quiz: s.quiz || {}
+      quiz: s.quiz || {}, contacts: s.contacts || {}
     });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -322,6 +324,9 @@ app.get('/api/products/:id', async (req, res) => {
     if (!product) return res.status(404).json({ error: 'Товар не найден' });
     if (product.specs) { try { product.specs = JSON.parse(product.specs); } catch {} }
 
+    // готовые SEO-мета (единый источник — seo.js); клиент их берёт при SPA-навигации
+    product.seo = seo.productMeta(product);
+
     // Галерея: главное изображение (icon) + дополнительные (images), без дублей
     let extra = [];
     try { extra = JSON.parse(product.images || '[]'); } catch {}
@@ -381,6 +386,17 @@ app.post('/api/orders', async (req, res) => {
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
       [name, phone, email || '', city || '', message || '', itemsStr, total]
     );
+
+    // Bitrix24 — не блокируем ответ клиенту; ошибку только логируем
+    getSettings().then(s => {
+      const hook = s.crm && s.crm.bitrix_webhook;
+      if (!hook) return;
+      return bitrix.sendLead(hook, {
+        name, phone, email, city, message, items: itemsStr, total,
+        pageUrl: req.get('referer') || '',
+      }).then(id => console.log('Bitrix24: лид создан #' + id))
+        .catch(e => console.error('Bitrix24 lead failed:', e.message));
+    }).catch(() => {});
 
     res.json({ success: true, orderId: result.lastID });
   } catch (e) {
@@ -461,6 +477,7 @@ const DIFF_FIELDS = {
     perf: 'Производительность', perf_unit: 'Ед. произв.', subtype: 'Тип',
     youtube: 'Видео', icon: 'Иконка',
     seo_title: 'SEO-заголовок', seo_description: 'SEO-описание',
+    contact_primary: 'Первый контакт (WhatsApp/звонок)',
   },
   categories: { name: 'Название', slug: 'Slug', description: 'Описание', icon: 'Иконка', seo_title: 'SEO-заголовок', seo_description: 'SEO-описание' },
   subcategories: { category_id: 'Категория (id)', name: 'Название', slug: 'Slug', description: 'Описание', sort: 'Порядок', icon: 'Иконка', seo_title: 'SEO-заголовок', seo_description: 'SEO-описание' },
@@ -665,13 +682,14 @@ app.post('/api/admin/products', adminAuth, async (req, res) => {
     const result = await db.runAsync(
       `INSERT INTO products (category_id, name, article, brand, description, price, price_on_request, icon, in_stock, featured, specs,
                              subtype, perf, perf_unit, related_ids, bundle_ids, youtube, subtitle, images, subcategory_id,
-                             seo_title, seo_description)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                             seo_title, seo_description, contact_primary)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [b.category_id, b.name, b.article || '', b.brand || '', b.description || '', b.price || 0,
        b.price_on_request ? 1 : 0, b.icon || null, b.in_stock ? 1 : 0, b.featured ? 1 : 0, b.specs || '{}',
        b.subtype || null, b.perf || null, b.perf_unit || 'ед./час', jsonArr(b.related_ids), jsonArr(b.bundle_ids),
        b.youtube || null, b.subtitle || null, jsonArr(b.images), b.subcategory_id || null,
-       (b.seo_title || '').trim() || null, (b.seo_description || '').trim() || null]
+       (b.seo_title || '').trim() || null, (b.seo_description || '').trim() || null,
+       (b.contact_primary === '1' || b.contact_primary === '2') ? b.contact_primary : null]
     );
     res.json({ success: true, id: result.lastID });
   } catch (e) {
@@ -707,6 +725,7 @@ app.put('/api/admin/products/:id', adminAuth, async (req, res) => {
       images: v => jsonArr(v),
       seo_title: v => (v || '').trim() || null,
       seo_description: v => (v || '').trim() || null,
+      contact_primary: v => (v === '1' || v === '2') ? v : null,
     }, b);
     if (!sets.length) return res.json({ success: true });
     await db.runAsync(`UPDATE products SET ${sets.join(', ')} WHERE id = ?`, [...params, req.params.id]);
@@ -730,6 +749,21 @@ app.put('/api/admin/settings', adminAuth, async (req, res) => {
     }
     res.json({ success: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// Проверка связи с Bitrix24 — создаёт тестового лида
+app.post('/api/admin/crm-test', adminAuth, async (req, res) => {
+  try {
+    const hook = (req.body && req.body.bitrix_webhook || '').trim()
+      || ((await getSettings()).crm || {}).bitrix_webhook;
+    if (!hook) return res.status(400).json({ error: 'Не указан адрес вебхука' });
+    const id = await bitrix.sendLead(hook, {
+      name: 'Тест SIGMA MARKET',
+      phone: '+7 700 000 00 00',
+      message: 'Тестовая заявка — проверка связи с сайтом. Можно удалить.',
+      items: '[]',
+    });
+    res.json({ success: true, leadId: id });
+  } catch (e) { res.status(502).json({ error: e.message }); }
 });
 app.post('/api/admin/settings/reset-quiz', adminAuth, async (req, res) => {
   try {

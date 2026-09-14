@@ -36,18 +36,18 @@ async function showProduct(id) {
   scrollToView('productView');
 
   const p = await apiFetch(`/api/products/${id}`);
-  if (!p || p.error) { document.getElementById('productViewBody').innerHTML = '<div class="spinner">Товар не найден</div>'; return; }
+  if (!p || p.error) { if (typeof showNotFound === 'function') showNotFound(); return; }
 
-  // SEO: обновить title/description/canonical под товар
+  replaceUrl(productUrl(p));   // уточняем адрес слагом ДО setMeta (чтобы Метрика видела полный URL)
+  // SEO: title/description считает сервер (seo.productMeta) и отдаёт в p.seo — не дублируем формулу
   if (typeof setMeta === 'function') {
-    const brand = p.brand ? p.brand + ' ' : '';
+    const m = p.seo || {};
     setMeta(
-      p.seo_title ? seoClip(p.seo_title, 70) : seoClip(p.name + ' — ' + brand + '| SIGMA MARKET', 65),
-      seoClip(p.seo_description || p.description || p.subtitle || (p.name + '. Профессиональное оборудование от SIGMA MARKET. Поставка по Казахстану.'), 175),
+      m.title || (p.name + ' — SIGMA MARKET'),
+      m.description || '',
       productUrl(p)
     );
   }
-  replaceUrl(productUrl(p));   // уточняем адрес слагом (без новой записи в истории)
   let specs = p.specs;
   if (typeof specs === 'string') { try { specs = JSON.parse(specs); } catch { specs = {}; } }
 
@@ -80,6 +80,11 @@ async function showProduct(id) {
 
   const offerBtn = `<button class="btn-consult-outline" onclick="requestModal(${p.id})">Запросить коммерческое предложение</button>`;
   const buyBtn = p.price_on_request ? '' : `<button class="btn-catalog" onclick="addToCart(${p.id})">🛒 Купить</button>`;
+  const contactHtml = (typeof contactActions === 'function')
+    ? contactActions(state.settings.contacts, p.contact_primary, {
+        text: `Здравствуйте! Интересует «${p.name}». ${location.origin}${productUrl(p)}`
+      })
+    : '';
   const ytId = ytEmbed(p.youtube);
   const ytBtn = p.youtube
     ? `<a class="pv-youtube" href="${p.youtube}" target="_blank" rel="noopener">Смотреть на YouTube <span class="yt-badge">▶</span></a>` : '';
@@ -115,6 +120,7 @@ async function showProduct(id) {
         </div>
         ${priceHtml}
         <div class="pv-actions">${offerBtn}${buyBtn}</div>
+        ${contactHtml}
         ${ytBtn}
         ${favBtn}
       </div>

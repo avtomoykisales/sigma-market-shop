@@ -67,6 +67,7 @@ db.serialize(async () => {
   await addCol('products', 'subcategory_id', 'INTEGER');          // подкатегория (опционально)
   await addCol('subcategories', 'icon', 'TEXT');                  // иконка подкатегории (опционально)
   await addCol('subcategories', 'parent_id', 'INTEGER');         // родительская подкатегория (иерархия)
+  await addCol('products', 'contact_primary', 'TEXT');           // какой контакт показывать первым: '1' | '2' | null (= основной)
 
   // ---- SEO-переопределения (пусто → генерируется автоматически) ----
   await addCol('products', 'seo_title', 'TEXT');
@@ -120,7 +121,9 @@ db.serialize(async () => {
     filters:   JSON.stringify({ enabled: true, brand: true, subtype: true, price: true, perf: true }),
     compare:   'true',
     favorites: 'true',
-    quiz:      JSON.stringify(DEFAULT_QUIZ)
+    quiz:      JSON.stringify(DEFAULT_QUIZ),
+    contacts:  JSON.stringify({ phone1: '+7 (707) 420-20-03', phone2: '' }),
+    crm:       JSON.stringify({ bitrix_webhook: '' })
   };
   for (const [k, v] of Object.entries(defaultSettings)) {
     await db.runAsync(`INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)`, [k, v]);
