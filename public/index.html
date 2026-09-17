@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SIGMA MARKET — Профессиональное оборудование</title>
-<link rel="stylesheet" href="/style.css?v=20260911a">
+<link rel="stylesheet" href="/style.css?v=20260917a">
 </head>
 <body class="shop">
 
@@ -164,8 +164,9 @@
             <div class="spinner"><div class="spin"></div>&nbsp; Загрузка…</div>
           </div>
 
-          <!-- Пагинация -->
+          <!-- Пагинация (десктоп) / подгрузка при скролле (мобильная версия) -->
           <div class="pagination" id="pagination"></div>
+          <div id="catalogScrollSentinel"></div>
         </div>
       </div>
     </div>
@@ -278,8 +279,8 @@
 <!-- TOAST -->
 <div class="toast" id="toast"></div>
 
-<script src="/js/site.js?v=20260911a"></script>
-<script src="/js/product.js?v=20260911a"></script>
+<script src="/js/site.js?v=20260917a"></script>
+<script src="/js/product.js?v=20260917a"></script>
 <script>
 let state = {
   view: 'home',      // 'home' | 'catalog' | 'favorites'
@@ -295,7 +296,7 @@ let state = {
   filters: {},          // {subcat:[], brand:[], subtype:[], priceMax, perfMin, perfMax}
   facets: null
 };
-const lsGet = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } };
+const lsGet = (k, d) => { try { var v = JSON.parse(localStorage.getItem(k)); return (v === null || v === undefined) ? d : v; } catch { return d; } };
 const lsSet = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} };
 
 // ===== URL / история =====
@@ -395,6 +396,27 @@ async function init() {
   document.querySelectorAll('[data-nav="favorites"]').forEach(a => a.addEventListener('click', e => {
     e.preventDefault(); closeDrawer(); showFavorites();
   }));
+  initCatalogInfiniteScroll();
+}
+
+// Мобильная версия каталога: вместо кнопок страниц — подгрузка следующей страницы
+// при подскроле к концу списка (кнопки скрыты в style.css для max-width:768px).
+function initCatalogInfiniteScroll() {
+  const sentinel = document.getElementById('catalogScrollSentinel');
+  if (!sentinel || !('IntersectionObserver' in window)) return;
+  const mq = window.matchMedia('(max-width: 768px)');
+  let loading = false;
+  new IntersectionObserver((entries) => {
+    if (!entries[0].isIntersecting) return;
+    if (!mq.matches) return;                              // только мобильная версия
+    if (state.view !== 'catalog') return;                  // не в избранном и не на карточке товара
+    if (!state.total) return;                               // первая страница ещё не загрузилась
+    if (loading) return;
+    if (state.page * state.limit >= state.total) return;   // дальше страниц нет
+    loading = true;
+    state.page += 1;
+    loadProducts({ append: true }).catch(() => { state.page -= 1; }).finally(() => { loading = false; });
+  }, { rootMargin: '200px 0px' }).observe(sentinel);
 }
 
 // Разбор URL: ?product= / ?q= / ?category= / #catalog / #favorites / #quiz / #consult / #cart / иначе — главная
@@ -708,9 +730,10 @@ function updateBreadcrumb() {
 }
 
 // ===== PRODUCTS =====
-async function loadProducts() {
+async function loadProducts(opts) {
+  const append = !!(opts && opts.append);
   const grid = document.getElementById('productGrid');
-  grid.innerHTML = '<div class="spinner"><div class="spin"></div>&nbsp; Загрузка…</div>';
+  if (!append) grid.innerHTML = '<div class="spinner"><div class="spin"></div>&nbsp; Загрузка…</div>';
 
   const f = state.filters;
   const qs = new URLSearchParams({ page: state.page, limit: state.limit, sort: state.sort, facets: '1' });
@@ -726,6 +749,15 @@ async function loadProducts() {
 
   const data = await apiFetch('/api/products?' + qs.toString());
   state.total = data.total || 0;
+
+  if (append) {
+    // Подгрузка при скролле (мобильная версия) — только дописываем карточки,
+    // не трогаем фильтры/хлебные крошки/шапку каталога, чтобы не дёргать страницу.
+    grid.insertAdjacentHTML('beforeend', data.products.map(p => cardHtml(p)).join(''));
+    renderPagination(data.total);
+    return;
+  }
+
   if (data.facets) {
     state.facets = data.facets;
     // перестраиваем панель фильтров только при смене категории — иначе не теряем клики/фокус
@@ -910,12 +942,25 @@ function closeFilters() {
 }
 function resetFilters() {
   state.filters = {};
+  state.search = '';
+  const inp = document.getElementById('searchInput');
+  if (inp) inp.value = '';
   document.querySelectorAll('#filtersBody input').forEach(i => { if (i.type === 'checkbox') i.checked = false; else i.value = ''; });
   setUrl(catalogUrl());
   reloadFiltered();
 }
+function clearSearch() {
+  state.search = '';
+  const inp = document.getElementById('searchInput');
+  if (inp) inp.value = '';
+  reloadFiltered();
+}
 function renderActiveFilters() {
   const f = state.filters, chips = [];
+  // Поиск — отдельная плашка: он не сбрасывается при переключении категорий/подкатегорий
+  // и молча продолжает применяться вместе с ними (можно случайно получить «Найдено: 0»
+  // из-за забытого поиска), поэтому его тоже нужно уметь снять отдельно.
+  if (state.search) chips.push([`Поиск: «${state.search}»`, clearSearch]);
   const subs = (state.facets && state.facets.subcategories) || [];
   (f.subcat || []).forEach(sl => {
     const sc = subs.find(x => x.slug === sl);
@@ -1038,23 +1083,22 @@ async function submitOrder() {
   const name = document.getElementById('oName').value.trim();
   const phone = document.getElementById('oPhone').value.trim();
   if (!name||!phone) { showToast('⚠️ Укажите имя и телефон'); return; }
+  if (!window.isValidPhone(phone)) { showToast('⚠️ Введите корректный номер телефона'); return; }
   const btn = document.querySelector('.cart-footer .btn-primary');
   btn.disabled=true; btn.textContent='Отправляем…';
   try {
     const res = await apiFetch('/api/orders','POST',{
       name, phone,
-      email: document.getElementById('oEmail').value.trim(),
-      city: document.getElementById('oCity').value.trim(),
       message: document.getElementById('oMessage').value.trim(),
       items: JSON.stringify(state.cart.map(i=>({id:i.id,name:i.name,qty:i.qty,price:i.price||0})))
     });
     if (res.success) {
-      showToast('✅ Заявка отправлена! Мы свяжемся с вами.','green');
+      showToast('✅ Заявка отправлена! ' + window.contactSoonText(),'green');
       state.cart=[]; saveCart(); renderCart();
-      ['oName','oPhone','oEmail','oCity','oMessage'].forEach(id=>document.getElementById(id).value='');
+      ['oName','oPhone','oMessage'].forEach(id=>document.getElementById(id).value='');
       toggleCart();
     }
-  } catch { showToast('❌ Ошибка. Попробуйте ещё раз.'); }
+  } catch (e) { console.error('submitOrder:', e); window.logClientError(e && (e.message || e), 'submitOrder'); showToast('❌ Ошибка. Попробуйте ещё раз.'); }
   btn.disabled=false; btn.textContent='✅ Отправить заявку';
 }
 

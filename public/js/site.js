@@ -7,6 +7,111 @@
   'use strict';
   var $ = function (id) { return document.getElementById(id); };
 
+  /* ---------- ЛОГ ОШИБОК (видно в админке, раздел «Ошибки») ---------- */
+  // Не должен сам ничего ломать: fetch фоном, ошибки отправки просто игнорируем.
+  window.logClientError = function (message, context) {
+    try {
+      fetch('/api/log-error', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: String(message || '').slice(0, 2000), context: context || '', url: location.href })
+      }).catch(function () {});
+    } catch (e) {}
+  };
+  // Расширения браузера (переводчики, антивирусы и т.п.) тоже кидают ошибки на
+  // странице — их не отличить от наших на 100%, но самые типичные признаки чужого
+  // скрипта отсеиваем, чтобы не засорять журнал.
+  window.addEventListener('error', function (e) {
+    if (e.message === 'Script error.') return;               // ошибка стороннего скрипта без CORS — деталей всё равно нет
+    if (/^(chrome|moz|safari-web|safari)-extension:\/\//.test(e.filename || '')) return;
+    window.logClientError(e.message + ' (' + (e.filename || '') + ':' + (e.lineno || '') + ')', 'window.onerror');
+  });
+  window.addEventListener('unhandledrejection', function (e) {
+    var r = e.reason;
+    window.logClientError((r && (r.message || r.toString())) || 'unhandled promise rejection', 'unhandledrejection');
+  });
+
+  /* ---------- РАБОЧЕЕ ВРЕМЯ ---------- */
+  // Пн–Пт 09:00–18:00 по Алматы (см. /contacts.html «График работы») — время берём
+  // именно по таймзоне Алматы, а не по часам устройства посетителя (он может быть
+  // в другом часовом поясе или с неверно настроенными часами).
+  window.isWorkingHours = function () {
+    try {
+      var parts = new Intl.DateTimeFormat('en-US', {
+        timeZone: 'Asia/Almaty', weekday: 'short', hour: 'numeric', hourCycle: 'h23'
+      }).formatToParts(new Date());
+      var get = function (t) { var p = parts.find(function (x) { return x.type === t; }); return p && p.value; };
+      var weekday = get('weekday');
+      var hour = parseInt(get('hour'), 10);
+      var isWeekday = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'].indexOf(weekday) !== -1;
+      return isWeekday && hour >= 9 && hour < 18;
+    } catch (e) { return true; }   // не смогли определить — лучше не пугать лишним текстом
+  };
+  // Текст для тоста после отправки заявки — с учётом графика работы.
+  window.contactSoonText = function () {
+    return window.isWorkingHours()
+      ? 'Мы свяжемся с вами.'
+      : 'Мы свяжемся с вами в ближайший рабочий день.';
+  };
+
+  /* ---------- ПРОВЕРКА ТЕЛЕФОНА ---------- */
+  // Казахстанский номер: 11 цифр, начинается с 7 или 8 (+7 700 123 45 67, 8 700 123 45 67 …).
+  window.isValidPhone = function (phone) {
+    var digits = String(phone || '').replace(/\D/g, '');
+    return /^[78]\d{10}$/.test(digits);
+  };
+  // Маска +7 (xxx) xxx-xx-xx во всех полях type="tel" (cPhone, oPhone, rvPhone).
+  // Буквы и прочие символы не печатаются, номер собирается заново из введённых цифр.
+  function formatKzPhone(digits) {
+    if (!digits) return '';
+    var out = '+7 (' + digits.slice(0, 3);
+    if (digits.length >= 3) out += ')';
+    if (digits.length > 3) out += ' ' + digits.slice(3, 6);
+    if (digits.length > 6) out += '-' + digits.slice(6, 8);
+    if (digits.length > 8) out += '-' + digits.slice(8, 10);
+    return out;
+  }
+  // Настоящие цифры номера храним отдельно (el.dataset.phoneDigits) — не пытаемся
+  // каждый раз заново вычислять их из уже отформатированного текста, иначе backspace
+  // над скобкой/дефисом (символом маски, а не цифрой) визуально ничего не удаляет.
+  function renderPhone(el) {
+    el.value = formatKzPhone(el.dataset.phoneDigits || '');
+    var pos = el.value.length;
+    el.setSelectionRange(pos, pos);
+  }
+  document.addEventListener('keydown', function (e) {
+    var el = e.target;
+    if (!el || el.tagName !== 'INPUT' || el.type !== 'tel') return;
+    if (e.key !== 'Backspace' && e.key !== 'Delete') return;
+    e.preventDefault();
+    var hasSelection = el.selectionStart !== el.selectionEnd;
+    var digits = hasSelection ? '' : (el.dataset.phoneDigits || '').slice(0, -1);
+    el.dataset.phoneDigits = digits;
+    renderPhone(el);
+  });
+  document.addEventListener('input', function (e) {
+    var el = e.target;
+    if (!el || el.tagName !== 'INPUT' || el.type !== 'tel') return;
+    // Backspace/Delete перехвачены выше на keydown — сюда доходит только то, что
+    // реально напечатали/вставили (всегда добавляется в конец, курсор мы держим там же).
+    var prevDigits = el.dataset.phoneDigits || '';
+    var allDigits = el.value.replace(/\D/g, '');
+    var added;
+    if (prevDigits) {
+      // уже показан наш "+7 (" — это ровно одна лишняя цифра '7' перед prevDigits.
+      added = allDigits.slice(1 + prevDigits.length);
+    } else {
+      added = allDigits;
+      // Каждая набранная цифра сразу появляется в поле — никакой скрытой логики при
+      // обычном наборе с клавиатуры (раньше первая "8" молча "проглатывалась" как замена
+      // +7, и это выглядело как будто цифра не печатается). Срезаем код страны только
+      // когда это однозначно вставка/автозаполнение готового номера — сразу 11+ цифр.
+      if (added.length > 10) added = added.slice(added.length - 10);
+    }
+    el.dataset.phoneDigits = (prevDigits + added).slice(0, 10);
+    renderPhone(el);
+  });
+
   /* ---------- МОБИЛЬНОЕ МЕНЮ ---------- */
   window.openDrawer = function () {
     if ($('drawer')) $('drawer').classList.add('open');
@@ -173,6 +278,7 @@
     var name = $('cName') && $('cName').value.trim();
     var phone = $('cPhone') && $('cPhone').value.trim();
     if (!name || !phone) { window.showToast('⚠️ Укажите имя и телефон'); return; }
+    if (!window.isValidPhone(phone)) { window.showToast('⚠️ Введите корректный номер телефона'); return; }
     try {
       var res = await window.apiFetch('/api/orders', 'POST', {
         name: name,
@@ -183,10 +289,10 @@
         items: '[]'
       });
       if (res && res.success) {
-        window.showToast('✅ Заявка принята! Мы свяжемся с вами.', 'green');
+        window.showToast('✅ Заявка принята! ' + window.contactSoonText(), 'green');
         ['cName', 'cPhone', 'cCity', 'cEmail'].forEach(function (id) { if ($(id)) $(id).value = ''; });
       }
-    } catch (e) { window.showToast('❌ Ошибка. Попробуйте ещё раз.'); }
+    } catch (e) { window.logClientError(e && (e.message || e), 'submitConsult'); window.showToast('❌ Ошибка. Попробуйте ещё раз.'); }
   };
 
   /* ---------- ГЕРОЙ-СЛАЙДЕР ---------- */

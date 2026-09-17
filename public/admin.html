@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="robots" content="noindex, nofollow">
 <title>Админ-панель — SIGMA MARKET</title>
-<link rel="stylesheet" href="/style.css?v=20260911a">
+<link rel="stylesheet" href="/style.css?v=20260917a">
 </head>
 <body class="admin">
 
@@ -30,9 +30,11 @@
     <div class="nav-item" onclick="showPanel('products')" id="nav-products"><span class="icon">📦</span>Товары</div>
     <div class="nav-item" onclick="showPanel('subcats')" id="nav-subcats"><span class="icon">🗂</span>Категории</div>
     <div class="nav-item" onclick="showPanel('orders')" id="nav-orders"><span class="icon">📋</span>Заявки</div>
+    <div class="nav-item" onclick="showPanel('reviews')" id="nav-reviews"><span class="icon">⭐</span>Отзывы товаров</div>
     <div class="nav-item" onclick="showPanel('engage')" id="nav-engage"><span class="icon">⚙️</span>Вовлечённость</div>
     <div class="nav-item" onclick="showPanel('upload')" id="nav-upload"><span class="icon">🖼</span>Иконки (ZIP)</div>
     <div class="nav-item" onclick="showPanel('logs')" id="nav-logs"><span class="icon">📜</span>Журнал</div>
+    <div class="nav-item" onclick="showPanel('errors')" id="nav-errors"><span class="icon">🐞</span>Ошибки сайта</div>
     <div class="nav-item" onclick="showPanel('admins')" id="nav-admins"><span class="icon">👥</span>Администраторы</div>
     <div style="flex:1"></div>
     <div class="nav-item" onclick="logout()"><span class="icon">🚪</span>Выход</div>
@@ -53,7 +55,7 @@
         <div class="stat-card"><div class="label">📂 Категорий</div><div class="val" id="stat-cats">—</div></div>
       </div>
       <div class="card">
-        <div class="card-header"><h3>Последние заявки</h3></div>
+        <div class="card-header"><h3>Последние заявки — новые и в работе</h3></div>
         <div class="table-wrap"><table>
           <thead><tr><th>№</th><th>Имя</th><th>Телефон</th><th>Товары</th><th>Статус</th><th>Дата</th></tr></thead>
           <tbody id="recentOrdersTbody"></tbody>
@@ -97,6 +99,27 @@
           <span class="total-label" id="ordersTotal"></span>
           <div id="ordersPager"></div>
         </div>
+      </div>
+    </div>
+
+    <!-- ОТЗЫВЫ ТОВАРОВ -->
+    <div class="panel" id="panel-reviews">
+      <div class="card">
+        <div class="card-header">
+          <h3>Отзывы на товары</h3>
+        </div>
+        <div class="toolbar">
+          <select class="search-input" id="revStatus" onchange="loadReviews()" style="min-width:180px">
+            <option value="pending">На модерации</option>
+            <option value="approved">Опубликованные</option>
+            <option value="rejected">Отклонённые</option>
+            <option value="">Все</option>
+          </select>
+        </div>
+        <div class="table-wrap"><table>
+          <thead><tr><th style="width:150px">Дата</th><th>Товар / раздел</th><th style="width:90px">Оценка</th><th>Имя / Отзыв</th><th style="width:220px">Действия</th></tr></thead>
+          <tbody id="reviewsTbody"></tbody>
+        </table></div>
       </div>
     </div>
 
@@ -278,11 +301,33 @@
       </div>
     </div>
 
+    <!-- ОШИБКИ САЙТА -->
+    <div class="panel" id="panel-errors">
+      <div class="card">
+        <div class="card-header">
+          <h3>Ошибки на сайте</h3>
+          <button class="action-btn" onclick="clearErrors()">Очистить всё</button>
+        </div>
+        <p style="color:var(--muted);font-size:13px;margin:0 0 12px"></p>
+        <div class="table-wrap"><table>
+          <thead><tr><th style="width:150px">Дата</th><th>Ошибка</th><th style="width:120px">Где</th><th style="width:130px">IP</th></tr></thead>
+          <tbody id="errorsTbody"></tbody>
+        </table></div>
+        <div class="toolbar" style="justify-content:space-between">
+          <span id="errorsInfo" style="color:var(--muted);font-size:13px"></span>
+          <span>
+            <button class="action-btn" onclick="errorsPageStep(-1)">← Назад</button>
+            <button class="action-btn" onclick="errorsPageStep(1)">Вперёд →</button>
+          </span>
+        </div>
+      </div>
+    </div>
+
     <!-- АДМИНИСТРАТОРЫ -->
     <div class="panel" id="panel-admins">
       <div class="card" style="max-width:720px">
         <div class="card-header"><h3>Администраторы</h3></div>
-        <p style="padding:0 20px 4px;color:var(--muted);font-size:13px">Все администраторы равноправны — полный доступ к панели. Пароли храните надёжно.</p>
+        <p style="padding:0 20px 4px;color:var(--muted);font-size:13px"></p>
         <div class="table-wrap"><table>
           <thead><tr><th>#</th><th>Логин</th><th style="width:260px">Действия</th></tr></thead>
           <tbody id="adminsTbody"></tbody>
@@ -401,6 +446,18 @@
     <div class="form-actions">
       <button class="btn-cancel" onclick="document.getElementById('subcatOverlay').classList.remove('open')">Отмена</button>
       <button class="btn-save" onclick="saveSubcat()">💾 Сохранить</button>
+    </div>
+  </div>
+</div>
+
+<!-- ЖУРНАЛ: подробности изменения -->
+<div class="overlay" id="logDetailOverlay">
+  <div class="form-modal" style="width:min(760px,95vw)">
+    <h3 id="logDetailTitle">Действие</h3>
+    <div style="color:var(--muted);font-size:13px;margin:-14px 0 18px" id="logDetailMeta"></div>
+    <div id="logDetailBody"></div>
+    <div class="form-actions">
+      <button class="btn-cancel" onclick="document.getElementById('logDetailOverlay').classList.remove('open')">Закрыть</button>
     </div>
   </div>
 </div>
@@ -561,14 +618,16 @@ function showPanel(name) {
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
   document.getElementById('panel-'+name).classList.add('active');
   document.getElementById('nav-'+name).classList.add('active');
-  const titles = {dashboard:'Дашборд',products:'Управление товарами',subcats:'Категории и подкатегории',orders:'Заявки клиентов',engage:'Вовлечённость и подбор',upload:'Загрузка иконок',logs:'Журнал действий',admins:'Администраторы'};
+  const titles = {dashboard:'Дашборд',products:'Управление товарами',subcats:'Категории и подкатегории',orders:'Заявки клиентов',reviews:'Отзывы на товары',engage:'Вовлечённость и подбор',upload:'Загрузка иконок',logs:'Журнал действий',errors:'Ошибки сайта',admins:'Администраторы'};
   document.getElementById('panelTitle').textContent = titles[name] || name;
   if (name === 'products') loadProducts();
   if (name === 'orders') loadOrders();
+  if (name === 'reviews') loadReviews();
   if (name === 'dashboard') loadDashboard();
   if (name === 'engage') loadEngage();
   if (name === 'subcats') { loadCats(); loadSubcats(); }
   if (name === 'logs') loadLogs(1);
+  if (name === 'errors') loadErrors(1);
   if (name === 'admins') loadAdmins();
 }
 
@@ -597,15 +656,68 @@ async function loadLogs(page = 1) {
     if (admin) sel.value = admin;
   }
   const ICON = { login:'🔓', login_fail:'⛔', create:'➕', update:'✏️', delete:'🗑' };
-  document.getElementById('logsTbody').innerHTML = (data.rows || []).map(r => `
-    <tr${r.action === 'login_fail' ? ' style="background:#fef2f2"' : ''}>
+  logsRows = data.rows || [];
+  document.getElementById('logsTbody').innerHTML = logsRows.map((r, i) => `
+    <tr${r.action === 'login_fail' ? ' style="background:#fef2f2"' : ''}${r.detail ? ` class="log-row-clickable" onclick="showLogDetail(${i})"` : ''}>
       <td>${fmtDate(r.ts && r.ts.replace(' ', 'T') + 'Z')}</td>
       <td>${esc(r.admin || '—')}</td>
-      <td>${ICON[r.action] || ''} ${esc(r.label || r.action)}${r.detail ? `<div style="color:var(--muted);font-size:12px;margin-top:3px;white-space:normal">${esc(r.detail)}</div>` : ''}</td>
+      <td>${ICON[r.action] || ''} ${esc(r.label || r.action)}${r.detail ? `<div style="color:var(--muted);font-size:12px;margin-top:3px;white-space:normal">${esc(r.detail.length > 160 ? r.detail.slice(0, 160) + '…' : r.detail)}</div><div class="log-more-hint">Подробнее →</div>` : ''}</td>
       <td style="color:var(--muted);font-size:12px">${esc(r.ip || '')}</td>
     </tr>`).join('') || '<tr><td colspan="4" style="padding:20px;color:var(--muted)">Записей нет</td></tr>';
   const max = Math.max(1, Math.ceil(logsTotal / logsLimit));
   document.getElementById('logsInfo').textContent = `Всего: ${logsTotal} · страница ${logsPage} из ${max}`;
+}
+
+let logsRows = [];
+function showLogDetail(i) {
+  const r = logsRows[i];
+  if (!r) return;
+  document.getElementById('logDetailTitle').textContent = r.label || r.action;
+  document.getElementById('logDetailMeta').textContent =
+    `${fmtDate(r.ts && r.ts.replace(' ', 'T') + 'Z')} · ${r.admin || '—'} · ${r.ip || ''}`;
+  const lines = String(r.detail || '').split('\n');
+  document.getElementById('logDetailBody').innerHTML = lines.map(line => {
+    const arrowIdx = line.indexOf(' → ');
+    if (arrowIdx === -1) return `<div class="log-diff-plain">${esc(line)}</div>`;
+    const colonIdx = line.indexOf(': ');
+    const hasLabel = colonIdx !== -1 && colonIdx < arrowIdx;
+    const fieldLabel = hasLabel ? line.slice(0, colonIdx) : null;
+    const ov = line.slice(hasLabel ? colonIdx + 2 : 0, arrowIdx);
+    const nv = line.slice(arrowIdx + 3);
+    return `<div class="log-diff-field">
+      ${fieldLabel ? `<div class="fld-label">${esc(fieldLabel)}</div>` : ''}
+      <div class="log-diff-val log-diff-old">− ${esc(ov)}</div>
+      <div class="log-diff-val log-diff-new">+ ${esc(nv)}</div>
+    </div>`;
+  }).join('');
+  document.getElementById('logDetailOverlay').classList.add('open');
+}
+
+// ===== ОШИБКИ САЙТА =====
+let errorsPage = 1, errorsTotal = 0, errorsLimit = 60;
+function errorsPageStep(d) {
+  const max = Math.max(1, Math.ceil(errorsTotal / errorsLimit));
+  const p = Math.min(max, Math.max(1, errorsPage + d));
+  if (p !== errorsPage) loadErrors(p);
+}
+async function loadErrors(page = 1) {
+  errorsPage = page;
+  const data = await apiFetch('/api/admin/errors?' + new URLSearchParams({ page, limit: errorsLimit }));
+  errorsTotal = data.total || 0;
+  document.getElementById('errorsTbody').innerHTML = (data.rows || []).map(r => `
+    <tr>
+      <td>${fmtDate(r.ts && r.ts.replace(' ', 'T') + 'Z')}</td>
+      <td>${esc(r.message || '')}${r.url ? `<div style="color:var(--muted);font-size:12px;margin-top:3px;white-space:normal">${esc(r.url)}</div>` : ''}</td>
+      <td>${esc(r.context || '—')}</td>
+      <td style="color:var(--muted);font-size:12px">${esc(r.ip || '')}</td>
+    </tr>`).join('') || '<tr><td colspan="4" style="padding:20px;color:var(--muted)">Ошибок нет 🎉</td></tr>';
+  const max = Math.max(1, Math.ceil(errorsTotal / errorsLimit));
+  document.getElementById('errorsInfo').textContent = `Всего: ${errorsTotal} · страница ${errorsPage} из ${max}`;
+}
+async function clearErrors() {
+  if (!confirm('Удалить все записи об ошибках?')) return;
+  await apiFetch('/api/admin/errors', 'DELETE');
+  loadErrors(1);
 }
 
 // ===== АДМИНИСТРАТОРЫ =====
@@ -1043,25 +1155,26 @@ async function uploadProductImages() {
 
 // ===== DASHBOARD =====
 async function loadDashboard() {
-  const [prods, orders, cats] = await Promise.all([
+  const [prods, orders, newOrders, activeOrders, cats] = await Promise.all([
     apiFetch('/api/admin/products?limit=1'),
-    apiFetch('/api/admin/orders?limit=5'),
+    apiFetch('/api/admin/orders?limit=1'),
+    apiFetch('/api/admin/orders?limit=1&status=new'),
+    apiFetch('/api/admin/orders?limit=5&status=new,processing'),
     apiFetch('/api/categories')
   ]);
   document.getElementById('stat-products').textContent = prods.total;
   document.getElementById('stat-orders').textContent = orders.total;
   document.getElementById('stat-cats').textContent = cats.length;
-  const newCount = orders.orders.filter(o => o.status === 'new').length;
-  document.getElementById('stat-new').textContent = newCount;
+  document.getElementById('stat-new').textContent = newOrders.total;
   const tbody = document.getElementById('recentOrdersTbody');
-  tbody.innerHTML = orders.orders.map(o => `<tr>
+  tbody.innerHTML = (activeOrders.orders.length ? activeOrders.orders.map(o => `<tr>
     <td>#${o.id}</td>
     <td><strong>${esc(o.name)}</strong></td>
     <td>${esc(o.phone)}</td>
     <td class="order-items-list">${getItemsSummary(o.items)}</td>
     <td><span class="tag ${statusTag(o.status)}">${statusLabel(o.status)}</span></td>
     <td>${fmtDate(o.created_at)}</td>
-  </tr>`).join('');
+  </tr>`).join('') : '<tr><td colspan="6" style="padding:20px;color:var(--muted)">Новых заявок и заявок в работе нет</td></tr>');
 }
 
 // ===== PRODUCTS =====
@@ -1237,6 +1350,38 @@ async function loadOrders() {
 async function updateOrderStatus(id, status) {
   await apiFetch(`/api/admin/orders/${id}/status`, 'PUT', { status });
   showToast('Статус обновлён', 'green');
+}
+
+// ===== ОТЗЫВЫ ТОВАРОВ =====
+async function loadReviews() {
+  const status = document.getElementById('revStatus').value;
+  const data = await apiFetch('/api/admin/reviews' + (status ? `?status=${status}` : ''));
+  const STARS = n => '★'.repeat(n) + '☆'.repeat(5 - n);
+  const BTNS = {
+    pending: r => `<button class="action-btn" style="color:#16a34a" onclick="setReviewStatus(${r.id},'approved')">✅ Опубликовать</button>
+                   <button class="action-btn" style="color:#dc2626" onclick="setReviewStatus(${r.id},'rejected')">✕ Отклонить</button>`,
+    approved: r => `<button class="action-btn" style="color:#dc2626" onclick="setReviewStatus(${r.id},'rejected')">✕ Снять с публикации</button>`,
+    rejected: r => `<button class="action-btn" style="color:#16a34a" onclick="setReviewStatus(${r.id},'approved')">✅ Опубликовать</button>`,
+  };
+  document.getElementById('reviewsTbody').innerHTML = (data.rows || []).map(r => `
+    <tr>
+      <td>${fmtDate(r.created_at && r.created_at.replace(' ', 'T') + 'Z')}</td>
+      <td>${r.product_name ? esc(r.product_name) : '🏢 О компании'}</td>
+      <td style="color:var(--accent);letter-spacing:1px">${STARS(r.rating)}</td>
+      <td><strong>${esc(r.name)}</strong>${r.company ? ` <span style="color:var(--muted)">— ${esc(r.company)}</span>` : ''}${r.phone ? ` <span style="color:var(--muted);font-size:12px">· ${esc(r.phone)}</span>` : ''}${r.text ? `<div style="color:var(--muted);font-size:13px;margin-top:3px;white-space:normal">${esc(r.text)}</div>` : ''}</td>
+      <td>${(BTNS[r.status] || (() => ''))(r)} <button class="action-btn del" onclick="deleteReview(${r.id})">🗑</button></td>
+    </tr>`).join('') || '<tr><td colspan="5" style="padding:20px;color:var(--muted)">Отзывов нет</td></tr>';
+}
+async function setReviewStatus(id, status) {
+  await apiFetch(`/api/admin/reviews/${id}`, 'PUT', { status });
+  showToast(status === 'approved' ? '✅ Отзыв опубликован' : 'Отзыв отклонён', 'green');
+  loadReviews();
+}
+async function deleteReview(id) {
+  if (!confirm('Удалить отзыв?')) return;
+  await apiFetch(`/api/admin/reviews/${id}`, 'DELETE');
+  showToast('🗑 Отзыв удалён');
+  loadReviews();
 }
 
 // ===== UPLOAD =====

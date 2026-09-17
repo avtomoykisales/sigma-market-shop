@@ -132,6 +132,8 @@ async function showProduct(id) {
     ${block('С этим оборудованием берут', p.bundle)}
     ${block('Похожие модели', p.similar)}
 
+    <div class="pv-reviews" id="pvReviews"></div>
+
     <a class="pv-back" href="/catalog/${p.category_slug}" onclick="showCatalog('${p.category_slug}');return false;">← Вернуться в каталог</a>`;
 
   // Показать кнопку «Далее» только если описание реально не помещается
@@ -143,6 +145,99 @@ async function showProduct(id) {
 
   pushRecent(p.id);
   renderRecent();
+  loadProductReviews(p.id);
+}
+
+// ---- отзывы на товар ----
+function pvEsc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+function pvStars(n) { return '★'.repeat(n) + '☆'.repeat(5 - n); }
+function pvReviewWord(n) {
+  const n10 = n % 10, n100 = n % 100;
+  if (n100 >= 11 && n100 <= 14) return 'отзывов';
+  if (n10 === 1) return 'отзыв';
+  if (n10 >= 2 && n10 <= 4) return 'отзыва';
+  return 'отзывов';
+}
+function pvReviewDate(s) {
+  const d = new Date(String(s || '').replace(' ', 'T') + 'Z');
+  return isNaN(d) ? '' : d.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' });
+}
+
+async function loadProductReviews(id) {
+  const wrap = document.getElementById('pvReviews');
+  if (!wrap) return;
+  let data = { rows: [], count: 0, avg: 0 };
+  try { data = await apiFetch(`/api/products/${id}/reviews`); } catch (e) {}
+  const rows = data.rows || [];
+
+  const summaryHtml = rows.length
+    ? `<div class="pv-rating-summary">
+         <span class="stars" aria-label="${data.avg} из 5">${pvStars(Math.round(data.avg))}</span>
+         <span class="pv-rating-count">${data.avg} · ${rows.length} ${pvReviewWord(rows.length)}</span>
+       </div>`
+    : '';
+  const listHtml = rows.length
+    ? `<div class="pv-review-list">${rows.map(r => `
+        <article class="review-card">
+          <div class="stars" aria-label="${r.rating} из 5">${pvStars(r.rating)}</div>
+          ${r.text ? `<p>${pvEsc(r.text)}</p>` : ''}
+          <div class="review-author">${pvEsc(r.name)} <span class="pv-review-date">· ${pvReviewDate(r.created_at)}</span></div>
+        </article>`).join('')}</div>`
+    : `<p class="pv-review-empty">Отзывов пока нет — будьте первым!</p>`;
+
+  wrap.innerHTML = `
+    <h3>Отзывы</h3>
+    ${summaryHtml}
+    ${listHtml}
+    <div class="review-form pv-review-form">
+      <h4>Оставить отзыв</h4>
+      <input type="text" id="rvpName" placeholder="Ваше имя *">
+      <label class="stars-input-label">Ваша оценка *</label>
+      <div class="stars-input" id="rvpStars" data-rating="0" onmouseleave="pvHoverStars(this,0)">
+        ${[1, 2, 3, 4, 5].map(v => `<span class="si-star" data-v="${v}" onclick="pvSetStars(this)" onmouseenter="pvHoverStars(this.closest('.stars-input'),${v})">★</span>`).join('')}
+      </div>
+      <textarea id="rvpText" placeholder="Ваш отзыв (необязательно)"></textarea>
+      <button type="button" class="btn-primary" onclick="submitProductReview(${id})">Оставить отзыв</button>
+    </div>`;
+}
+
+// Подсветка звёзд при наведении (до клика) — иначе непонятно, что по ним можно кликать.
+function pvHoverStars(wrap, hoverV) {
+  const actual = Number(wrap.dataset.rating || 0);
+  const v = hoverV || actual;
+  wrap.querySelectorAll('.si-star').forEach(s => s.classList.toggle('on', Number(s.dataset.v) <= v));
+}
+
+function pvSetStars(el) {
+  const wrap = el.closest('.stars-input');
+  const v = Number(el.dataset.v);
+  wrap.dataset.rating = v;
+  wrap.querySelectorAll('.si-star').forEach(s => s.classList.toggle('on', Number(s.dataset.v) <= v));
+}
+
+async function submitProductReview(productId) {
+  const nameEl = document.getElementById('rvpName');
+  const starsEl = document.getElementById('rvpStars');
+  const textEl = document.getElementById('rvpText');
+  const name = nameEl.value.trim();
+  const rating = Number(starsEl.dataset.rating || 0);
+  if (!name || !rating) { window.showToast('⚠️ Укажите имя и оценку'); return; }
+  try {
+    const res = await apiFetch(`/api/products/${productId}/reviews`, 'POST', {
+      name, rating, text: textEl.value.trim()
+    });
+    if (res && res.success) {
+      window.showToast('✅ Спасибо! Отзыв отправлен на модерацию.', 'green');
+      nameEl.value = ''; textEl.value = '';
+      starsEl.dataset.rating = 0;
+      starsEl.querySelectorAll('.si-star').forEach(s => s.classList.remove('on'));
+    } else {
+      window.showToast('❌ ' + (res && res.error || 'Ошибка. Попробуйте ещё раз.'));
+    }
+  } catch (e) { window.logClientError(e && (e.message || e), 'submitProductReview'); window.showToast('❌ Ошибка. Попробуйте ещё раз.'); }
 }
 
 function togglePvDesc() {

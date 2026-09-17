@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Отзывы — SIGMA MARKET</title>
-<link rel="stylesheet" href="/style.css?v=20260911a">
+<link rel="stylesheet" href="/style.css?v=20260917a">
 </head>
 <body class="shop subpage">
 
@@ -46,6 +46,7 @@
           <div class="review-author">Ислам А. <span>— детейлинг-студия, Караганда</span></div>
         </article>
       </div>
+      <div class="reviews-grid" id="rvDynamicReviews"></div>
     </div>
   </section>
 
@@ -56,9 +57,17 @@
       <div class="review-form">
         <div class="rf-row">
           <input type="text" id="rvName" placeholder="Ваше имя *">
-          <input type="tel" id="rvPhone" placeholder="Телефон *">
+          <input type="tel" id="rvPhone" placeholder="Телефон (необязательно)">
         </div>
         <input type="text" id="rvCompany" placeholder="Компания и город">
+        <label class="stars-input-label">Ваша оценка *</label>
+        <div class="stars-input" id="rvStars" data-rating="0" onmouseleave="rvHoverStars(0)">
+          <span class="si-star" data-v="1" onclick="rvSetStars(1)" onmouseenter="rvHoverStars(1)">★</span>
+          <span class="si-star" data-v="2" onclick="rvSetStars(2)" onmouseenter="rvHoverStars(2)">★</span>
+          <span class="si-star" data-v="3" onclick="rvSetStars(3)" onmouseenter="rvHoverStars(3)">★</span>
+          <span class="si-star" data-v="4" onclick="rvSetStars(4)" onmouseenter="rvHoverStars(4)">★</span>
+          <span class="si-star" data-v="5" onclick="rvSetStars(5)" onmouseenter="rvHoverStars(5)">★</span>
+        </div>
         <textarea id="rvText" placeholder="Ваш отзыв о работе с SIGMA MARKET *"></textarea>
         <button type="button" class="btn-primary" onclick="submitReview()">Отправить отзыв</button>
         <p class="rf-note">Отзыв публикуется после проверки модератором.</p>
@@ -72,26 +81,61 @@
 <!-- partial:footer -->
 
 <div class="toast" id="toast"></div>
-<script src="/js/site.js?v=20260911a"></script>
+<script src="/js/site.js?v=20260917a"></script>
 <script>
+function rvHoverStars(hoverV) {
+  var wrap = document.getElementById('rvStars');
+  var v = hoverV || Number(wrap.dataset.rating || 0);
+  wrap.querySelectorAll('.si-star').forEach(function (s) { s.classList.toggle('on', Number(s.dataset.v) <= v); });
+}
+function rvSetStars(v) {
+  var wrap = document.getElementById('rvStars');
+  wrap.dataset.rating = v;
+  rvHoverStars(v);
+}
+
 async function submitReview() {
   var name = document.getElementById('rvName').value.trim();
   var phone = document.getElementById('rvPhone').value.trim();
   var text = document.getElementById('rvText').value.trim();
   var company = document.getElementById('rvCompany').value.trim();
-  if (!name || !phone || !text) { showToast('⚠️ Заполните имя, телефон и текст отзыва'); return; }
+  var rating = Number(document.getElementById('rvStars').dataset.rating || 0);
+  if (!name || !text || !rating) { showToast('⚠️ Укажите имя, оценку и текст отзыва'); return; }
+  if (phone && !window.isValidPhone(phone)) { showToast('⚠️ Введите корректный номер телефона'); return; }
   try {
-    var res = await apiFetch('/api/orders', 'POST', {
-      name: name, phone: phone, city: company,
-      message: 'ОТЗЫВ: ' + text,
-      items: '[]'
-    });
+    var res = await apiFetch('/api/reviews', 'POST', { name: name, phone: phone, company: company, rating: rating, text: text });
     if (res && res.success) {
       showToast('✅ Спасибо! Отзыв отправлен на модерацию.', 'green');
       ['rvName','rvPhone','rvCompany','rvText'].forEach(function (id) { document.getElementById(id).value = ''; });
+      document.getElementById('rvStars').dataset.rating = 0;
+      rvHoverStars(0);
+    } else {
+      showToast('❌ ' + ((res && res.error) || 'Ошибка. Попробуйте ещё раз.'));
     }
-  } catch (e) { showToast('❌ Ошибка. Попробуйте ещё раз.'); }
+  } catch (e) { window.logClientError(e && (e.message || e), 'submitReview'); showToast('❌ Ошибка. Попробуйте ещё раз.'); }
 }
+
+function rvEsc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+  });
+}
+async function loadDynamicReviews() {
+  var wrap = document.getElementById('rvDynamicReviews');
+  if (!wrap) return;
+  try {
+    var data = await apiFetch('/api/reviews');
+    wrap.innerHTML = (data.rows || []).map(function (r) {
+      var stars = '★'.repeat(r.rating) + '☆'.repeat(5 - r.rating);
+      return '<article class="review-card">' +
+        '<div class="stars" aria-label="' + r.rating + ' из 5">' + stars + '</div>' +
+        (r.text ? '<p>' + rvEsc(r.text) + '</p>' : '') +
+        '<div class="review-author">' + rvEsc(r.name) + (r.company ? ' <span>— ' + rvEsc(r.company) + '</span>' : '') + '</div>' +
+        '</article>';
+    }).join('');
+  } catch (e) {}
+}
+loadDynamicReviews();
 </script>
 </body>
 </html>

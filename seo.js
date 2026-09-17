@@ -250,6 +250,30 @@ async function productSeo(base, id, seo) {
   };
   if (gallery.length) product.image = gallery;
   if (p.brand) product.brand = { '@type': 'Brand', name: p.brand };
+
+  // Рейтинг из одобренных отзывов — показывает звёзды прямо в выдаче поиска.
+  // Google требует, чтобы отзывы, на которых основан рейтинг, были видны на странице —
+  // они и есть, в блоке отзывов на карточке товара (см. reviews в /api/products/:id).
+  const approvedReviews = await db.allAsync(
+    `SELECT name, rating, text, created_at FROM reviews WHERE product_id = ? AND status = 'approved' ORDER BY id DESC`,
+    [p.id]
+  );
+  if (approvedReviews.length) {
+    const avg = approvedReviews.reduce((s, r) => s + r.rating, 0) / approvedReviews.length;
+    product.aggregateRating = {
+      '@type': 'AggregateRating',
+      ratingValue: Math.round(avg * 10) / 10,
+      reviewCount: approvedReviews.length,
+    };
+    product.review = approvedReviews.slice(0, 10).map((r) => ({
+      '@type': 'Review',
+      author: { '@type': 'Person', name: r.name },
+      reviewRating: { '@type': 'Rating', ratingValue: r.rating, bestRating: 5, worstRating: 1 },
+      reviewBody: r.text || undefined,
+      datePublished: (r.created_at || '').replace(' ', 'T'),
+    }));
+  }
+
   if (!p.price_on_request && p.price > 0) {
     product.offers = {
       '@type': 'Offer',

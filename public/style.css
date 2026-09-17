@@ -544,6 +544,7 @@ body.shop .page-btn {
 }
 body.shop .page-btn:hover { border-color: var(--green); color: var(--green); }
 body.shop .page-btn.active { background: var(--green); color: white; border-color: var(--green); }
+body.shop .catalog-loading-more { display: flex; justify-content: center; padding: 24px 0; color: var(--text-muted); font-size: 14px; }
 
 /* ===== КОНСУЛЬТАЦИЯ ===== */
 body.shop .consult-section {
@@ -1027,12 +1028,30 @@ body.shop .pv-fav {
 }
 body.shop .pv-fav.on { background: #e11d48; color: #fff; border-color: #e11d48; }
 
-body.shop .pv-fulldesc, body.shop .pv-specs, body.shop .pv-block {
+body.shop .pv-fulldesc, body.shop .pv-specs, body.shop .pv-block, body.shop .pv-reviews {
   margin-top: 32px; padding-top: 24px; border-top: 1px solid var(--border);
 }
-body.shop .pv-fulldesc h3, body.shop .pv-specs h3, body.shop .pv-block h3 {
+body.shop .pv-fulldesc h3, body.shop .pv-specs h3, body.shop .pv-block h3, body.shop .pv-reviews h3 {
   font-size: 18px; font-weight: 800; margin-bottom: 14px;
 }
+/* Отзывы на карточке товара */
+body.shop .pv-rating-summary { display: flex; align-items: center; gap: 10px; margin-bottom: 18px; }
+body.shop .pv-rating-summary .stars { color: var(--accent); font-size: 18px; letter-spacing: 2px; }
+body.shop .pv-rating-summary .pv-rating-count { font-size: 13px; color: var(--text-muted); }
+body.shop .pv-review-list { display: flex; flex-direction: column; gap: 14px; max-width: 720px; margin-bottom: 28px; }
+body.shop .pv-review-list .review-card { padding: 18px 20px; gap: 8px; }
+body.shop .pv-review-date { font-size: 12px; color: var(--text-muted); }
+body.shop .pv-review-empty { font-size: 14px; color: var(--text-muted); margin-bottom: 24px; }
+body.shop .pv-review-form { max-width: 480px; }
+body.shop .pv-review-form h4 { font-size: 16px; font-weight: 800; margin: 0 0 4px; }
+body.shop .stars-input-label { font-size: 13px; color: var(--text-muted); margin-top: 4px; }
+body.shop .stars-input {
+  display: flex; gap: 6px; font-size: 30px; line-height: 1; margin: 2px 0 4px; width: fit-content;
+  cursor: pointer; padding: 6px 10px; border: 1.5px solid var(--border); border-radius: 8px;
+}
+body.shop .stars-input .si-star { color: #d1d5db; transition: color .15s, transform .1s; }
+body.shop .stars-input .si-star:hover { transform: scale(1.12); }
+body.shop .stars-input .si-star.on { color: var(--accent); }
 body.shop .pv-fulldesc p { font-size: 15px; line-height: 1.75; color: #374151; white-space: pre-line; }
 body.shop .pv-specs .specs-table { width: 100%; border-collapse: collapse; font-size: 14px; max-width: 720px; }
 body.shop .pv-specs .specs-table td { padding: 10px 14px; border-bottom: 1px solid var(--border); }
@@ -1412,6 +1431,9 @@ body.shop .quiz-result-actions { display: flex; gap: 12px; flex-wrap: wrap; marg
   /* footer stacks */
   body.shop .footer-inner { grid-template-columns: 1fr 1fr; gap: 28px; padding: 36px 16px 28px; }
   body.shop .footer-brand { grid-column: span 2; }
+
+  /* каталог на телефоне — без кнопок страниц, товары подгружаются при скролле */
+  body.shop .pagination { display: none; }
 }
 @media (max-width: 500px) {
   body.shop .cart-panel { width: 100%; right: -100%; }
@@ -1519,6 +1541,17 @@ body.admin .form-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 
 body.admin .form-grid .fg.full { grid-column: 1 / -1; }
 body.admin .form-modal textarea { min-height: 90px; }
 body.admin .form-modal #fSpecs { min-height: 130px; }
+
+/* Журнал — модалка «подробнее» с полным было/стало */
+body.admin .log-diff-field { margin-bottom: 18px; }
+body.admin .log-diff-field .fld-label { font-size: 12px; font-weight: 700; color: var(--muted); text-transform: uppercase; margin-bottom: 6px; }
+body.admin .log-diff-val { padding: 10px 12px; border-radius: 8px; font-size: 13px; line-height: 1.6; white-space: pre-wrap; word-break: break-word; max-height: 220px; overflow-y: auto; }
+body.admin .log-diff-old { background: #fef2f2; color: #991b1b; margin-bottom: 6px; }
+body.admin .log-diff-new { background: #f0fdf4; color: #166534; }
+body.admin .log-diff-plain { padding: 10px 12px; border-radius: 8px; font-size: 13px; line-height: 1.6; white-space: pre-wrap; word-break: break-word; background: var(--bg); }
+body.admin .log-row-clickable { cursor: pointer; }
+body.admin .log-row-clickable:hover { background: var(--bg); }
+body.admin .log-more-hint { color: var(--green); font-size: 12px; font-weight: 600; margin-top: 4px; }
 @media (max-width: 900px) {
   body.admin .form-modal { padding: 24px 20px; }
   body.admin .form-grid { grid-template-columns: 1fr 1fr; }

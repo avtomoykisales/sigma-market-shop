@@ -94,7 +94,12 @@ app.get(/.*/, async (req, res, next) => {
   res.type('html').send(html);
 });
 
-app.use(express.static(PUBLIC_DIR));
+// По умолчанию express.static шлёт max-age=0 — браузер скачивает JS/CSS/картинки
+// заново при каждом переходе по сайту. Загруженные иконки товаров никогда не
+// перезаписываются (при повторной загрузке файл получает новое имя, см. multer
+// storage выше), а JS/CSS обновляются через ?v=… в самих ссылках — так что 30 дней
+// кэша безопасны и заметно ускоряют повторные переходы, особенно на мобильном интернете.
+app.use(express.static(PUBLIC_DIR, { maxAge: '30d' }));
 
 // File upload for icons
 const ICONS_DIR = path.join(__dirname, 'public/icons');
@@ -366,12 +371,76 @@ app.get('/api/products/:id', async (req, res) => {
   }
 });
 
+// ==================== ОТЗЫВЫ НА ТОВАРЫ ====================
+app.get('/api/products/:id/reviews', async (req, res) => {
+  try {
+    const rows = await db.allAsync(
+      `SELECT id, name, rating, text, created_at FROM reviews
+       WHERE product_id = ? AND status = 'approved' ORDER BY id DESC`,
+      [req.params.id]
+    );
+    const count = rows.length;
+    const avg = count ? rows.reduce((s, r) => s + r.rating, 0) / count : 0;
+    res.json({ rows, count, avg: Math.round(avg * 10) / 10 });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post('/api/products/:id/reviews', async (req, res) => {
+  try {
+    const productId = Number(req.params.id);
+    const product = await db.getAsync('SELECT id FROM products WHERE id = ?', [productId]);
+    if (!product) return res.status(404).json({ error: 'Товар не найден' });
+
+    const name = String((req.body && req.body.name) || '').trim().slice(0, 100);
+    const rating = Math.round(Number(req.body && req.body.rating));
+    const text = String((req.body && req.body.text) || '').trim().slice(0, 2000);
+    if (!name || !(rating >= 1 && rating <= 5)) {
+      return res.status(400).json({ error: 'Укажите имя и оценку от 1 до 5' });
+    }
+    await db.runAsync(
+      `INSERT INTO reviews (product_id, name, rating, text) VALUES (?,?,?,?)`,
+      [productId, name, rating, text]
+    );
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ==================== ОБЩИЕ ОТЗЫВЫ (страница /reviews, не привязаны к товару) ====================
+app.get('/api/reviews', async (req, res) => {
+  try {
+    const rows = await db.allAsync(
+      `SELECT id, name, company, rating, text, created_at FROM reviews
+       WHERE product_id IS NULL AND status = 'approved' ORDER BY id DESC LIMIT 60`
+    );
+    res.json({ rows });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post('/api/reviews', async (req, res) => {
+  try {
+    const name = String((req.body && req.body.name) || '').trim().slice(0, 100);
+    const phone = String((req.body && req.body.phone) || '').trim().slice(0, 30);
+    const company = String((req.body && req.body.company) || '').trim().slice(0, 150);
+    const rating = Math.round(Number(req.body && req.body.rating));
+    const text = String((req.body && req.body.text) || '').trim().slice(0, 2000);
+    if (!name || !(rating >= 1 && rating <= 5)) {
+      return res.status(400).json({ error: 'Укажите имя и оценку от 1 до 5' });
+    }
+    await db.runAsync(
+      `INSERT INTO reviews (product_id, name, phone, company, rating, text) VALUES (NULL,?,?,?,?,?)`,
+      [name, phone, company, rating, text]
+    );
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // ==================== ORDERS ====================
 app.post('/api/orders', async (req, res) => {
   try {
     const { name, phone, email, city, message, items } = req.body;
     if (!name || !phone || !items) {
       return res.status(400).json({ error: 'Заполните обязательные поля' });
+    }
+    if (!/^[78]\d{10}$/.test(String(phone).replace(/\D/g, ''))) {
+      return res.status(400).json({ error: 'Некорректный номер телефона' });
     }
 
     let itemsStr = typeof items === 'string' ? items : JSON.stringify(items);
@@ -402,6 +471,25 @@ app.post('/api/orders', async (req, res) => {
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
+});
+
+// ==================== ЛОГ ОШИБОК НА САЙТЕ ====================
+// Публичный — шлёт браузер любого посетителя при JS-ошибке. Никогда не должен
+// сам уронить страницу, поэтому всегда отвечает 200 и не бросает наружу.
+app.post('/api/log-error', async (req, res) => {
+  try {
+    const message = String((req.body && req.body.message) || '').slice(0, 2000);
+    const context = String((req.body && req.body.context) || '').slice(0, 200);
+    const url = String((req.body && req.body.url) || '').slice(0, 500);
+    if (message) {
+      await db.runAsync(
+        `INSERT INTO client_errors (message, context, url, ip) VALUES (?,?,?,?)`,
+        [message, context, url, clientIp(req)]
+      );
+      await db.runAsync(`DELETE FROM client_errors WHERE id <= (SELECT MAX(id) - 5000 FROM client_errors)`);
+    }
+  } catch { /* лог ошибок не должен сам стать причиной ошибки */ }
+  res.json({ ok: true });
 });
 
 // ==================== ADMIN AUTH ====================
@@ -451,6 +539,7 @@ function adminActionLabel(req) {
     [/\/subcategories$/,       { POST: ['create', 'Добавлена подкатегория'] }],
     [/\/subcategories\/\d+$/,  { PUT: ['update', 'Изменена подкатегория'], DELETE: ['delete', 'Удалена подкатегория'] }],
     [/\/orders\/\d+\/status$/, { PUT: ['update', `Статус заявки #${id}: ${(req.body && req.body.status) || ''}`] }],
+    [/\/reviews\/\d+$/,        { PUT: ['update', `Отзыв #${id}: ${(req.body && req.body.status) || ''}`], DELETE: ['delete', `Удалён отзыв #${id}`] }],
     [/\/settings\/reset-quiz$/,{ POST: ['update', 'Сброс квиза к стандартному'] }],
     [/\/settings$/,            { PUT: ['update', 'Изменены настройки сайта'] }],
     [/\/upload-/,              { POST: ['update', 'Загрузка файлов'] }],
@@ -500,7 +589,9 @@ async function snapshotBefore(req) {
 function shortVal(v) {
   v = (v == null ? '' : String(v)).replace(/\s+/g, ' ').trim();
   if (!v) return '∅';
-  return v.length > 80 ? v.slice(0, 80) + '…' : v;
+  // Ограничение — просто защита от совсем огромных полей, не для UI-обрезки
+  // (в журнале полный текст видно по клику → модальное окно).
+  return v.length > 4000 ? v.slice(0, 4000) + '…' : v;
 }
 function diffDetail(req) {
   const u = req.originalUrl.split('?')[0];
@@ -532,7 +623,9 @@ function diffDetail(req) {
     if (!cfg.bool && ov !== '' && nv !== '' && !isNaN(ov) && !isNaN(nv) && Number(ov) === Number(nv)) continue;
     parts.push(`${label}: ${shortVal(ov)} → ${shortVal(nv)}`);
   }
-  return parts.length ? parts.join('; ') : 'поля не изменились';
+  // \n, не "; " — иначе если в самом значении (например, в описании) встретится "; ",
+  // модальное окно в журнале не сможет надёжно разбить текст обратно на поля.
+  return parts.length ? parts.join('\n') : 'поля не изменились';
 }
 
 // Пишем в журнал любое успешное изменение под /api/admin (кроме входа — он логируется отдельно)
@@ -635,6 +728,56 @@ app.get('/api/admin/logs', adminAuth, async (req, res) => {
     );
     const admins = (await db.allAsync('SELECT DISTINCT admin FROM admin_log ORDER BY admin')).map(r => r.admin);
     res.json({ total, page, limit, rows, admins });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ==================== ADMIN: ОШИБКИ НА САЙТЕ ====================
+app.get('/api/admin/errors', adminAuth, async (req, res) => {
+  try {
+    const page = Math.max(1, Number(req.query.page) || 1);
+    const limit = Math.min(200, Number(req.query.limit) || 60);
+    const total = (await db.getAsync(`SELECT COUNT(*) AS c FROM client_errors`)).c;
+    const rows = await db.allAsync(
+      `SELECT * FROM client_errors ORDER BY id DESC LIMIT ? OFFSET ?`,
+      [limit, (page - 1) * limit]
+    );
+    res.json({ total, page, limit, rows });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.delete('/api/admin/errors', adminAuth, async (req, res) => {
+  try {
+    await db.runAsync(`DELETE FROM client_errors`);
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ==================== ADMIN: ОТЗЫВЫ (товары + общие) ====================
+app.get('/api/admin/reviews', adminAuth, async (req, res) => {
+  try {
+    const status = req.query.status || '';
+    const where = status ? 'WHERE r.status = ?' : '';
+    const params = status ? [status] : [];
+    const rows = await db.allAsync(
+      `SELECT r.*, p.name AS product_name FROM reviews r
+       LEFT JOIN products p ON p.id = r.product_id
+       ${where} ORDER BY r.id DESC LIMIT 300`, params);
+    res.json({ rows });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.put('/api/admin/reviews/:id', adminAuth, async (req, res) => {
+  try {
+    const status = req.body && req.body.status;
+    if (!['pending', 'approved', 'rejected'].includes(status)) {
+      return res.status(400).json({ error: 'Некорректный статус' });
+    }
+    await db.runAsync('UPDATE reviews SET status = ? WHERE id = ?', [status, req.params.id]);
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.delete('/api/admin/reviews/:id', adminAuth, async (req, res) => {
+  try {
+    await db.runAsync('DELETE FROM reviews WHERE id = ?', [req.params.id]);
+    res.json({ success: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -907,12 +1050,14 @@ app.delete('/api/admin/products/:id', adminAuth, async (req, res) => {
 // ==================== ADMIN ORDERS ====================
 app.get('/api/admin/orders', adminAuth, async (req, res) => {
   try {
-    const { page = 1, limit = 30 } = req.query;
+    const { page = 1, limit = 30, status } = req.query;
     const offset = (page - 1) * limit;
-    const countRow = await db.getAsync('SELECT COUNT(*) as cnt FROM orders');
+    const statuses = status ? String(status).split(',').filter(Boolean) : [];
+    const where = statuses.length ? `WHERE status IN (${statuses.map(() => '?').join(',')})` : '';
+    const countRow = await db.getAsync(`SELECT COUNT(*) as cnt FROM orders ${where}`, statuses);
     const rows = await db.allAsync(
-      'SELECT * FROM orders ORDER BY id DESC LIMIT ? OFFSET ?',
-      [Number(limit), Number(offset)]
+      `SELECT * FROM orders ${where} ORDER BY id DESC LIMIT ? OFFSET ?`,
+      [...statuses, Number(limit), Number(offset)]
     );
     res.json({ total: countRow.cnt, orders: rows });
   } catch (e) {

@@ -89,6 +89,33 @@ db.serialize(async () => {
   )`);
   await db.runAsync(`CREATE INDEX IF NOT EXISTS idx_admin_log_ts ON admin_log(id DESC)`);
 
+  // ---- Ошибки на сайте (JS-ошибки у посетителей, видно в админке) ----
+  await db.runAsync(`CREATE TABLE IF NOT EXISTS client_errors (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts TEXT DEFAULT (datetime('now')),
+    message TEXT,
+    context TEXT,       -- откуда: submitOrder | submitConsult | window.onerror | ...
+    url TEXT,
+    ip TEXT
+  )`);
+  await db.runAsync(`CREATE INDEX IF NOT EXISTS idx_client_errors_ts ON client_errors(id DESC)`);
+
+  // ---- Отзывы (форма на карточке товара + общая страница /reviews), после модерации ----
+  // product_id пустой = общий отзыв о компании (страница /reviews), иначе — отзыв на товар.
+  await db.runAsync(`CREATE TABLE IF NOT EXISTS reviews (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    product_id INTEGER,
+    name TEXT NOT NULL,
+    phone TEXT,                       -- необязательно, для связи, на сайте не показывается
+    company TEXT,                     -- необязательно: «компания, город» — только для общих отзывов
+    rating INTEGER NOT NULL,          -- 1..5
+    text TEXT,
+    status TEXT DEFAULT 'pending',    -- pending | approved | rejected
+    created_at TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY (product_id) REFERENCES products(id)
+  )`);
+  await db.runAsync(`CREATE INDEX IF NOT EXISTS idx_reviews_product ON reviews(product_id, status)`);
+
   // ---- Настройки сайта (редактируются в админке) ----
   await db.runAsync(`CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)`);
 
