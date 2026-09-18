@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SIGMA MARKET — Профессиональное оборудование</title>
-<link rel="stylesheet" href="/style.css?v=20260917a">
+<link rel="stylesheet" href="/style.css?v={{V}}">
 </head>
 <body class="shop">
 
@@ -14,193 +14,13 @@
 
 <!-- partial:hero -->
 
-<!-- ========== ГЛАВНАЯ СТРАНИЦА ========== -->
-<div id="homeView">
+<!-- partial:home -->
 
-  <!-- Квиз-подбор — сразу под баннером -->
-  <div class="container quiz-cta-wrap">
-    <div class="quiz-cta" id="quizCta" style="display:none">
-      <div class="quiz-cta-text">
-        <h3 id="quizCtaTitle">Не знаете, что выбрать?</h3>
-        <p id="quizCtaSub">Ответьте на 3 вопроса — подберём подходящее оборудование под ваши задачи.</p>
-      </div>
-      <button class="btn-catalog" type="button" onclick="openQuiz()">Подобрать за 1 минуту →</button>
-    </div>
-  </div>
+<!-- partial:catalog -->
 
-  <!-- КАТЕГОРИИ -->
-  <section class="section categories-section">
-    <div class="container">
-      <div class="section-label">наши направления</div>
-      <div class="section-heading-row">
-        <h1 class="section-title" id="homeH1">Оборудование для автомоек, СТО и клининга</h1>
-        <a href="/catalog" class="link-all" onclick="showCatalog('all');return false;">
-          Смотреть все направления <img src="/assets/icons/arrow-green.png" alt="">
-        </a>
-      </div>
-      <!-- Направления: на десктопе сетка во всю ширину, на мобильном — лента -->
-      <div class="subcat-slider" id="homeSubcatSlider" style="display:none">
-        <div class="subcat-slider-body">
-          <button class="subcat-slider-btn prev" type="button" onclick="slideHomeSubcats(-1)" aria-label="Назад">‹</button>
-          <div class="subcat-slider-track is-grid" id="homeSubcatTrack"></div>
-          <button class="subcat-slider-btn next" type="button" onclick="slideHomeSubcats(1)" aria-label="Вперёд">›</button>
-        </div>
-      </div>
-    </div>
-  </section>
+<!-- partial:product -->
 
-  <!-- О КОМПАНИИ -->
-  <section class="section about-section">
-    <div class="container about-inner">
-      <div class="about-text">
-        <div class="section-label">О компании</div>
-        <h2 class="section-title">Мы создаем эффективные<br>решения с 2012 года</h2>
-        <p>Помогаем бизнесу расти, внедряя надёжное оборудование и обеспечивая полный цикл работ — от проектирования до сервисной поддержки.</p>
-        <a href="/about" class="link-more">Подробнее о компании</a>
-      </div>
-    </div>
-  </section>
-
-  <!-- ЦИФРЫ -->
-  <div class="stats-bar">
-    <div class="stat-item">
-      <img src="/assets/icons/icon-exp.png" alt="">
-      <div><strong>15+</strong><span>лет опыта<br>на рынке</span></div>
-    </div>
-    <div class="stat-sep"></div>
-    <div class="stat-item">
-      <img src="/assets/icons/icon-proj.png" alt="">
-      <div><strong>500+</strong><span>реализованных<br>проектов</span></div>
-    </div>
-    <div class="stat-sep"></div>
-    <div class="stat-item">
-      <img src="/assets/icons/icon-support.png" alt="">
-      <div><strong>24/7</strong><span>сервисная<br>поддержка</span></div>
-    </div>
-    <div class="stat-sep"></div>
-    <div class="stat-item">
-      <img src="/assets/icons/icon-key.png" alt="">
-      <div><strong>Под ключ</strong><span>от проекта<br>до запуска</span></div>
-    </div>
-  </div>
-
-  <!-- ПАРТНЕРЫ -->
-  <section class="section partners-section">
-    <!-- <div class="container">
-      <div class="section-label">ПАРТНЁРЫ</div>
-      <div class="partners-bar">
-        <div class="partner-item">
-          <img src="/assets/icons/istobal.png" alt="istobal">
-        </div>
-        <div class="partner-sep"></div>
-        <div class="partner-item">
-          <img src="/assets/icons/washtec.webp" alt="washtec">
-        </div>
-        <div class="partner-sep"></div>
-        <div class="partner-item">
-          <img src="/assets/icons/karcher.webp" alt="karcher">
-        </div>
-        <div class="partner-sep"></div>
-        <div class="partner-item">
-          <img src="/assets/icons/christ.webp" alt="christ">
-        </div>
-      </div>
-    </div> -->
-  </section>
-
-</div><!-- /homeView -->
-
-<!-- ========== КАТАЛОГ ========== -->
-<div id="catalogView" style="display:none">
-  <section class="section catalog-section">
-    <div class="container">
-
-      <!-- Breadcrumb -->
-      <div class="breadcrumb" id="breadcrumb">
-        <span class="section-label" id="catalogLabel">каталог оборудования</span>
-        <h1 class="section-title" id="catalogTitle">Товары и услуги</h1>
-        <nav class="crumb-trail" id="crumbTrail" aria-label="Хлебные крошки"></nav>
-      </div>
-
-      <!-- Фильтр категорий (кнопки-пилюли) -->
-      <div class="cat-tabs" id="catTabs">
-        <button class="cat-tab cat-tab--all active" data-slug="all" onclick="selectCategory('all',this)">Все</button>
-      </div>
-
-      <!-- Подкатегории (лента; дублирует фильтр в панели) -->
-      <div class="subcat-bar" id="subcatBar" style="display:none"></div>
-
-      <div class="catalog-layout">
-        <!-- Фильтры -->
-        <aside class="catalog-filters" id="catalogFilters">
-          <div class="filters-head">
-            <span>Фильтры</span>
-            <button type="button" class="filters-reset" onclick="resetFilters()">Сбросить</button>
-            <button type="button" class="filters-close" onclick="closeFilters()" aria-label="Закрыть">✕</button>
-          </div>
-          <div id="filtersBody"><!-- строится JS --></div>
-          <button type="button" class="filters-done" onclick="closeFilters()">Показать товары</button>
-        </aside>
-        <div class="filters-overlay" id="filtersOverlay" onclick="closeFilters()"></div>
-
-        <div class="catalog-main">
-          <!-- Тулбар -->
-          <div class="catalog-toolbar">
-            <button type="button" class="btn-filters-mobile" onclick="openFilters()">⚙ Фильтры</button>
-            <span class="results-count" id="resultsCount"></span>
-            <select class="sort-select" onchange="applySort(this.value)" id="sortSelect">
-              <option value="default">По популярности</option>
-              <option value="price_asc">Цена: по возрастанию</option>
-              <option value="price_desc">Цена: по убыванию</option>
-              <option value="name_asc">По названию А–Я</option>
-            </select>
-          </div>
-
-          <!-- Активные фильтры -->
-          <div class="active-filters" id="activeFilters"></div>
-
-          <!-- Сетка товаров -->
-          <div class="product-grid" id="productGrid">
-            <div class="spinner"><div class="spin"></div>&nbsp; Загрузка…</div>
-          </div>
-
-          <!-- Пагинация (десктоп) / подгрузка при скролле (мобильная версия) -->
-          <div class="pagination" id="pagination"></div>
-          <div id="catalogScrollSentinel"></div>
-        </div>
-      </div>
-    </div>
-  </section>
-</div><!-- /catalogView -->
-
-<!-- ========== КАРТОЧКА ТОВАРА ========== -->
-<div id="productView" style="display:none">
-  <section class="section product-view-section">
-    <div class="container">
-      <nav class="breadcrumb" aria-label="Хлебные крошки">
-        <div class="section-title" id="pvCrumb">Товары и услуги</div>
-      </nav>
-      <div id="productViewBody">
-        <div class="spinner"><div class="spin"></div>&nbsp; Загрузка…</div>
-      </div>
-    </div>
-  </section>
-</div><!-- /productView -->
-
-<!-- ========== СТРАНИЦА НЕ НАЙДЕНА (404) ========== -->
-<div id="notFoundView" style="display:none">
-  <section class="section notfound-section">
-    <div class="container notfound-inner">
-      <div class="notfound-code">404</div>
-      <h2 class="notfound-title" id="nfTitle">Страница не найдена</h2>
-      <p class="notfound-text">Такой страницы нет — возможно, она была перемещена, удалена или адрес введён с ошибкой.</p>
-      <div class="notfound-actions">
-        <a href="/" class="btn-catalog" onclick="showHome();return false;">На главную</a>
-        <a href="/catalog" class="btn-consult-outline" onclick="showCatalog('all');return false;">Перейти в каталог</a>
-      </div>
-    </div>
-  </section>
-</div><!-- /notFoundView -->
+<!-- partial:notfound -->
 
 <!-- ========== НЕДАВНО ПРОСМОТРЕННЫЕ ========== -->
 <section class="section recent-section" id="recentSection" style="display:none">
@@ -279,8 +99,8 @@
 <!-- TOAST -->
 <div class="toast" id="toast"></div>
 
-<script src="/js/site.js?v=20260917a"></script>
-<script src="/js/product.js?v=20260917a"></script>
+<script src="/js/site.js?v={{V}}"></script>
+<script src="/js/product.js?v={{V}}"></script>
 <script>
 let state = {
   view: 'home',      // 'home' | 'catalog' | 'favorites'
@@ -470,15 +290,22 @@ function setActiveNav(name) {
 async function loadCategories() {
   const cats = await apiFetch('/api/categories');
   state.categories = cats;
+  renderCatTabs();   // если catalogView ещё не подгружен — просто ничего не сделает
+  loadHomeSubcats();
+}
 
-  // Заполнить табы в каталоге (у категорий — короткая подпись)
-  const CAT_SHORT = { avtomojka: 'Автомойка', sto: 'СТО и автосервис', klining: 'Клининг' };
-  const shortCat = c => CAT_SHORT[c.slug] || String(c.name).replace(/^Оборудование для\s+/i, '').trim() || c.name;
+// Заполняет вкладки категорий в каталоге (у категорий — короткая подпись). Вызывается
+// и здесь (на случай если catalogView уже был на странице), и из showCatalog() —
+// чтобы вкладки точно появились, даже если каталог подгрузился позже первого захода.
+const CAT_SHORT = { avtomojka: 'Автомойка', sto: 'СТО и автосервис', klining: 'Клининг' };
+function renderCatTabs() {
   const tabs = document.getElementById('catTabs');
+  if (!tabs || tabs.dataset.filled) return;
+  const cats = state.categories || [];
+  const shortCat = c => CAT_SHORT[c.slug] || String(c.name).replace(/^Оборудование для\s+/i, '').trim() || c.name;
   tabs.innerHTML = `<button class="cat-tab cat-tab--all active" data-slug="all" onclick="selectCategory('all',this)">Все</button>` +
     cats.map(c => `<button class="cat-tab cat-tab--cat" data-slug="${c.slug}" onclick="selectCategory('${c.slug}',this)">${shortCat(c)}</button>`).join('');
-
-  loadHomeSubcats();
+  tabs.dataset.filled = '1';
 }
 
 const esc = s => String(s || '').replace(/'/g, "\\'");
@@ -531,9 +358,33 @@ function scrollToView(id) {
   window.scrollTo(0, y); // плавность добавляет CSS html{scroll-behavior:smooth}
 }
 
-function setView(name) {
+// Разметка каждого экрана (home/catalog/product/notFound) сервер шлёт только для
+// того, что реально нужно на этот адрес — остальные подгружаем сюда же по требованию,
+// один раз, при первом переходе (дальше уже просто show/hide, как раньше).
+const _viewPartial = { home: 'home', catalog: 'catalog', product: 'product', notFound: 'notfound' };
+const _viewLoading = {};
+async function ensureView(name) {
+  if (document.getElementById(name + 'View')) return;
+  if (!_viewLoading[name]) {
+    _viewLoading[name] = fetch('/partials/' + _viewPartial[name] + '.html')
+      .then(r => r.text())
+      .then(html => {
+        if (document.getElementById(name + 'View')) return; // подгрузили, пока ждали (двойной клик и т.п.)
+        const tmp = document.createElement('div');
+        tmp.innerHTML = html.trim();
+        document.getElementById('main').insertBefore(tmp.firstElementChild, document.getElementById('recentSection'));
+      });
+  }
+  return _viewLoading[name];
+}
+
+async function setView(name) {
+  await ensureView(name);
+  // Остальные три экрана могут быть ещё не подгружены вообще (не просто скрыты) —
+  // прятать нечего, пропускаем несуществующие.
   ['homeView', 'catalogView', 'productView', 'notFoundView'].forEach(id => {
-    document.getElementById(id).style.display = (id === name + 'View') ? '' : 'none';
+    const el = document.getElementById(id);
+    if (el) el.style.display = (id === name + 'View') ? '' : 'none';
   });
   syncViewHeadings(name);
   renderSubcatBar();
@@ -559,10 +410,12 @@ function syncViewHeadings(name) {
   for (const [view, el] of Object.entries(map)) retagHeading(el, view === name ? 'H1' : 'H2');
 }
 
-function showHome() {
+async function showHome() {
   state.view = 'home';
   state.search = '';
-  setView('home');
+  await setView('home');
+  initQuizCta();   // если homeView подгрузился только сейчас — баннер квиза ещё не инициализирован
+  loadHomeSubcats();   // то же самое для направлений на главной
   setActiveNav('home');
   renderRecent();
   setUrl('/');
@@ -617,9 +470,9 @@ function applyCatalogMeta() {
 }
 
 // 404: адрес не распознан ЛИБО категория/товар с таким slug/id не существует
-function showNotFound() {
+async function showNotFound() {
   state.view = 'notfound';
-  setView('notFound');
+  await setView('notFound');
   setActiveNav('');
   setMeta('Страница не найдена — 404 | SIGMA MARKET',
     'Запрошенная страница не существует или была перемещена. Посмотрите каталог оборудования SIGMA MARKET.',
@@ -627,7 +480,7 @@ function showNotFound() {
   scrollToView('notFoundView');
 }
 
-function showCatalog(slug, subcat) {
+async function showCatalog(slug, subcat) {
   // категория с таким slug не существует (и это не служебное "все") → 404
   if (slug && slug !== 'all' && state.categories && state.categories.length &&
       !state.categories.some(c => c.slug === slug)) {
@@ -640,7 +493,8 @@ function showCatalog(slug, subcat) {
   state.filters = { subcat: Array.isArray(subcat) ? subcat : (subcat ? [subcat] : []) };
   state._builtFor = null;   // заставить перестроить панель фильтров
   setUrl(catalogUrl());
-  setView('catalog');
+  await setView('catalog');
+  renderCatTabs();   // на случай если catalogView подгрузился только сейчас
   document.getElementById('catTabs').style.display = '';
   document.getElementById('catalogFilters').style.display = '';
   document.getElementById('catalogLabel').textContent = 'каталог оборудования';
@@ -687,7 +541,7 @@ function updateBreadcrumb() {
   const cat = state.categories.find(c => c.slug === state.category);
   const sub = state.filters.subcat || [];
   const allSubs = (state.facets && state.facets.subcategories) || [];
-  const bySlug = Object.fromEntries(allSubs.map(s => [s.slug, s]));
+  const bySlug = allSubs.reduce((o, s) => { o[s.slug] = s; return o; }, {});
   let subName = '', subChain = [];   // subChain = [[name, slug]...] родители сверху вниз
   if (sub.length === 1) {
     let curS = bySlug[sub[0]];
@@ -748,6 +602,9 @@ async function loadProducts(opts) {
   if (f.perfMax) qs.set('perfMax', f.perfMax);
 
   const data = await apiFetch('/api/products?' + qs.toString());
+  // Сервер отличает «подкатегории вообще нет» от «есть, но пока пусто» — в первом
+  // случае это настоящий 404, а не «Ничего не найдено» с пустым каталогом.
+  if (data.subcategoryNotFound) { showNotFound(); return; }
   state.total = data.total || 0;
 
   if (append) {
@@ -824,7 +681,7 @@ function buildFilters() {
   if (s.brand !== false && fc.brands.length) {
     html += `<div class="filter-group"><h4>Бренд</h4>` +
       fc.brands.map(b => `<label class="filter-check"><input type="checkbox" value="${b}"
-        ${(f.brand||[]).includes(b)?'checked':''} onchange="toggleArrFilter('brand',this.value)"> ${b}</label>`).join('') +
+        ${(f.brand||[]).includes(b)?'checked':''} onchange="toggleArrFilter('brand',this.value)"> ${b === '__none__' ? 'Другой' : b}</label>`).join('') +
       `</div>`;
   }
   if (s.subtype !== false && fc.subtypes.length) {
@@ -882,10 +739,11 @@ function syncFilterChecks() {
 // Лента подкатегорий над каталогом — «проваливание»: один ряд текущего уровня
 function renderSubcatBar() {
   const bar = document.getElementById('subcatBar');
+  if (!bar) return;   // catalogView ещё не подгружен (мы на другом экране) — рендерить нечего
   const all = (state.facets && state.facets.subcategories) || [];
   if (state.view !== 'catalog' || state.category === 'all' || all.length < 2) { bar.style.display = 'none'; return; }
   const sel = (state.filters.subcat || [])[0] || null;
-  const bySlug = Object.fromEntries(all.map(s => [s.slug, s]));
+  const bySlug = all.reduce((o, s) => { o[s.slug] = s; return o; }, {});
   const kidsOf = ps => all.filter(s => s.parent_slug === ps);
 
   // раскрытый уровень: выбрана группа с детьми → она сама; выбран лист → его родитель; иначе — верх
@@ -966,7 +824,7 @@ function renderActiveFilters() {
     const sc = subs.find(x => x.slug === sl);
     chips.push([sc ? sc.name : sl, () => toggleArrFilter('subcat', sl)]);
   });
-  (f.brand || []).forEach(b => chips.push([`Бренд: ${b}`, () => toggleArrFilter('brand', b)]));
+  (f.brand || []).forEach(b => chips.push([`Бренд: ${b === '__none__' ? 'Другой' : b}`, () => toggleArrFilter('brand', b)]));
   (f.subtype || []).forEach(b => chips.push([`Тип: ${b}`, () => toggleArrFilter('subtype', b)]));
   if (f.priceMin || f.priceMax) chips.push([`Цена ${f.priceMin||'0'}–${f.priceMax||'∞'}`, () => { f.priceMin=f.priceMax=null; buildFilters(); reloadFiltered(); }]);
   if (f.perfMin || f.perfMax) chips.push([`Произв. ${f.perfMin||'0'}–${f.perfMax||'∞'}`, () => { f.perfMin=f.perfMax=null; buildFilters(); reloadFiltered(); }]);
@@ -1202,7 +1060,7 @@ function renderCatalogAbout() {
   const nl2p = t => escH(t).trim().split(/\n{2,}/).map(x => `<p>${x.replace(/\n/g, '<br>')}</p>`).join('');
 
   const allSubs = (state.facets && state.facets.subcategories) || [];
-  const bySlug = Object.fromEntries(allSubs.map(s => [s.slug, s]));
+  const bySlug = allSubs.reduce((o, s) => { o[s.slug] = s; return o; }, {});
   const curSub = (state.filters && state.filters.subcat) || [];
   const sel = curSub.length === 1 ? curSub[0] : null;
   const selRow = sel ? bySlug[sel] : null;
@@ -1224,6 +1082,7 @@ let quizAns = {};
 function initQuizCta() {
   const q = state.settings.quiz || {};
   const cta = document.getElementById('quizCta');
+  if (!cta) return;   // homeView ещё не подгружен (первый заход не на главную)
   if (q.enabled === false || !q.steps || !q.steps.length) { cta.style.display = 'none'; return; }
   document.getElementById('quizCtaTitle').textContent = q.title || 'Подбор оборудования';
   document.getElementById('quizCtaSub').textContent = q.subtitle || '';

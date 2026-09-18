@@ -30,7 +30,7 @@ async function showProduct(id) {
   state.view = 'product';
   state.productId = id;
   setUrl('/product/' + id);
-  setView('product');
+  await setView('product');
   setActiveNav('catalog');
   document.getElementById('productViewBody').innerHTML = '<div class="spinner"><div class="spin"></div>&nbsp; Загрузка…</div>';
   scrollToView('productView');

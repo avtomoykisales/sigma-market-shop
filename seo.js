@@ -226,8 +226,10 @@ async function productSeo(base, id, seo) {
     seo.robots = 'noindex, follow';
     seo.canonical = base + '/';
     seo.notFound = true;
+    seo.view = 'notFound';
     return seo;
   }
+  seo.view = 'product';
 
   const meta = productMeta(p);
   seo.title = meta.title;
@@ -307,23 +309,35 @@ async function categorySeo(base, slug, subSlug, seo) {
     seo.robots = 'noindex, follow';
     seo.canonical = base + '/catalog';
     seo.notFound = true;
+    seo.view = 'notFound';
     return seo;
   }
+  seo.view = 'catalog';
 
   const subs = String(subSlug || '').split(',').filter(Boolean);
   let sub = null;
   if (subs.length === 1) {
     sub = await db.getAsync(
       'SELECT * FROM subcategories WHERE slug = ? AND category_id = ?', [subs[0], cat.id]);
-    // подкатегория без товаров в поддереве — не индексируем
-    if (sub) {
-      const n = await db.getAsync(
-        `WITH RECURSIVE tree(id) AS (
-           SELECT id FROM subcategories WHERE id = ?
-           UNION ALL SELECT s.id FROM subcategories s JOIN tree t ON s.parent_id = t.id
-         ) SELECT COUNT(*) AS c FROM products WHERE subcategory_id IN (SELECT id FROM tree)`, [sub.id]);
-      if (!n || !n.c) seo.robots = 'noindex, follow';
+    // указана ровно одна подкатегория, и такой не существует — это 404, а не тихий
+    // показ родительской категории (раньше отдавали 200 с любым выдуманным слагом).
+    if (!sub) {
+      seo.title = 'Страница не найдена — 404 | ' + SITE_NAME;
+      seo.description = 'Запрошенный раздел каталога не найден. Посмотрите каталог оборудования SIGMA MARKET.';
+      seo.h1 = 'Страница не найдена';
+      seo.robots = 'noindex, follow';
+      seo.canonical = base + '/catalog';
+      seo.notFound = true;
+      seo.view = 'notFound';
+      return seo;
     }
+    // подкатегория без товаров в поддереве — не индексируем
+    const n = await db.getAsync(
+      `WITH RECURSIVE tree(id) AS (
+         SELECT id FROM subcategories WHERE id = ?
+         UNION ALL SELECT s.id FROM subcategories s JOIN tree t ON s.parent_id = t.id
+       ) SELECT COUNT(*) AS c FROM products WHERE subcategory_id IN (SELECT id FROM tree)`, [sub.id]);
+    if (!n || !n.c) seo.robots = 'noindex, follow';
   }
 
   const copy = CAT_COPY[slug] || {};
@@ -398,6 +412,7 @@ async function build(req, relPath, opts = {}) {
       seo.h1 = 'Товары и услуги';
       seo.canonical = base + '/catalog';
       seo.jsonld.push(breadcrumbLd(base, [['Главная', '/'], ['Товары и услуги', '/catalog']]));
+      seo.view = 'catalog';
       return seo;
     }
     return categorySeo(base, mc[1], mc[2] || q.subcategory || '', seo);
@@ -410,6 +425,7 @@ async function build(req, relPath, opts = {}) {
     seo.robots = 'noindex, follow';
     seo.canonical = base + '/';
     seo.notFound = true;
+    seo.view = 'notFound';
     return seo;
   }
 
@@ -422,10 +438,12 @@ async function build(req, relPath, opts = {}) {
       seo.h1 = clip('Поиск: ' + q.q, 80);
       seo.robots = 'noindex, follow';
       seo.canonical = base + '/';
+      seo.view = 'catalog';
       return seo;
     }
     seo.h1kind = 'home';
     seo.jsonld.push(breadcrumbLd(base, [['Главная', '/']]));
+    seo.view = 'home';
     return seo;
   }
 

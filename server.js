@@ -37,8 +37,26 @@ function getPartial(name) {
   }
   return partialCache.get(name);
 }
-function renderPage(html) {
-  return html.replace(/<!--\s*partial:([\w-]+)\s*-->/g, (m, name) => getPartial(name) || m);
+// Экраны SPA (index.html) — на старте страницы шлём только тот, что реально нужен
+// для текущего маршрута; остальные подгружает клиент по требованию (JS, ensureView).
+const SPA_VIEWS = new Set(['home', 'catalog', 'product', 'notfound']);
+// Версия для ?v=... в ссылках на site.js/product.js/style.css — считается по дате
+// изменения самих файлов, а не руками (раньше не раз забывали её поднять, и браузер
+// после правок тихо отдавал старую версию из 30-дневного кэша). Меняется сама и сразу
+// при следующей правке любого из этих трёх файлов — перезапуск сервера не нужен.
+function assetVersion() {
+  try {
+    const files = ['js/site.js', 'js/product.js', 'style.css'].map(f => path.join(PUBLIC_DIR, f));
+    const mtimes = files.map(f => { try { return fs.statSync(f).mtimeMs; } catch { return 0; } });
+    return Math.round(Math.max(0, ...mtimes)).toString(36);
+  } catch (e) { return 'x'; }
+}
+function renderPage(html, activeView) {
+  html = html.replace(/\{\{V\}\}/g, assetVersion());
+  return html.replace(/<!--\s*partial:([\w-]+)\s*-->/g, (m, name) => {
+    if (activeView && SPA_VIEWS.has(name) && name !== activeView) return '';
+    return getPartial(name) || m;
+  });
 }
 // robots.txt + sitemap.xml (динамические, из БД)
 app.get('/robots.txt', async (req, res) => {
@@ -67,8 +85,8 @@ app.get(/.*/, async (req, res, next) => {
   // /catalog, /catalog/{cat}, /catalog/{cat}/{sub}, /product/{id}-{slug}
   if (p === '/catalog' || /^\/catalog\/[^/]+/.test(p) || /^\/product\/\d/.test(p)) {
     try {
-      let html = renderPage(fs.readFileSync(path.join(PUBLIC_DIR, 'index.html'), 'utf8'));
       const seoData = await seo.build(req, '/index.html');
+      let html = renderPage(fs.readFileSync(path.join(PUBLIC_DIR, 'index.html'), 'utf8'), (seoData.view || '').toLowerCase());
       html = seo.inject(html, seoData);
       return res.status(seoData.notFound ? 404 : 200).type('html').send(html);
     } catch (e) {
@@ -86,9 +104,13 @@ app.get(/.*/, async (req, res, next) => {
   if (!rel.endsWith('.html') || rel.includes('/partials/')) return next();
   const full = path.join(PUBLIC_DIR, rel);
   if (!full.startsWith(PUBLIC_DIR + path.sep) || !fs.existsSync(full)) return next();
-  let html = renderPage(fs.readFileSync(full, 'utf8'));
+  let seoData = null;
   if (rel !== '/admin.html') {
-    try { html = seo.inject(html, await seo.build(req, rel)); }
+    try { seoData = await seo.build(req, rel); } catch (e) { console.error('SEO build failed:', e.message); }
+  }
+  let html = renderPage(fs.readFileSync(full, 'utf8'), seoData && (seoData.view || '').toLowerCase());
+  if (seoData) {
+    try { html = seo.inject(html, seoData); }
     catch (e) { console.error('SEO inject failed:', e.message); }
   }
   res.type('html').send(html);
@@ -178,6 +200,7 @@ app.get('/api/products', async (req, res) => {
     let params = [];
 
     if (category && category !== 'all') { where.push('c.slug = ?'); params.push(category); }
+    let subcategoryNotFound = false;
     if (subcategory) {
       const subs = subcategory.split(',').filter(Boolean);
       // раскрываем каждую подкатегорию до её поддерева: родитель → все потомки
@@ -188,7 +211,12 @@ app.get('/api/products', async (req, res) => {
          ) SELECT id FROM tree`, subs) : [];
       const ids = idRows.map(r => r.id);
       if (ids.length) { where.push('p.subcategory_id IN (' + ids.map(() => '?').join(',') + ')'); params.push(...ids); }
-      else where.push('1=0');
+      else {
+        where.push('1=0');
+        // Пустой idRows при ровно одном запрошенном слаге значит, что такой подкатегории
+        // вообще нет (сам её id тоже не нашёлся) — отличаем от «есть, но пуста».
+        if (subs.length === 1) subcategoryNotFound = true;
+      }
     }
     if (search) {
       // SQLite LIKE не регистронезависим для кириллицы — добавляем вариант с заглавной буквы
@@ -198,7 +226,15 @@ app.get('/api/products', async (req, res) => {
       params.push(`%${search}%`, `%${cap}%`, `%${low}%`, `%${search}%`, `%${search}%`, `%${cap}%`);
     }
     if (featured === '1') where.push('p.featured = 1');
-    if (brand)   { where.push('p.brand IN (' + brand.split(',').map(() => '?').join(',') + ')'); params.push(...brand.split(',')); }
+    if (brand) {
+      // '__none__' — служебное значение для «Другой»: товары совсем без указанного бренда.
+      const bList = brand.split(',');
+      const bReal = bList.filter(b => b !== '__none__');
+      const bParts = [];
+      if (bReal.length) { bParts.push('p.brand IN (' + bReal.map(() => '?').join(',') + ')'); params.push(...bReal); }
+      if (bList.includes('__none__')) bParts.push("(p.brand IS NULL OR p.brand = '')");
+      if (bParts.length) where.push('(' + bParts.join(' OR ') + ')');
+    }
     if (subtype) { where.push('p.subtype IN (' + subtype.split(',').map(() => '?').join(',') + ')'); params.push(...subtype.split(',')); }
     if (priceMin) { where.push('p.price >= ?'); params.push(Number(priceMin)); }
     if (priceMax) { where.push('(p.price <= ? AND p.price > 0)'); params.push(Number(priceMax)); }
@@ -235,6 +271,9 @@ app.get('/api/products', async (req, res) => {
       const brands = await db.allAsync(
         `SELECT DISTINCT p.brand FROM products p JOIN categories c ON p.category_id=c.id
          WHERE p.brand != '' ${catWhere} ORDER BY p.brand`, fParams);
+      const noBrand = await db.getAsync(
+        `SELECT COUNT(*) as cnt FROM products p JOIN categories c ON p.category_id=c.id
+         WHERE (p.brand IS NULL OR p.brand = '') ${catWhere}`, fParams);
       const subtypes = await db.allAsync(
         `SELECT DISTINCT p.subtype FROM products p JOIN categories c ON p.category_id=c.id
          WHERE p.subtype IS NOT NULL AND p.subtype != '' ${catWhere} ORDER BY p.subtype`, fParams);
@@ -263,8 +302,10 @@ app.get('/api/products', async (req, res) => {
         seo_title: r.seo_title, seo_description: r.seo_description,
         cnt: r.cnt, parent_slug: r.parent_slug, sort: r.sort,
       }));
+      const brandList = brands.map(b => b.brand).filter(Boolean);
+      if (noBrand.cnt > 0) brandList.push('__none__');   // «Другой» — товары совсем без бренда
       facets = {
-        brands: brands.map(b => b.brand).filter(Boolean),
+        brands: brandList,
         subtypes: subtypes.map(s => s.subtype).filter(Boolean),
         subcategories: subcats,
         priceMin: range.pmin || 0, priceMax: range.pmax || 0,
@@ -272,7 +313,7 @@ app.get('/api/products', async (req, res) => {
       };
     }
 
-    res.json({ total, page: Number(page), limit: Number(limit), products: rows, facets });
+    res.json({ total, page: Number(page), limit: Number(limit), products: rows, facets, subcategoryNotFound });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -1115,9 +1156,14 @@ app.get(/.*/, async (req, res) => {
   const file = isAdmin
     ? path.join(__dirname, 'public/admin.html')
     : path.join(__dirname, 'public/index.html');
-  let html = renderPage(fs.readFileSync(file, 'utf8'));
+  let seoData = null;
   if (!isAdmin) {
-    try { html = seo.inject(html, await seo.build(req, '/index.html', { softFallback: true })); }
+    try { seoData = await seo.build(req, '/index.html', { softFallback: true }); }
+    catch (e) { console.error('SEO build failed:', e.message); }
+  }
+  let html = renderPage(fs.readFileSync(file, 'utf8'), seoData && (seoData.view || '').toLowerCase());
+  if (seoData) {
+    try { html = seo.inject(html, seoData); }
     catch (e) { console.error('SEO inject failed:', e.message); }
   }
   const code = (isAdmin || req.path === '/') ? 200 : 404;

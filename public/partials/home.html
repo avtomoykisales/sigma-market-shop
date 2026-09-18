@@ -1,0 +1,95 @@
+<!-- ========== ГЛАВНАЯ СТРАНИЦА ========== -->
+<div id="homeView">
+
+  <!-- Квиз-подбор — сразу под баннером -->
+  <div class="container quiz-cta-wrap">
+    <div class="quiz-cta" id="quizCta" style="display:none">
+      <div class="quiz-cta-text">
+        <h3 id="quizCtaTitle">Не знаете, что выбрать?</h3>
+        <p id="quizCtaSub">Ответьте на 3 вопроса — подберём подходящее оборудование под ваши задачи.</p>
+      </div>
+      <button class="btn-catalog" type="button" onclick="openQuiz()">Подобрать за 1 минуту →</button>
+    </div>
+  </div>
+
+  <!-- КАТЕГОРИИ -->
+  <section class="section categories-section">
+    <div class="container">
+      <div class="section-label">наши направления</div>
+      <div class="section-heading-row">
+        <h1 class="section-title" id="homeH1">Оборудование для автомоек, СТО и клининга</h1>
+        <a href="/catalog" class="link-all" onclick="showCatalog('all');return false;">
+          Смотреть все направления <img src="/assets/icons/arrow-green.png" alt="">
+        </a>
+      </div>
+      <!-- Направления: на десктопе сетка во всю ширину, на мобильном — лента -->
+      <div class="subcat-slider" id="homeSubcatSlider" style="display:none">
+        <div class="subcat-slider-body">
+          <button class="subcat-slider-btn prev" type="button" onclick="slideHomeSubcats(-1)" aria-label="Назад">‹</button>
+          <div class="subcat-slider-track is-grid" id="homeSubcatTrack"></div>
+          <button class="subcat-slider-btn next" type="button" onclick="slideHomeSubcats(1)" aria-label="Вперёд">›</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- О КОМПАНИИ -->
+  <section class="section about-section">
+    <div class="container about-inner">
+      <div class="about-text">
+        <div class="section-label">О компании</div>
+        <h2 class="section-title">Мы создаем эффективные<br>решения с 2012 года</h2>
+        <p>Помогаем бизнесу расти, внедряя надёжное оборудование и обеспечивая полный цикл работ — от проектирования до сервисной поддержки.</p>
+        <a href="/about" class="link-more">Подробнее о компании</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- ЦИФРЫ -->
+  <div class="stats-bar">
+    <div class="stat-item">
+      <img src="/assets/icons/icon-exp.png" alt="">
+      <div><strong>15+</strong><span>лет опыта<br>на рынке</span></div>
+    </div>
+    <div class="stat-sep"></div>
+    <div class="stat-item">
+      <img src="/assets/icons/icon-proj.png" alt="">
+      <div><strong>500+</strong><span>реализованных<br>проектов</span></div>
+    </div>
+    <div class="stat-sep"></div>
+    <div class="stat-item">
+      <img src="/assets/icons/icon-support.png" alt="">
+      <div><strong>24/7</strong><span>сервисная<br>поддержка</span></div>
+    </div>
+    <div class="stat-sep"></div>
+    <div class="stat-item">
+      <img src="/assets/icons/icon-key.png" alt="">
+      <div><strong>Под ключ</strong><span>от проекта<br>до запуска</span></div>
+    </div>
+  </div>
+
+  <!-- ПАРТНЕРЫ -->
+  <section class="section partners-section">
+    <!-- <div class="container">
+      <div class="section-label">ПАРТНЁРЫ</div>
+      <div class="partners-bar">
+        <div class="partner-item">
+          <img src="/assets/icons/istobal.png" alt="istobal">
+        </div>
+        <div class="partner-sep"></div>
+        <div class="partner-item">
+          <img src="/assets/icons/washtec.webp" alt="washtec">
+        </div>
+        <div class="partner-sep"></div>
+        <div class="partner-item">
+          <img src="/assets/icons/karcher.webp" alt="karcher">
+        </div>
+        <div class="partner-sep"></div>
+        <div class="partner-item">
+          <img src="/assets/icons/christ.webp" alt="christ">
+        </div>
+      </div>
+    </div> -->
+  </section>
+
+</div><!-- /homeView -->

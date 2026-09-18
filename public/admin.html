@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="robots" content="noindex, nofollow">
 <title>Админ-панель — SIGMA MARKET</title>
-<link rel="stylesheet" href="/style.css?v=20260917a">
+<link rel="stylesheet" href="/style.css?v={{V}}">
 </head>
 <body class="admin">
 
@@ -872,7 +872,7 @@ function subcatCollapseAll(collapse) {
 }
 function renderSubcatTree() {
   const tb = document.getElementById('subcatsTbody');
-  const byId = Object.fromEntries(subcategories.map(s => [s.id, s]));
+  const byId = subcategories.reduce((o, s) => { o[s.id] = s; return o; }, {});
   const kids = pid => subcategories
     .filter(s => s.parent_id === pid)
     .sort((a, b) => (a.sort - b.sort) || a.name.localeCompare(b.name, 'ru'));

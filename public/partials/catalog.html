@@ -1,0 +1,62 @@
+<!-- ========== КАТАЛОГ ========== -->
+<div id="catalogView" style="display:none">
+  <section class="section catalog-section">
+    <div class="container">
+
+      <!-- Breadcrumb -->
+      <div class="breadcrumb" id="breadcrumb">
+        <span class="section-label" id="catalogLabel">каталог оборудования</span>
+        <h1 class="section-title" id="catalogTitle">Товары и услуги</h1>
+        <nav class="crumb-trail" id="crumbTrail" aria-label="Хлебные крошки"></nav>
+      </div>
+
+      <!-- Фильтр категорий (кнопки-пилюли) -->
+      <div class="cat-tabs" id="catTabs">
+        <button class="cat-tab cat-tab--all active" data-slug="all" onclick="selectCategory('all',this)">Все</button>
+      </div>
+
+      <!-- Подкатегории (лента; дублирует фильтр в панели) -->
+      <div class="subcat-bar" id="subcatBar" style="display:none"></div>
+
+      <div class="catalog-layout">
+        <!-- Фильтры -->
+        <aside class="catalog-filters" id="catalogFilters">
+          <div class="filters-head">
+            <span>Фильтры</span>
+            <button type="button" class="filters-reset" onclick="resetFilters()">Сбросить</button>
+            <button type="button" class="filters-close" onclick="closeFilters()" aria-label="Закрыть">✕</button>
+          </div>
+          <div id="filtersBody"><!-- строится JS --></div>
+          <button type="button" class="filters-done" onclick="closeFilters()">Показать товары</button>
+        </aside>
+        <div class="filters-overlay" id="filtersOverlay" onclick="closeFilters()"></div>
+
+        <div class="catalog-main">
+          <!-- Тулбар -->
+          <div class="catalog-toolbar">
+            <button type="button" class="btn-filters-mobile" onclick="openFilters()">⚙ Фильтры</button>
+            <span class="results-count" id="resultsCount"></span>
+            <select class="sort-select" onchange="applySort(this.value)" id="sortSelect">
+              <option value="default">По популярности</option>
+              <option value="price_asc">Цена: по возрастанию</option>
+              <option value="price_desc">Цена: по убыванию</option>
+              <option value="name_asc">По названию А–Я</option>
+            </select>
+          </div>
+
+          <!-- Активные фильтры -->
+          <div class="active-filters" id="activeFilters"></div>
+
+          <!-- Сетка товаров -->
+          <div class="product-grid" id="productGrid">
+            <div class="spinner"><div class="spin"></div>&nbsp; Загрузка…</div>
+          </div>
+
+          <!-- Пагинация (десктоп) / подгрузка при скролле (мобильная версия) -->
+          <div class="pagination" id="pagination"></div>
+          <div id="catalogScrollSentinel"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+</div><!-- /catalogView -->
