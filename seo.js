@@ -106,7 +106,7 @@ function orgLd(base) {
     foundingDate: '2012',
     email: ORG.email,
     telephone: ORG.phoneRaw,
-    sameAs: ['https://www.instagram.com/sigmamarket.kz'],
+    sameAs: ['https://www.instagram.com/b2btech.kz'],
     address: {
       '@type': 'PostalAddress',
       addressCountry: ORG.country,
@@ -230,6 +230,7 @@ async function productSeo(base, id, seo) {
     return seo;
   }
   seo.view = 'product';
+  seo.productRow = p;
 
   const meta = productMeta(p);
   seo.title = meta.title;
@@ -260,6 +261,7 @@ async function productSeo(base, id, seo) {
     `SELECT name, rating, text, created_at FROM reviews WHERE product_id = ? AND status = 'approved' ORDER BY id DESC`,
     [p.id]
   );
+  seo.productReviews = approvedReviews;
   if (approvedReviews.length) {
     const avg = approvedReviews.reduce((s, r) => s + r.rating, 0) / approvedReviews.length;
     product.aggregateRating = {
@@ -464,8 +466,8 @@ function renderHead(seo) {
   const url = esc(seo.canonical);
   const img = esc(seo.image);
   const tags = [
-    `<link rel="icon" href="/assets/icons/logo.png">`,
-    `<link rel="apple-touch-icon" href="/assets/icons/logo.png">`,
+    `<link rel="icon" href="/assets/icons/favicon-square.png">`,
+    `<link rel="apple-touch-icon" href="/assets/icons/favicon-square.png">`,
     `<meta name="description" id="metaDescription" content="${d}">`,
     `<meta name="robots" content="${esc(seo.robots)}">`,
     `<link rel="canonical" id="linkCanonical" href="${url}">`,
@@ -492,6 +494,251 @@ function setH1(html, id, tag, text) {
   const re = new RegExp(`<h1([^>]*\\bid="${id}"[^>]*)>([\\s\\S]*?)<\\/h1>`, 'i');
   return html.replace(re, (m, attrs, inner) =>
     `<${tag}${attrs}>${text != null ? esc(text) : inner}</${tag}>`);
+}
+
+// ---- SSR-заглушки для контента, который обычно рисует клиентский JS ----
+// Google Search Console (инструмент проверки URL) иногда снимает снимок страницы
+// раньше, чем успевает отработать fetch('/api/categories')/fetch('/api/products') —
+// в снимке эти блоки выглядят пустыми. Живых посетителей это не касается (JS
+// подставляет всё за доли секунды), но чтобы не зависеть от таймингов чужого
+// инструмента, отдаём первую порцию категорий/товаров сразу в HTML с сервера.
+// Клиентский JS при загрузке всё равно перерисует эти блоки как обычно.
+function catEmoji(slug) {
+  return { avtomoyki: '🚗', sto: '🔧', klining: '🧹', voda: '💧', aksessuary: '⚙️', promyshlennoe: '🏭' }[slug] || '📦';
+}
+function catIconUrl(icon) {
+  if (!icon) return '/assets/icons/cat-wash.png';
+  return /^https?:|^\//.test(icon) ? icon : '/icons/' + icon;
+}
+function fmtPriceKzt(n) {
+  n = Math.round(Number(n) || 0);
+  if (!n) return '0 ₸';
+  return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ' ') + ' ₸';
+}
+function productCardHtml(p) {
+  const imgHtml = p.icon
+    ? `<img src="/icons/${esc(p.icon)}" alt="${esc(p.name)}" loading="lazy">`
+    : `<span class="card-emoji">${catEmoji(p.category_slug)}</span>`;
+  const priceHtml = p.price_on_request
+    ? `<div class="card-price-request">Цена по запросу</div>`
+    : p.price ? `<div class="card-price">${fmtPriceKzt(p.price)}</div>`
+    : `<div class="card-price-request">Уточните цену</div>`;
+  const addBtn = p.price_on_request
+    ? `<button class="btn-offer" onclick="event.stopPropagation();requestModal(${p.id})"><img src="/assets/icons/icon-offer.png" alt=""> Запросить цену</button>`
+    : `<button class="btn-buy" onclick="event.stopPropagation();addToCart(${p.id})"><img src="/assets/icons/icon-buy.png" alt=""> В корзину</button>`;
+  const favBtn = `<button class="card-fav" title="В избранное" onclick="event.stopPropagation();toggleFav(${p.id})">♡</button>`;
+  const cmpBtn = `<label class="card-compare" onclick="event.stopPropagation()"><input type="checkbox" onchange="toggleCompare(${p.id})"> Сравнить</label>`;
+  const url = productPath(p);
+  return `<div class="product-card${p.featured ? ' featured' : ''}" onclick="openModal(${p.id})">
+    <div class="card-img-wrap">
+      ${p.featured ? '<span class="badge-hit">⭐ Хит продаж</span>' : ''}
+      ${favBtn}
+      ${imgHtml}
+    </div>
+    <div class="card-body">
+      ${p.brand ? `<div class="card-brand">${esc(p.brand)}</div>` : ''}
+      <a class="card-name" href="${url}" onclick="event.stopPropagation();openModal(${p.id});return false;">${esc(p.name)}</a>
+      ${p.article ? `<div class="card-article">Арт: ${esc(p.article)}</div>` : ''}
+    </div>
+    <div class="card-footer-row">
+      ${priceHtml}
+      <a class="btn-detail" href="${url}" onclick="event.stopPropagation();openModal(${p.id});return false;">Подробнее <img src="/assets/icons/arrow-green.png" alt="→"></a>
+    </div>
+    <div class="card-actions-row">${addBtn}${cmpBtn}</div>
+  </div>`;
+}
+
+// Основной контент карточки товара (заголовок, галерея, описание, цена, характеристики) —
+// сейчас в HTML с сервера нет даже <h1> товара, весь блок рисует showProduct() в product.js
+// уже после fetch('/api/products/:id'). Даём упрощённую версию сразу в разметке.
+function pvBreadcrumbHtml(p) {
+  const S = ' <span class="crumb-sep">›</span> ';
+  let crumb = `<a href="/catalog">Товары и услуги</a>` +
+    S + `<a href="${catalogPath(p.category_slug)}">${esc(p.category_name)}</a>`;
+  if (p.subcategory_slug) {
+    crumb += S + `<a href="${catalogPath(p.category_slug, p.subcategory_slug)}">${esc(p.subcategory_name)}</a>`;
+  }
+  crumb += S + `<span class="crumb-current">${esc(p.name)}</span>`;
+  return crumb;
+}
+
+function pvStars(n) { return '★'.repeat(n) + '☆'.repeat(5 - n); }
+function pvReviewWord(n) {
+  const n10 = n % 10, n100 = n % 100;
+  if (n100 >= 11 && n100 <= 14) return 'отзывов';
+  if (n10 === 1) return 'отзыв';
+  if (n10 >= 2 && n10 <= 4) return 'отзыва';
+  return 'отзывов';
+}
+function pvReviewDateFmt(s) {
+  const d = new Date(String(s || '').replace(' ', 'T') + 'Z');
+  return isNaN(d) ? '' : d.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' });
+}
+// Тот же список отзывов, что уже используется для JSON-LD (aggregateRating/review) —
+// Google должен видеть эти отзывы и в самом тексте страницы, не только в разметке.
+function pvReviewsHtml(reviews) {
+  const rows = reviews || [];
+  const avg = rows.length ? Math.round((rows.reduce((s, r) => s + r.rating, 0) / rows.length) * 10) / 10 : 0;
+  const summaryHtml = rows.length
+    ? `<div class="pv-rating-summary">
+         <span class="stars" aria-label="${avg} из 5">${pvStars(Math.round(avg))}</span>
+         <span class="pv-rating-count">${avg} · ${rows.length} ${pvReviewWord(rows.length)}</span>
+       </div>` : '';
+  const listHtml = rows.length
+    ? `<div class="pv-review-list">${rows.map((r) => `
+        <article class="review-card">
+          <div class="stars" aria-label="${r.rating} из 5">${pvStars(r.rating)}</div>
+          ${r.text ? `<p>${esc(r.text)}</p>` : ''}
+          <div class="review-author">${esc(r.name)} <span class="pv-review-date">· ${pvReviewDateFmt(r.created_at)}</span></div>
+        </article>`).join('')}</div>`
+    : `<p class="pv-review-empty">Отзывов пока нет — будьте первым!</p>`;
+  return `<div class="pv-reviews" id="pvReviews"><h3>Отзывы</h3>${summaryHtml}${listHtml}</div>`;
+}
+
+function productViewHtml(p, reviews) {
+  let specs = p.specs;
+  if (typeof specs === 'string') { try { specs = JSON.parse(specs); } catch { specs = {}; } }
+
+  let gallery = [];
+  try { gallery = JSON.parse(p.images || '[]'); } catch {}
+  gallery = [...new Set([p.icon, ...gallery].filter(Boolean))];
+
+  const galleryHtml = gallery.length
+    ? `<div class="pv-img"><img src="/icons/${esc(gallery[0])}" alt="${esc(p.name)}"></div>`
+    : `<div class="pv-img"><span style="font-size:90px">${catEmoji(p.category_slug)}</span></div>`;
+
+  const priceHtml = p.price_on_request
+    ? `<div class="pv-price-req">Цена по запросу — итоговая стоимость зависит от комплектации</div>`
+    : p.price ? `<div class="pv-price">${fmtPriceKzt(p.price)}</div>` : '';
+
+  const specsHtml = (specs && Object.keys(specs).length)
+    ? `<div class="pv-specs"><h3>Технические параметры</h3>
+        <table class="specs-table">${Object.entries(specs).map(([k, v]) => `<tr><td>${esc(k)}</td><td><strong>${esc(v)}</strong></td></tr>`).join('')}</table></div>`
+    : '';
+
+  return `<div class="pv-top">
+      <div class="pv-gallery">${galleryHtml}</div>
+      <div class="pv-info">
+        <h1 class="pv-name">${esc(p.name)}</h1>
+        ${p.subtitle ? `<div class="pv-subtitle">${esc(p.subtitle)}</div>` : (p.subtype ? `<div class="pv-subtitle">${esc(p.subtype)}</div>` : '')}
+        ${p.description ? `<div class="pv-desc-wrap"><p class="pv-desc">${p.description}</p></div>` : ''}
+        <div class="pv-meta">
+          ${p.brand ? `<span>${esc(p.brand)}</span>` : ''}
+          ${p.article ? `<span>Артикул: ${esc(p.article)}</span>` : ''}
+        </div>
+        ${priceHtml}
+      </div>
+    </div>
+    ${specsHtml}
+    ${pvReviewsHtml(reviews)}`;
+}
+
+function homeCategoriesHtml(cats) {
+  if (!cats || !cats.length) return '';
+  return cats.map((c) => `
+    <a class="subcat-slide subcat-slide--cat" href="${catalogPath(c.slug)}">
+      <div class="subcat-slide-icon"><img src="${catIconUrl(c.icon)}" alt="${esc(c.name)}" loading="lazy"></div>
+      <div class="subcat-slide-name">${esc(c.name)}</div>
+    </a>`).join('');
+}
+
+// SEO-текст описания категории/подкатегории (поле «Описание» из админки) —
+// тот же блок, что renderCatalogAbout() в index.html рисует через JS.
+async function catalogAboutHtml(catSlug, subSlug) {
+  if (!catSlug || catSlug === 'all') return '';
+  const cat = await db.getAsync('SELECT description FROM categories WHERE slug = ?', [catSlug]);
+  let descText = (cat && cat.description) || '';
+  if (subSlug) {
+    const sub = await db.getAsync('SELECT description FROM subcategories WHERE slug = ?', [subSlug]);
+    if (sub && sub.description) descText = sub.description;
+  }
+  descText = String(descText || '').trim();
+  if (!descText.replace(/<[^>]*>/g, '').trim()) return '';
+  if (/<[a-z][\s\S]*>/i.test(descText)) return `<div class="catalog-about-text">${descText}</div>`;
+  const nl2p = descText.split(/\n{2,}/).map((p) => `<p>${esc(p).replace(/\n/g, '<br>')}</p>`).join('');
+  return `<div class="catalog-about-text">${nl2p}</div>`;
+}
+
+function catalogProductsHtml(productsData) {
+  const rows = (productsData && productsData.products) || [];
+  return rows.map(productCardHtml).join('');
+}
+
+// Подставить первую порцию категорий/товаров в готовый html (после inject()).
+// Тихо ничего не делает при любой ошибке — это только бонус для первого рендера,
+// а не критичный путь: обычный fetch с клиента всё равно подхватит актуальные данные.
+// window.__HYDRATE__ — те же данные, что уже пошли на построение HTML ниже, отдаём
+// и клиенту, чтобы init()/loadProducts() при первом заходе не запрашивали их с сервера
+// повторно (см. loadCategories()/loadProducts() в index.html — они сначала проверяют
+// window.__HYDRATE__ и только потом идут в fetch).
+function hydrateScript(hydrate) {
+  return `<script>window.__HYDRATE__=${JSON.stringify(hydrate).replace(/</g, '\\u003c')};</script>`;
+}
+
+async function injectContent(html, seo, req, hydrate) {
+  try {
+    // Каждый экран (#homeView/#catalogView/#productView/#notFoundView) переключается
+    // клиентским setView() через style.display — у всех, кроме home, по умолчанию
+    // display:none прямо в разметке партиала. Сервер уже кладёт в HTML только партиал
+    // нужного экрана (renderPage/SPA_VIEWS), так что скрывать тут нечего — снимаем
+    // display:none сразу, иначе весь наш SSR-контент ниже просто невидим без JS.
+    const viewWrapperId = { home: 'homeView', catalog: 'catalogView', product: 'productView', notFound: 'notFoundView' }[seo.view];
+    if (viewWrapperId) {
+      html = html.replace(
+        new RegExp(`(<div id="${viewWrapperId}")\\s+style="display:none"`),
+        '$1'
+      );
+    }
+
+    if (seo.view === 'product' && !seo.notFound && seo.productRow) {
+      const bodyHtml = productViewHtml(seo.productRow, seo.productReviews);
+      html = html.replace(
+        /<div id="productViewBody">[\s\S]*?Загрузка[\s\S]*?<\/div>\s*<\/div>/,
+        `<div id="productViewBody" data-product-id="${seo.productRow.id}">${bodyHtml}</div>`
+      );
+      html = html.replace(
+        '<div class="section-title" id="pvCrumb">Товары и услуги</div>',
+        `<div class="section-title" id="pvCrumb">${pvBreadcrumbHtml(seo.productRow)}</div>`
+      );
+    } else if (seo.view === 'home') {
+      const catsHtml = homeCategoriesHtml(hydrate && hydrate.categories);
+      if (catsHtml) {
+        html = html.replace(
+          '<div class="subcat-slider" id="homeSubcatSlider" style="display:none">',
+          '<div class="subcat-slider" id="homeSubcatSlider">'
+        );
+        html = html.replace(
+          '<div class="subcat-slider-track is-grid" id="homeSubcatTrack"></div>',
+          `<div class="subcat-slider-track is-grid" id="homeSubcatTrack">${catsHtml}</div>`
+        );
+      }
+    } else if (seo.view === 'catalog' && !seo.notFound) {
+      const gridHtml = catalogProductsHtml(hydrate && hydrate.products);
+      if (gridHtml) {
+        html = html.replace(
+          /<div class="product-grid" id="productGrid">[\s\S]*?<div class="pagination"/,
+          `<div class="product-grid" id="productGrid">${gridHtml}</div>\n          <div class="pagination"`
+        );
+      }
+
+      const pathname = decodeURIComponent(req.path);
+      const mc = pathname.match(/^\/catalog(?:\/([^/]+)(?:\/([^/]+))?)?\/?$/);
+      const aboutHtml = mc && mc[1] ? await catalogAboutHtml(mc[1], mc[2]) : '';
+      if (aboutHtml) {
+        html = html.replace(
+          '<section class="section catalog-about" id="catalogAbout" style="display:none">',
+          '<section class="section catalog-about" id="catalogAbout">'
+        );
+        html = html.replace(
+          '<div class="catalog-about-inner" id="catalogAboutBody"></div>',
+          `<div class="catalog-about-inner" id="catalogAboutBody">${aboutHtml}</div>`
+        );
+      }
+    }
+
+    if (hydrate) html = html.replace('</head>', hydrateScript(hydrate) + '\n</head>');
+  } catch (e) { console.error('SEO content inject failed:', e.message); }
+  return html;
 }
 
 /* Вставить SEO в готовый html-документ */
@@ -530,6 +777,11 @@ async function robots(req) {
     'Disallow: /admin',
     'Disallow: /admin.html',
     'Disallow: /api/',
+    // Публичные и безопасные (без личных данных) — открываем отдельно, чтобы
+    // рендер страницы у робота не зависел от заблокированного /api/*.
+    'Allow: /api/products',
+    'Allow: /api/categories',
+    'Allow: /api/settings',
     'Disallow: /*?*q=',
     '',
     'Sitemap: ' + base + '/sitemap.xml',
@@ -588,4 +840,4 @@ async function sitemap(req) {
     body + '\n</urlset>\n';
 }
 
-module.exports = { build, inject, robots, sitemap, baseUrl, legacyRedirect, productPath, catalogPath, slugName, productMeta };
+module.exports = { build, inject, injectContent, robots, sitemap, baseUrl, legacyRedirect, productPath, catalogPath, slugName, productMeta };

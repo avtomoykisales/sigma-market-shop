@@ -177,16 +177,128 @@
     }
     t.textContent = msg;
     t.className = 'toast show' + (type ? ' ' + type : '');
-    setTimeout(function () { t.className = 'toast'; }, 3000);
+    // подтверждения вроде "заявка принята" стали длиннее одной строки — 3с мало, чтобы
+    // прочитать и понять, что заявка ушла (иначе люди отправляют её повторно)
+    clearTimeout(t._hideTimer);
+    t._hideTimer = setTimeout(function () { t.className = 'toast'; }, 5000);
   };
 
   /* ---------- API ---------- */
   window.apiFetch = async function (url, method, body) {
     var opts = { method: method || 'GET', headers: { 'Content-Type': 'application/json' } };
+    var custToken = localStorage.getItem('customerToken');
+    if (custToken) opts.headers['x-customer-token'] = custToken;
     if (body) opts.body = JSON.stringify(body);
     var r = await fetch(url, opts);
     return r.json();
   };
+
+  // /api/settings нужен и здесь (initAccount — кнопка «Войти»), и основному скрипту
+  // страницы (state.settings) — оба зовутся почти одновременно при загрузке страницы.
+  // Кэшируем один и тот же промис, чтобы запрос уходил на сервер только один раз.
+  var _settingsPromise = null;
+  window.getSettings = function () {
+    if (!_settingsPromise) _settingsPromise = window.apiFetch('/api/settings');
+    return _settingsPromise;
+  };
+
+  /* ---------- ЛИЧНЫЙ КАБИНЕТ: регистрация, вход, бонусы ---------- */
+  // customer = {id,name,phone,email,bonusBalance} | null. Токен — в localStorage,
+  // не привязан к устройству/сессии (простая долгоживущая «корзина»-подобная модель).
+  window.custState = { token: localStorage.getItem('customerToken') || '', customer: null };
+
+  window.refreshAccountUI = function () {
+    var btn = $('hdrAccount');
+    if (!btn) return;
+    var c = window.custState.customer;
+    btn.innerHTML = c
+      ? '👤 <span class="acc-name">' + c.name.split(' ')[0] + (c.bonusBalance ? ' · ' + c.bonusBalance + '₸' : '') + '</span>'
+      : '👤 <span class="acc-name">Войти</span>';
+  };
+
+  window.openAccountModal = function () {
+    if (window.custState.customer) { window.openAccountPanel(); return; }
+    var ov = $('accountOverlay');
+    if (!ov) return;
+    $('acc-step-phone').style.display = '';
+    $('acc-step-code').style.display = 'none';
+    $('accPhone').value = ''; $('accCode').value = ''; $('accName').value = '';
+    $('accNameField').style.display = 'none';
+    ov.classList.add('open');
+  };
+  window.closeAccountModal = function () { var ov = $('accountOverlay'); if (ov) ov.classList.remove('open'); };
+
+  var accResendTimer = null;
+  window.custRequestCode = async function (isResend) {
+    var phone = $('accPhone').value.trim();
+    if (!window.isValidPhone(phone)) { window.showToast('⚠️ Введите корректный номер телефона'); return; }
+    var res = await window.apiFetch('/api/auth/request-code', 'POST', { phone: phone });
+    if (res.error) { window.showToast('❌ ' + res.error); return; }
+    $('acc-step-phone').style.display = 'none';
+    $('acc-step-code').style.display = '';
+    $('accCodeSentTo').textContent = res.channel === 'whatsapp'
+      ? 'Код отправлен в WhatsApp на ' + phone
+      : 'WhatsApp не найден — код отправлен по SMS на ' + phone;
+    if (!isResend) { $('accCode').value = ''; $('accName').value = ''; $('accNameField').style.display = 'none'; }
+    var btn = $('accResendBtn');
+    btn.disabled = true; var left = 60;
+    clearInterval(accResendTimer);
+    var tick = function () { btn.textContent = left > 0 ? 'Отправить ещё раз (' + left + ')' : 'Отправить код ещё раз'; if (left <= 0) { btn.disabled = false; clearInterval(accResendTimer); } left--; };
+    tick(); accResendTimer = setInterval(tick, 1000);
+  };
+  window.custVerifyCode = async function () {
+    var phone = $('accPhone').value.trim();
+    var code = $('accCode').value.trim();
+    var name = $('accName').value.trim();
+    if (!code) { window.showToast('⚠️ Введите код из сообщения'); return; }
+    var res = await window.apiFetch('/api/auth/verify-code', 'POST', { phone: phone, code: code, name: name });
+    if (res.needName) { $('accNameField').style.display = ''; window.showToast('⚠️ Укажите имя — регистрируем вас впервые'); return; }
+    if (res.error) { window.showToast('❌ ' + res.error); return; }
+    custAuthed(res, res.isNew);
+  };
+  function custAuthed(res, isNew) {
+    localStorage.setItem('customerToken', res.token);
+    window.custState.token = res.token;
+    window.custState.customer = res.customer;
+    window.refreshAccountUI();
+    window.closeAccountModal();
+    window.showToast(isNew ? '✅ Добро пожаловать! Начислен бонус за регистрацию' : '✅ Вы вошли в аккаунт', 'green');
+    if (typeof window.refreshCartBonus === 'function') window.refreshCartBonus();
+  }
+  window.custLogout = async function () {
+    try { await window.apiFetch('/api/logout', 'POST'); } catch (e) {}
+    localStorage.removeItem('customerToken');
+    window.custState = { token: '', customer: null };
+    window.refreshAccountUI();
+    window.closeAccountPanel();
+    window.showToast('Вы вышли из аккаунта');
+  };
+  window.openAccountPanel = function () {
+    var ov = $('accountPanelOverlay');
+    if (!ov) return;
+    var c = window.custState.customer;
+    if (c) {
+      $('accPanelName').textContent = c.name;
+      $('accPanelBonus').textContent = c.bonusBalance || 0;
+    }
+    ov.classList.add('open');
+  };
+  window.closeAccountPanel = function () { var ov = $('accountPanelOverlay'); if (ov) ov.classList.remove('open'); };
+
+  async function initAccount() {
+    var btn = $('hdrAccount');
+    try {
+      var s = await window.getSettings();
+      if (btn) btn.style.display = (s.bonus && s.bonus.visible) ? '' : 'none';
+    } catch (e) {}
+    if (!window.custState.token) { window.refreshAccountUI(); return; }
+    try {
+      var res = await window.apiFetch('/api/me');
+      if (res.customer) { window.custState.customer = res.customer; }
+      else { localStorage.removeItem('customerToken'); window.custState.token = ''; }
+    } catch (e) {}
+    window.refreshAccountUI();
+  }
   window.formatPrice = function (n) {
     if (!n) return '0 ₸';
     return Number(n).toLocaleString('ru-KZ', { maximumFractionDigits: 0 }) + ' ₸';
@@ -275,9 +387,11 @@
     else window.location.href = '/#consult';
   };
   window.submitConsult = async function () {
-    var name = $('cName') && $('cName').value.trim();
-    var phone = $('cPhone') && $('cPhone').value.trim();
-    if (!name || !phone) { window.showToast('⚠️ Укажите имя и телефон'); return; }
+    var nameEl = $('cName'), phoneEl = $('cPhone');
+    if (!nameEl || !phoneEl) return;
+    if (!nameEl.reportValidity() || !phoneEl.reportValidity()) return;
+    var name = nameEl.value.trim();
+    var phone = phoneEl.value.trim();
     if (!window.isValidPhone(phone)) { window.showToast('⚠️ Введите корректный номер телефона'); return; }
     try {
       var res = await window.apiFetch('/api/orders', 'POST', {
@@ -349,6 +463,7 @@
     markActiveNav();
     window.updateCartBadge();
     initHeroSlider();
+    initAccount();
 
     // аккордеоны в мобильном меню
     document.querySelectorAll('.drawer-group-head').forEach(function (b) {

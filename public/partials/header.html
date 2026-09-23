@@ -18,6 +18,10 @@
       <a class="hdr-fav" href="/#favorites" data-nav="favorites" title="Избранное">
         ♥ <span class="fav-count" style="display:none">0</span>
       </a>
+      <!-- Показ переключается в админке → Вовлечённость → Бонусы клиентов (по умолчанию скрыто) -->
+      <button class="hdr-account" id="hdrAccount" type="button" onclick="openAccountModal()" title="Личный кабинет" style="display:none">
+        👤 <span class="acc-name">Войти</span>
+      </button>
       <button class="hdr-cart" type="button" onclick="handleCart()">
         🛒 <span class="cart-count" id="cartCount">0</span>
       </button>
@@ -58,15 +62,17 @@
   <a class="drawer-consult" href="/#consult">Получить консультацию</a>
 
   <div class="drawer-card">
-    <div class="footer-contact"><img src="/assets/icons/icon-phone.png" alt=""> +7 (707) 420-20-03</div>
+    <div class="footer-contact"><a href="tel:+77074202003"><img src="/assets/icons/icon-phone.png" alt=""> +7 (707) 420-20-03</a></div>
+    <div class="footer-contact"><a href="tel:+77475793686"><img src="/assets/icons/icon-phone.png" alt=""> +7 (747) 579-36-86</a></div>
+    <div class="footer-contact"><a href="tel:+77715793686"><img src="/assets/icons/icon-phone.png" alt=""> +7 (771) 579-36-86</a></div>
     <div class="footer-contact"><img src="/assets/icons/icon-email.png" alt=""> avtomoyki.sales@gmail.com</div>
     <div class="footer-contact"><img src="/assets/icons/icon-map.png" alt=""> Республика Казахстан, г. Алматы,<br>пр-т Рыскулова 103/18Б оф. 202</div>
-    <a class="drawer-social" href="https://www.instagram.com/sigmamarket.kz" target="_blank" rel="noopener">
+    <a class="drawer-social" href="https://www.instagram.com/b2btech.kz" target="_blank" rel="noopener">
       <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <rect x="2" y="2" width="20" height="20" rx="5"></rect><circle cx="12" cy="12" r="4"></circle>
         <circle cx="17.5" cy="6.5" r="1.2" fill="currentColor" stroke="none"></circle>
       </svg>
-      @sigmamarket.kz
+      @b2btech.kz
     </a>
   </div>
 
@@ -107,3 +113,37 @@
     <p class="drawer-copy">© SIGMA MARKET TOO, 2012–2025</p>
   </div>
 </aside>
+
+<!-- ВХОД ПО КОДУ (WhatsApp, резерв — SMS) -->
+<div class="modal-overlay" id="accountOverlay" onclick="if(event.target===this) closeAccountModal()">
+  <div class="modal">
+    <div class="modal-inner">
+      <button class="modal-close" onclick="closeAccountModal()">✕</button>
+      <h3 style="margin-bottom:14px">Вход в личный кабинет</h3>
+      <div id="acc-step-phone">
+        <div class="form-group"><label>Телефон *</label><input type="tel" id="accPhone" placeholder="+7 (___) ___-__-__"></div>
+        <button class="btn-primary" onclick="custRequestCode()">Получить код</button>
+      </div>
+      <div id="acc-step-code" style="display:none">
+        <p id="accCodeSentTo" style="color:var(--text-muted);font-size:13px;margin-bottom:14px"></p>
+        <div class="form-group"><label>Код из 4 цифр *</label><input type="tel" inputmode="numeric" maxlength="4" id="accCode"></div>
+        <div class="form-group" id="accNameField" style="display:none"><label>Ваше имя * <span style="font-weight:400">— видим вас первый раз</span></label><input type="text" id="accName"></div>
+        <button class="btn-primary" onclick="custVerifyCode()">Подтвердить</button>
+        <button type="button" class="acc-resend" id="accResendBtn" onclick="custRequestCode(true)">Отправить код ещё раз</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ЛИЧНЫЙ КАБИНЕТ -->
+<div class="modal-overlay" id="accountPanelOverlay" onclick="if(event.target===this) closeAccountPanel()">
+  <div class="modal" style="max-width:380px">
+    <div class="modal-inner">
+      <button class="modal-close" onclick="closeAccountPanel()">✕</button>
+      <h3 id="accPanelName" style="margin-bottom:10px"></h3>
+      <p style="color:var(--text-muted);font-size:14px">Бонусов на счету: <b id="accPanelBonus">0</b> ₸</p>
+      <p style="color:var(--text-muted);font-size:13px;margin-top:6px">Бонусами можно оплатить часть следующего заказа в корзине.</p>
+      <button class="btn-primary" style="margin-top:16px" onclick="custLogout()">Выйти из аккаунта</button>
+    </div>
+  </div>
+</div>

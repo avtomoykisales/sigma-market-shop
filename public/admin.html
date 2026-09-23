@@ -24,12 +24,14 @@
 
 <!-- APP -->
 <div id="appScreen" style="display:none">
-  <div class="sidebar">
+  <div class="sidebar-overlay" id="sidebarOverlay" onclick="closeSidebar()"></div>
+  <div class="sidebar" id="sidebar">
     <div class="sidebar-logo">Σ <span>SIGMA</span> ADMIN</div>
     <div class="nav-item active" onclick="showPanel('dashboard')" id="nav-dashboard"><span class="icon">📊</span>Дашборд</div>
+    <div class="nav-item" onclick="showPanel('orders')" id="nav-orders"><span class="icon">📋</span>Заявки</div>
     <div class="nav-item" onclick="showPanel('products')" id="nav-products"><span class="icon">📦</span>Товары</div>
     <div class="nav-item" onclick="showPanel('subcats')" id="nav-subcats"><span class="icon">🗂</span>Категории</div>
-    <div class="nav-item" onclick="showPanel('orders')" id="nav-orders"><span class="icon">📋</span>Заявки</div>
+    <div class="nav-item" onclick="showPanel('customers')" id="nav-customers"><span class="icon">🧑‍🤝‍🧑</span>Клиенты</div>
     <div class="nav-item" onclick="showPanel('reviews')" id="nav-reviews"><span class="icon">⭐</span>Отзывы товаров</div>
     <div class="nav-item" onclick="showPanel('engage')" id="nav-engage"><span class="icon">⚙️</span>Вовлечённость</div>
     <div class="nav-item" onclick="showPanel('upload')" id="nav-upload"><span class="icon">🖼</span>Иконки (ZIP)</div>
@@ -42,6 +44,7 @@
 
   <div class="main-area">
     <div class="topbar">
+      <button class="hamburger-btn" onclick="openSidebar()" aria-label="Меню">☰</button>
       <h1 id="panelTitle">Дашборд</h1>
       <button class="logout-btn" onclick="logout()">Выйти</button>
     </div>
@@ -57,7 +60,7 @@
       <div class="card">
         <div class="card-header"><h3>Последние заявки — новые и в работе</h3></div>
         <div class="table-wrap"><table>
-          <thead><tr><th>№</th><th>Имя</th><th>Телефон</th><th>Товары</th><th>Статус</th><th>Дата</th></tr></thead>
+          <thead><tr><th>№</th><th>Имя</th><th>Телефон</th><th>Товары</th><th>Статус</th><th>Дата</th><th>Примечание</th><th>Действия</th></tr></thead>
           <tbody id="recentOrdersTbody"></tbody>
         </table></div>
       </div>
@@ -90,14 +93,44 @@
     <!-- ORDERS -->
     <div class="panel" id="panel-orders">
       <div class="card">
-        <div class="card-header"><h3>Заявки клиентов</h3></div>
+        <div class="card-header"><h3>Заявки клиентов</h3>
+          <button class="action-btn" onclick="openNewOrder()">➕ Создать заказ</button>
+        </div>
+        <div class="toolbar">
+          <input class="search-input" id="ordSearch" placeholder="Поиск по имени, телефону, компании…" oninput="searchOrders()">
+          <select class="search-input" id="ordStatusFilter" onchange="searchOrders()" style="min-width:160px">
+            <option value="">Все статусы</option>
+            <option value="new">🆕 Новая</option>
+            <option value="processing">⏳ В работе</option>
+            <option value="done">✅ Выполнена</option>
+            <option value="cancelled">❌ Отменена</option>
+          </select>
+        </div>
         <div class="table-wrap"><table>
-          <thead><tr><th>№</th><th>Имя</th><th>Телефон</th><th>Email</th><th>Город</th><th>Товары</th><th>Сумма</th><th>Статус</th><th>Дата</th></tr></thead>
+          <thead><tr><th>№</th><th>Имя</th><th>Телефон</th><th>Товары</th><th>Сумма</th><th>Статус</th><th>Дата</th><th>Примечание</th><th>Действия</th></tr></thead>
           <tbody id="ordersTbody"></tbody>
         </table></div>
         <div class="pagination">
           <span class="total-label" id="ordersTotal"></span>
           <div id="ordersPager"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- КЛИЕНТЫ -->
+    <div class="panel" id="panel-customers">
+      <div class="card">
+        <div class="card-header"><h3>Клиенты</h3></div>
+        <div class="toolbar">
+          <input class="search-input" id="custSearch" placeholder="Поиск по имени, телефону, email…" oninput="searchCustomers()">
+        </div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Имя</th><th>Телефон</th><th>Email</th><th>Бонусы</th><th>Заказов</th><th>Регистрация</th><th>Действия</th></tr></thead>
+          <tbody id="customersTbody"></tbody>
+        </table></div>
+        <div class="pagination">
+          <span class="total-label" id="customersTotal"></span>
+          <div id="customersPager"></div>
         </div>
       </div>
     </div>
@@ -156,7 +189,7 @@
     <div class="overlay" id="catOverlay">
       <div class="form-modal" style="width:min(900px,95vw)">
         <h3 id="catFormTitle">Новая категория</h3>
-        <div class="form-grid" style="grid-template-columns:1fr 1fr">
+        <div class="form-grid form-grid-2">
           <div class="fg"><label>Название *</label><input id="ctName" placeholder="Клининг"></div>
           <div class="fg"><label>Slug (необязательно)</label><input id="ctSlug" placeholder="klining — сгенерируется автоматически"></div>
           <div class="fg full"><label>Описание <span style="font-weight:400;text-transform:none;color:var(--muted)"></span></label><textarea id="ctDesc" data-rich="1" style="min-height:150px"></textarea></div>
@@ -209,7 +242,7 @@
         <div class="fg"><label>Номер 1 (основной)</label><input id="contact-phone1" placeholder="+7 (707) 420-20-03"></div>
         <div class="fg" style="margin-top:10px"><label>Номер 2</label><input id="contact-phone2" placeholder="+7 (700) 000-00-00 — необязательно"></div>
 
-        <h3 style="margin:26px 0 6px">CRM — Bitrix24</h3>
+        <!-- <h3 style="margin:26px 0 6px">CRM — Bitrix24</h3>
         <p style="color:var(--muted);font-size:13px;margin-bottom:12px">
           Заявки с сайта («Получить консультацию» и корзина) будут падать в Bitrix24 как лиды.<br>
           В Bitrix24: <b>Приложения → Разработчикам → Другое → Входящий вебхук</b>, права <code>crm</code>,
@@ -220,7 +253,13 @@
         <div class="form-actions" style="justify-content:flex-start;margin-top:10px">
           <button class="action-btn" onclick="testCrm()">🔌 Проверить связь</button>
           <span id="crm-test-result" style="font-size:13px;align-self:center"></span>
-        </div>
+        </div> -->
+
+        <h3 style="margin:26px 0 6px">Бонусы клиентов</h3>
+        <label class="eng-check"><input type="checkbox" id="bon-visible"> Показывать на сайте (кнопка «Войти» в шапке, регистрация)</label>
+        <label class="eng-check"><input type="checkbox" id="bon-enabled"> Включить бонусную программу</label>
+        <div class="fg" style="margin-top:10px"><label>Бонус за регистрацию (₸)</label><input id="bon-register" placeholder="500"></div>
+        <div class="fg" style="margin-top:10px"><label>Процент от суммы заказа бонусами (%)</label><input id="bon-percent" placeholder="3"></div>
 
         <div class="form-actions" style="justify-content:flex-start;margin-top:24px">
           <button class="btn-save" onclick="saveEngage()">💾 Сохранить настройки</button>
@@ -420,7 +459,7 @@
 <div class="overlay" id="subcatOverlay">
   <div class="form-modal" style="width:min(900px,95vw)">
     <h3 id="subcatFormTitle">Новая подкатегория</h3>
-    <div class="form-grid" style="grid-template-columns:1fr 1fr">
+    <div class="form-grid form-grid-2">
       <div class="fg"><label>Категория *</label><select id="scCategory" onchange="fillScParent()"></select></div>
       <div class="fg"><label>Родительская подкатегория <span style="font-weight:400;text-transform:none;color:var(--muted)">— для дерева (группа → подгруппа)</span></label><select id="scParent"><option value="">— нет (верхний уровень) —</option></select></div>
       <div class="fg"><label>Название *</label><input id="scName" placeholder="Поломоечные машины"></div>
@@ -462,6 +501,146 @@
   </div>
 </div>
 
+<!-- КАРТОЧКА ЗАКАЗА: редактирование + история клиента + примечания -->
+<div class="overlay" id="orderNotesOverlay">
+  <div class="form-modal" style="width:min(1200px,95vw)">
+    <h3>Заказ №<span id="notesOrderId"></span></h3>
+    <div class="form-grid form-grid-2">
+      <div class="fg"><label>Имя</label><input id="odName"></div>
+      <div class="fg"><label>Телефон</label><input id="odPhone"></div>
+      <div class="fg"><label>Email</label><input id="odEmail"></div>
+      <div class="fg"><label>Город</label><input id="odCity"></div>
+      <div class="fg full"><label>Компания</label><input id="odCompany"></div>
+      <div class="fg full"><label>Комментарий</label><textarea id="odMessage" style="min-height:60px"></textarea></div>
+    </div>
+
+    <label style="font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.3px;display:block;margin-top:14px">Товары в этом заказе</label>
+    <div id="odItemSuggest"></div>
+    <div id="odItemsList" style="margin:8px 0"></div>
+    <div class="rel-search-wrap" style="position:relative">
+      <input id="odItemSearch" placeholder="Поиск товара для добавления…" style="width:100%;padding:9px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:13px">
+      <div id="odItemResults" class="rel-results"></div>
+    </div>
+    <div class="fg" style="margin-top:10px"><label>Или просто напишите, что купил клиент <span style="font-weight:400;text-transform:none;color:var(--muted)">— если товара нет в каталоге</span></label><textarea id="odManualItem" style="min-height:60px" placeholder=""></textarea></div>
+    <div class="fg" style="margin-top:10px"><label>Сумма заказа (₸)</label><input id="odTotal" type="number"></div>
+
+    <div class="form-actions" style="justify-content:flex-start;margin-top:6px">
+      <button class="btn-save" onclick="saveOrderDetail()">💾 Сохранить</button>
+    </div>
+
+    <h3 style="margin-top:22px">История покупок клиента</h3>
+    <div id="odHistory" style="max-height:200px;overflow:auto;margin:10px 0"></div>
+
+    <h3 style="margin-top:22px">Примечания</h3>
+    <div id="orderNotesList" style="max-height:220px;overflow:auto;margin:10px 0"></div>
+    <div class="fg"><textarea id="newNoteText" placeholder="" style="min-height:70px"></textarea></div>
+    <div class="fg" style="max-width:220px"><label>Напомнить (необязательно)</label><input id="newNoteRemind" type="date"></div>
+    <div class="form-actions">
+      <button class="btn-cancel" onclick="document.getElementById('orderNotesOverlay').classList.remove('open')">Закрыть</button>
+      <button class="btn-save" onclick="addOrderNote()">💬 Добавить примечание</button>
+    </div>
+
+    <h3 style="margin-top:22px">История изменений заявки</h3>
+    <div id="odLogList" style="max-height:220px;overflow:auto;margin:10px 0"></div>
+  </div>
+</div>
+
+<!-- ЗАВЕРШЕНИЕ ЗАКАЗА: состав, сумма, бонус -->
+<div class="overlay" id="completeOrderOverlay">
+  <div class="form-modal" style="width:min(640px,95vw)">
+    <h3>Завершение заказа №<span id="coOrderId"></span></h3>
+
+    <label style="font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.3px">Товары</label>
+    <div id="coItemSuggest"></div>
+    <div id="coItemsList" style="margin:8px 0"></div>
+    <div class="rel-search-wrap" style="position:relative">
+      <input id="coItemSearch" placeholder="Поиск товара для добавления…" style="width:100%;padding:9px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:13px">
+      <div id="coItemResults" class="rel-results"></div>
+    </div>
+    <div class="fg" style="margin-top:10px"><label>Или просто напишите, что купил клиент <span style="font-weight:400;text-transform:none;color:var(--muted)">— если товара нет в каталоге</span></label><textarea id="coManualItem" style="min-height:60px" placeholder=""></textarea></div>
+
+    <div class="fg" style="margin-top:14px"><label>Сумма заказа (₸)</label><input id="coTotal" type="number"></div>
+
+    <div style="margin-top:16px;padding:12px 14px;background:var(--bg);border-radius:8px;font-size:13px">
+      Бонусов у клиента сейчас: <b id="coCurrentBonus">—</b>
+    </div>
+    <div class="fg" style="margin-top:10px"><label>Начислить бонус за этот заказ (₸)</label><input id="coBonusAward" type="number"></div>
+
+    <div class="form-actions">
+      <button class="btn-cancel" onclick="closeCompleteOrder()">Отмена</button>
+      <button class="btn-save" onclick="saveCompleteOrder()">✅ Отметить выполненным</button>
+    </div>
+  </div>
+</div>
+
+<!-- КАРТОЧКА КЛИЕНТА: редактирование + его заказы -->
+<div class="overlay" id="customerOverlay">
+  <div class="form-modal" style="width:min(700px,95vw)">
+    <h3>Клиент</h3>
+    <div class="form-grid form-grid-2">
+      <div class="fg"><label>Имя</label><input id="cuName"></div>
+      <div class="fg"><label>Телефон</label><input id="cuPhone"></div>
+      <div class="fg"><label>Email</label><input id="cuEmail"></div>
+      <div class="fg"><label>Бонусы (₸)</label><input id="cuBonus" type="number"></div>
+    </div>
+    <div class="form-actions" style="justify-content:flex-start;margin-top:6px">
+      <button class="btn-save" onclick="saveCustomer()">💾 Сохранить</button>
+    </div>
+
+    <h3 style="margin-top:22px">Заказы клиента</h3>
+    <div id="cuOrders" style="max-height:320px;overflow:auto;margin:10px 0"></div>
+
+    <h3 style="margin-top:22px">История изменений клиента</h3>
+    <div id="cuLogList" style="max-height:220px;overflow:auto;margin:10px 0"></div>
+
+    <div class="form-actions">
+      <button class="btn-cancel" onclick="document.getElementById('customerOverlay').classList.remove('open')">Закрыть</button>
+    </div>
+  </div>
+</div>
+
+<!-- ПРИЧИНА ОТМЕНЫ ЗАКАЗА -->
+<div class="overlay" id="cancelOrderOverlay">
+  <div class="form-modal" style="width:min(480px,95vw)">
+    <h3>Причина отмены заказа №<span id="cancelOrderIdText"></span></h3>
+    <div class="fg"><textarea id="cancelReason" placeholder="Например: клиент передумал, нет в наличии, дубль заявки" style="min-height:80px" required></textarea></div>
+    <div class="form-actions">
+      <button class="btn-cancel" onclick="closeCancelOrder()">Не отменять</button>
+      <button class="btn-save" onclick="confirmCancelOrder()">❌ Отменить заказ</button>
+    </div>
+  </div>
+</div>
+
+<!-- СОЗДАНИЕ ЗАКАЗА ВРУЧНУЮ -->
+<div class="overlay" id="newOrderOverlay">
+  <div class="form-modal" style="width:min(640px,95vw)">
+    <h3>Новый заказ</h3>
+    <div class="form-grid form-grid-2">
+      <div class="fg full"><label>Имя *</label><input id="noName" required></div>
+      <div class="fg"><label>Телефон *</label><input id="noPhone" placeholder="+7 (___) ___-__-__" required></div>
+      <div class="fg"><label>Email</label><input id="noEmail"></div>
+      <div class="fg"><label>Город</label><input id="noCity"></div>
+      <div class="fg full"><label>Компания</label><input id="noCompany"></div>
+    </div>
+
+    <label style="font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.3px;display:block;margin-top:14px">Товары</label>
+    <div id="noItemsList" style="margin:8px 0"></div>
+    <div class="rel-search-wrap" style="position:relative">
+      <input id="noItemSearch" placeholder="Поиск товара для добавления…" style="width:100%;padding:9px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:13px">
+      <div id="noItemResults" class="rel-results"></div>
+    </div>
+    <div class="fg" style="margin-top:10px"><label>Или просто напишите, что купил клиент <span style="font-weight:400;text-transform:none;color:var(--muted)">— если товара нет в каталоге</span></label><textarea id="noManualItem" style="min-height:60px" placeholder=""></textarea></div>
+
+    <div class="fg" style="margin-top:14px"><label>Сумма (₸)</label><input id="noTotal" type="number" placeholder="0"></div>
+    <div class="fg full" style="margin-top:10px"><label>Комментарий</label><textarea id="noMessage" style="min-height:60px" placeholder="Необязательно"></textarea></div>
+
+    <div class="form-actions">
+      <button class="btn-cancel" onclick="document.getElementById('newOrderOverlay').classList.remove('open')">Отмена</button>
+      <button class="btn-save" onclick="saveNewOrder()">💾 Создать</button>
+    </div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script>
@@ -472,6 +651,7 @@ let editId = null;
 let subcatEditId = null;
 let prodPage = 1;
 let ordPage = 1;
+let custPage = 1;
 let prodSearchTimer;
 
 // ===== ПРОСТОЙ HTML-РЕДАКТОР (для «Описание» категорий/подкатегорий) =====
@@ -613,15 +793,19 @@ function fillCatFilter() {
 }
 
 // ===== PANELS =====
+function openSidebar() { document.getElementById('sidebar').classList.add('open'); document.getElementById('sidebarOverlay').classList.add('open'); }
+function closeSidebar() { document.getElementById('sidebar').classList.remove('open'); document.getElementById('sidebarOverlay').classList.remove('open'); }
 function showPanel(name) {
+  closeSidebar();
   document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
   document.getElementById('panel-'+name).classList.add('active');
   document.getElementById('nav-'+name).classList.add('active');
-  const titles = {dashboard:'Дашборд',products:'Управление товарами',subcats:'Категории и подкатегории',orders:'Заявки клиентов',reviews:'Отзывы на товары',engage:'Вовлечённость и подбор',upload:'Загрузка иконок',logs:'Журнал действий',errors:'Ошибки сайта',admins:'Администраторы'};
+  const titles = {dashboard:'Дашборд',products:'Управление товарами',subcats:'Категории и подкатегории',orders:'Заявки клиентов',customers:'Клиенты',reviews:'Отзывы на товары',engage:'Вовлечённость и подбор',upload:'Загрузка иконок',logs:'Журнал действий',errors:'Ошибки сайта',admins:'Администраторы'};
   document.getElementById('panelTitle').textContent = titles[name] || name;
   if (name === 'products') loadProducts();
   if (name === 'orders') loadOrders();
+  if (name === 'customers') loadCustomers();
   if (name === 'reviews') loadReviews();
   if (name === 'dashboard') loadDashboard();
   if (name === 'engage') loadEngage();
@@ -669,8 +853,10 @@ async function loadLogs(page = 1) {
 }
 
 let logsRows = [];
-function showLogDetail(i) {
-  const r = logsRows[i];
+function showLogDetail(i) { renderLogDetailModal(logsRows[i]); }
+// Общая модалка деталей записи журнала — переиспользуется и общим журналом,
+// и историей изменений внутри карточки конкретной заявки (см. showOdLogDetail).
+function renderLogDetailModal(r) {
   if (!r) return;
   document.getElementById('logDetailTitle').textContent = r.label || r.action;
   document.getElementById('logDetailMeta').textContent =
@@ -1014,6 +1200,11 @@ async function loadEngage() {
   document.getElementById('contact-phone1').value = c.phone1 || '';
   document.getElementById('contact-phone2').value = c.phone2 || '';
   document.getElementById('crm-bitrix').value = (engSettings.crm || {}).bitrix_webhook || '';
+  const bn = engSettings.bonus || {};
+  document.getElementById('bon-visible').checked = bn.visible === true;
+  document.getElementById('bon-enabled').checked = bn.enabled !== false;
+  document.getElementById('bon-register').value = bn.register_bonus != null ? bn.register_bonus : '';
+  document.getElementById('bon-percent').value = bn.earn_percent != null ? bn.earn_percent : '';
 }
 async function testCrm() {
   const out = document.getElementById('crm-test-result');
@@ -1035,7 +1226,13 @@ async function saveEngage() {
     filters: { enabled: on('flt-enabled'), brand: on('flt-brand'), subtype: on('flt-subtype'), price: on('flt-price'), perf: on('flt-perf') },
     compare: on('opt-compare'), favorites: on('opt-favorites'),
     contacts,
-    crm: { bitrix_webhook: document.getElementById('crm-bitrix').value.trim() }
+    crm: { bitrix_webhook: document.getElementById('crm-bitrix').value.trim() },
+    bonus: {
+      visible: document.getElementById('bon-visible').checked,
+      enabled: document.getElementById('bon-enabled').checked,
+      register_bonus: Number(document.getElementById('bon-register').value) || 0,
+      earn_percent: Number(document.getElementById('bon-percent').value) || 0
+    }
   });
   siteContacts = contacts;
   fillContactPrimarySelect();
@@ -1159,7 +1356,7 @@ async function loadDashboard() {
     apiFetch('/api/admin/products?limit=1'),
     apiFetch('/api/admin/orders?limit=1'),
     apiFetch('/api/admin/orders?limit=1&status=new'),
-    apiFetch('/api/admin/orders?limit=5&status=new,processing'),
+    apiFetch('/api/admin/orders?limit=100&status=new,processing'),
     apiFetch('/api/categories')
   ]);
   document.getElementById('stat-products').textContent = prods.total;
@@ -1172,9 +1369,18 @@ async function loadDashboard() {
     <td><strong>${esc(o.name)}</strong></td>
     <td>${esc(o.phone)}</td>
     <td class="order-items-list">${getItemsSummary(o.items)}</td>
-    <td><span class="tag ${statusTag(o.status)}">${statusLabel(o.status)}</span></td>
+    <td>
+      <select class="status-select" data-prev="${o.status}" onchange="handleStatusChange(${o.id}, this)">
+        <option value="new" ${o.status==='new'?'selected':''}>🆕 Новая</option>
+        <option value="processing" ${o.status==='processing'?'selected':''}>⏳ В работе</option>
+        <option value="done" ${o.status==='done'?'selected':''}>✅ Выполнена</option>
+        <option value="cancelled" ${o.status==='cancelled'?'selected':''}>❌ Отменена</option>
+      </select>
+    </td>
     <td>${fmtDate(o.created_at)}</td>
-  </tr>`).join('') : '<tr><td colspan="6" style="padding:20px;color:var(--muted)">Новых заявок и заявок в работе нет</td></tr>');
+    <td class="order-note-cell">${lastNoteText(o.lastNote, o.id, o.nextReminder)}</td>
+    <td><button class="action-btn" onclick="openOrderNotes(${o.id})">✏️ Редактировать</button></td>
+  </tr>`).join('') : '<tr><td colspan="8" style="padding:20px;color:var(--muted)">Новых заявок и заявок в работе нет</td></tr>');
 }
 
 // ===== PRODUCTS =====
@@ -1217,6 +1423,17 @@ async function loadProducts() {
 function searchProds() {
   clearTimeout(prodSearchTimer);
   prodSearchTimer = setTimeout(() => { prodPage=1; loadProducts(); }, 350);
+}
+
+let ordSearchTimer;
+function searchOrders() {
+  clearTimeout(ordSearchTimer);
+  ordSearchTimer = setTimeout(() => { ordPage=1; loadOrders(); }, 350);
+}
+let custSearchTimer;
+function searchCustomers() {
+  clearTimeout(custSearchTimer);
+  custSearchTimer = setTimeout(() => { custPage=1; loadCustomers(); }, 350);
 }
 
 async function openProductForm(id = null) {
@@ -1319,19 +1536,22 @@ async function deleteProduct(id) {
 
 // ===== ORDERS =====
 async function loadOrders() {
-  const data = await apiFetch(`/api/admin/orders?page=${ordPage}&limit=30`);
+  const search = document.getElementById('ordSearch').value.trim();
+  const status = document.getElementById('ordStatusFilter').value;
+  let url = `/api/admin/orders?page=${ordPage}&limit=30`;
+  if (search) url += `&search=${encodeURIComponent(search)}`;
+  if (status) url += `&status=${status}`;
+  const data = await apiFetch(url);
   document.getElementById('ordersTotal').textContent = `Всего: ${data.total} заявок`;
   const tbody = document.getElementById('ordersTbody');
   tbody.innerHTML = data.orders.map(o => `<tr>
     <td>#${o.id}</td>
     <td><strong>${esc(o.name)}</strong></td>
     <td>${esc(o.phone)}</td>
-    <td>${esc(o.email||'—')}</td>
-    <td>${esc(o.city||'—')}</td>
     <td class="order-items-list">${getItemsSummary(o.items)}</td>
     <td>${o.total > 0 ? fmtPrice(o.total) : '—'}</td>
     <td>
-      <select class="status-select" onchange="updateOrderStatus(${o.id}, this.value)">
+      <select class="status-select" data-prev="${o.status}" onchange="handleStatusChange(${o.id}, this)">
         <option value="new" ${o.status==='new'?'selected':''}>🆕 Новая</option>
         <option value="processing" ${o.status==='processing'?'selected':''}>⏳ В работе</option>
         <option value="done" ${o.status==='done'?'selected':''}>✅ Выполнена</option>
@@ -1339,6 +1559,8 @@ async function loadOrders() {
       </select>
     </td>
     <td>${fmtDate(o.created_at)}</td>
+    <td class="order-note-cell">${lastNoteText(o.lastNote, o.id, o.nextReminder)}</td>
+    <td><button class="action-btn" onclick="openOrderNotes(${o.id})">✏️ Редактировать</button></td>
   </tr>`).join('');
   const pager = document.getElementById('ordersPager');
   const pages = Math.ceil(data.total / 30);
@@ -1347,9 +1569,374 @@ async function loadOrders() {
   ).join('') : '';
 }
 
+// ===== КЛИЕНТЫ =====
+async function loadCustomers() {
+  const search = document.getElementById('custSearch').value.trim();
+  let url = `/api/admin/customers?page=${custPage}&limit=30`;
+  if (search) url += `&search=${encodeURIComponent(search)}`;
+  const data = await apiFetch(url);
+  document.getElementById('customersTotal').textContent = `Всего: ${data.total} клиентов`;
+  const tbody = document.getElementById('customersTbody');
+  tbody.innerHTML = data.customers.length ? data.customers.map(c => `<tr>
+    <td><strong>${esc(c.name)}</strong></td>
+    <td>${esc(c.phone)}</td>
+    <td>${esc(c.email || '—')}</td>
+    <td>${c.bonus_balance || 0} ₸</td>
+    <td>${c.ordersCount || 0}</td>
+    <td>${fmtDate(c.created_at)}</td>
+    <td><button class="action-btn" onclick="openCustomer(${c.id})">✏️ Редактировать</button></td>
+  </tr>`).join('') : '<tr><td colspan="7" style="padding:20px;color:var(--muted)">Клиентов пока нет</td></tr>';
+  const pager = document.getElementById('customersPager');
+  const pages = Math.ceil(data.total / 30);
+  pager.innerHTML = pages > 1 ? Array.from({length:pages}, (_,i) =>
+    `<button class="page-btn${i+1===custPage?' active':''}" onclick="custPage=${i+1};loadCustomers()">${i+1}</button>`
+  ).join('') : '';
+}
+
+let cuId = null;
+async function openCustomer(id) {
+  cuId = id;
+  const data = await apiFetch(`/api/admin/customers/${id}`);
+  if (data.error) { showToast('❌ ' + data.error); return; }
+  const c = data.customer;
+  document.getElementById('cuName').value = c.name || '';
+  document.getElementById('cuPhone').value = c.phone || '';
+  document.getElementById('cuEmail').value = c.email || '';
+  document.getElementById('cuBonus').value = c.bonus_balance || 0;
+  const orders = data.orders || [];
+  document.getElementById('cuOrders').innerHTML = renderOrdersTable(orders, 'Заказов пока нет');
+  await renderCustomerLog(id);
+  document.getElementById('customerOverlay').classList.add('open');
+}
+let cuLogRows = [];
+async function renderCustomerLog(id) {
+  const data = await apiFetch(`/api/admin/customers/${id}/log`);
+  cuLogRows = data.rows || [];
+  const ICON = { login: '🔓', login_fail: '⛔', create: '➕', update: '✏️', delete: '🗑' };
+  document.getElementById('cuLogList').innerHTML = cuLogRows.map((r, i) => `
+    <div style="padding:8px 0;border-bottom:1px solid var(--border)${r.detail ? ';cursor:pointer' : ''}"${r.detail ? ` onclick="showCuLogDetail(${i})"` : ''}>
+      <div style="font-size:12px;color:var(--muted)">${esc(r.admin || '—')} · ${fmtDate(r.ts && r.ts.replace(' ', 'T') + 'Z')}</div>
+      <div style="margin-top:2px">${ICON[r.action] || ''} ${esc(r.label || r.action)}</div>
+      ${r.detail ? `<div class="log-more-hint">Подробнее →</div>` : ''}
+    </div>`).join('') || '<div style="color:var(--muted);padding:8px 0">История пуста</div>';
+}
+function showCuLogDetail(i) { renderLogDetailModal(cuLogRows[i]); }
+async function saveCustomer() {
+  const res = await apiFetch(`/api/admin/customers/${cuId}`, 'PUT', {
+    name: document.getElementById('cuName').value.trim(),
+    phone: document.getElementById('cuPhone').value.trim(),
+    email: document.getElementById('cuEmail').value.trim(),
+    bonusBalance: document.getElementById('cuBonus').value
+  });
+  if (res.error) { showToast('❌ ' + res.error); return; }
+  showToast('✅ Сохранено', 'green');
+  await renderCustomerLog(cuId);
+  loadCustomers();
+}
+
 async function updateOrderStatus(id, status) {
   await apiFetch(`/api/admin/orders/${id}/status`, 'PUT', { status });
   showToast('Статус обновлён', 'green');
+}
+function handleStatusChange(id, selectEl) {
+  if (selectEl.value === 'done') { openCompleteOrder(id, selectEl); return; }
+  if (selectEl.value === 'cancelled') { openCancelOrder(id, selectEl); return; }
+  selectEl.dataset.prev = selectEl.value;
+  updateOrderStatus(id, selectEl.value);
+}
+
+// ===== ОТМЕНА ЗАКАЗА: причина =====
+let cancelOrderId = null, cancelSelectEl = null;
+function openCancelOrder(id, selectEl) {
+  cancelOrderId = id; cancelSelectEl = selectEl;
+  document.getElementById('cancelOrderIdText').textContent = id;
+  document.getElementById('cancelReason').value = '';
+  document.getElementById('cancelOrderOverlay').classList.add('open');
+}
+function closeCancelOrder() {
+  if (cancelSelectEl) cancelSelectEl.value = cancelSelectEl.dataset.prev;
+  document.getElementById('cancelOrderOverlay').classList.remove('open');
+}
+async function confirmCancelOrder() {
+  const reasonEl = document.getElementById('cancelReason');
+  if (!reasonEl.reportValidity()) return;
+  const reason = reasonEl.value.trim();
+  await apiFetch(`/api/admin/orders/${cancelOrderId}/status`, 'PUT', { status: 'cancelled' });
+  await apiFetch(`/api/admin/orders/${cancelOrderId}/notes`, 'POST', { text: 'Причина отмены: ' + reason });
+  if (cancelSelectEl) cancelSelectEl.dataset.prev = 'cancelled';
+  document.getElementById('cancelOrderOverlay').classList.remove('open');
+  showToast('❌ Заказ отменён', 'green');
+  loadOrders();
+  loadDashboard();
+}
+
+// ===== ВЫБОР ТОВАРОВ (общее для «Завершение заказа» и «Создать заказ») =====
+// key: 'co' (завершение) | 'no' (создание) — так один и тот же код обслуживает обе модалки.
+const pickers = { co: [], no: [], od: [] };
+function renderPickerItems(key) {
+  const items = pickers[key];
+  const list = document.getElementById(key + 'ItemsList');
+  list.innerHTML = items.length ? items.map((it, i) => `
+    <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border)">
+      <span style="flex:1;font-size:13px">${esc(it.name)}</span>
+      <input type="number" min="1" value="${it.qty}" style="width:55px;padding:5px;border:1.5px solid var(--border);border-radius:5px" oninput="updatePickerItem('${key}',${i},'qty',this.value,1)">
+      <input type="number" min="0" value="${it.price}" style="width:100px;padding:5px;border:1.5px solid var(--border);border-radius:5px" oninput="updatePickerItem('${key}',${i},'price',this.value,0)">
+      <button type="button" class="action-btn del" onclick="pickers.${key}.splice(${i},1);recalcPicker('${key}')">🗑</button>
+    </div>`).join('') : '<div style="color:var(--muted);font-size:13px;padding:6px 0">Товары не выбраны</div>';
+}
+// Правка кол-ва/цены не перерисовывает список (иначе поле теряет фокус после
+// первой же цифры) — только пересчитывает сумму заказа вживую, по мере ввода.
+function updatePickerItem(key, i, field, val, min) {
+  pickers[key][i][field] = Math.max(min, +val || 0);
+  updatePickerTotal(key);
+}
+function updatePickerTotal(key) {
+  document.getElementById(key + 'Total').value = pickers[key].reduce((s,i) => s + i.qty * i.price, 0);
+}
+function recalcPicker(key) {
+  renderPickerItems(key);
+  updatePickerTotal(key);
+}
+let pickerSearchTimer;
+document.addEventListener('input', e => {
+  const key = { coItemSearch: 'co', noItemSearch: 'no', odItemSearch: 'od' }[e.target.id];
+  if (!key) return;
+  clearTimeout(pickerSearchTimer);
+  const q = e.target.value.trim();
+  const resEl = document.getElementById(key + 'ItemResults');
+  if (!q) { resEl.innerHTML = ''; return; }
+  pickerSearchTimer = setTimeout(async () => {
+    const rows = await apiFetch('/api/admin/products-lite?q=' + encodeURIComponent(q));
+    resEl.innerHTML = rows.map(r =>
+      `<div class="rel-res" data-id="${r.id}" data-name="${esc(r.name)}" data-price="${r.price||0}">${esc(r.name)} <small>${esc(r.article||'')} ${esc(r.brand||'')}</small></div>`
+    ).join('') || '<div class="rel-res muted">Не найдено</div>';
+    resEl.querySelectorAll('.rel-res[data-id]').forEach(d => d.onclick = () => {
+      const id = +d.dataset.id;
+      const items = pickers[key];
+      const existing = items.find(i => i.id === id);
+      if (existing) existing.qty++;
+      else items.push({ id, name: d.dataset.name, qty: 1, price: +d.dataset.price });
+      e.target.value = ''; resEl.innerHTML = '';
+      recalcPicker(key);
+    });
+  }, 300);
+});
+// Товары из каталога + текст из «Или просто напишите…» — вместе, а не одно вместо
+// другого. Текст остаётся текстом (одной позицией), не разбирается по строкам —
+// это просто описание, а не отдельные товары со своим количеством/ценой.
+function pickerItemsOrManual(key) {
+  const items = pickers[key].slice();
+  const manual = document.getElementById(key + 'ManualItem').value.trim();
+  if (manual) items.push({ name: manual, qty: 1, price: 0 });
+  return items;
+}
+// При открытии заказа — товары с id (из каталога) идут в список строк,
+// остальное (вписанное текстом) — обратно в текстовое поле, а не строкой товара.
+function splitItemsIntoPicker(key, itemsJson) {
+  let all = [];
+  try { all = JSON.parse(itemsJson) || []; } catch {}
+  pickers[key] = all.filter(i => i.id).map(i => ({ ...i, qty: i.qty || 1, price: i.price || 0 }));
+  const manualText = all.filter(i => !i.id).map(i => i.name).join(', ');
+  document.getElementById(key + 'ManualItem').value = manualText;
+}
+
+// Если в комментарии есть ссылка на товар (кнопка «Запросить КП» на сайте
+// подставляет её сама) или «#123» — предлагаем добавить этот товар в один клик.
+function extractProductIdFromText(text) {
+  if (!text) return null;
+  let m = String(text).match(/\/product\/(\d+)/);
+  if (m) return +m[1];
+  m = String(text).match(/#(\d+)/);
+  return m ? +m[1] : null;
+}
+async function renderItemSuggest(key, message) {
+  const box = document.getElementById(key + 'ItemSuggest');
+  if (!box) return;
+  box.innerHTML = '';
+  const id = extractProductIdFromText(message);
+  if (!id || pickers[key].some(i => i.id === id)) return;
+  const p = await apiFetch('/api/products/' + id).catch(() => null);
+  if (!p || p.error) return;
+  box.innerHTML = `<div style="padding:8px 10px;background:#f0fdf4;border:1.5px solid var(--green-light);border-radius:6px;font-size:13px;display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px">
+    <span>В комментарии упомянут товар: <b>${esc(p.name)}</b></span>
+    <button type="button" class="action-btn" onclick="addSuggestedItem('${key}',${p.id})">➕ Добавить</button>
+  </div>`;
+}
+async function addSuggestedItem(key, id) {
+  const p = await apiFetch('/api/products/' + id);
+  if (!p || p.error) return;
+  if (!pickers[key].some(i => i.id === id)) pickers[key].push({ id: p.id, name: p.name, qty: 1, price: p.price || 0 });
+  document.getElementById(key + 'ItemSuggest').innerHTML = '';
+  recalcPicker(key);
+}
+
+// ===== ЗАВЕРШЕНИЕ ЗАКАЗА: состав, сумма, бонус =====
+let coOrderId = null, coSelectEl = null;
+async function openCompleteOrder(id, selectEl) {
+  coOrderId = id; coSelectEl = selectEl;
+  const data = await apiFetch(`/api/admin/orders/${id}`);
+  if (data.error) { showToast('❌ ' + data.error); return; }
+  const o = data.order;
+  splitItemsIntoPicker('co', o.items);
+  renderPickerItems('co');
+  document.getElementById('coOrderId').textContent = id;
+  document.getElementById('coTotal').value = o.total || 0;
+  document.getElementById('coItemSearch').value = '';
+  document.getElementById('coItemResults').innerHTML = '';
+  renderItemSuggest('co', o.message);
+
+  const [custRes, settings] = await Promise.all([
+    apiFetch(`/api/admin/customers/by-phone/${encodeURIComponent(o.phone)}`),
+    apiFetch('/api/admin/settings')
+  ]);
+  const bonusCfg = settings.bonus || {};
+  const c = custRes.customer;
+  document.getElementById('coCurrentBonus').textContent = c ? (c.bonusBalance + ' ₸') : 'клиент не зарегистрирован';
+  const suggested = bonusCfg.enabled && bonusCfg.earn_percent ? Math.round((o.total || 0) * bonusCfg.earn_percent / 100) : 0;
+  document.getElementById('coBonusAward').value = suggested;
+
+  document.getElementById('completeOrderOverlay').classList.add('open');
+}
+function closeCompleteOrder() {
+  if (coSelectEl) coSelectEl.value = coSelectEl.dataset.prev;
+  document.getElementById('completeOrderOverlay').classList.remove('open');
+}
+async function saveCompleteOrder() {
+  const total = Number(document.getElementById('coTotal').value) || 0;
+  const bonusAward = Number(document.getElementById('coBonusAward').value) || 0;
+  const items = pickerItemsOrManual('co');
+  const res = await apiFetch(`/api/admin/orders/${coOrderId}/complete`, 'PUT', { items, total, bonusAward });
+  if (res.error) { showToast('❌ ' + res.error); return; }
+  if (coSelectEl) coSelectEl.dataset.prev = 'done';
+  document.getElementById('completeOrderOverlay').classList.remove('open');
+  showToast('✅ Заказ выполнен' + (bonusAward > 0 ? `, начислено ${bonusAward} ₸ бонусов` : ''), 'green');
+  loadOrders();
+  loadDashboard();
+}
+
+// ===== ПРИМЕЧАНИЯ К ЗАКАЗУ =====
+let notesOrderId = null;
+async function openOrderNotes(id, focusNote) {
+  notesOrderId = id;
+  document.getElementById('notesOrderId').textContent = id;
+  document.getElementById('newNoteText').value = '';
+  const data = await apiFetch(`/api/admin/orders/${id}`);
+  if (data.error) { showToast('❌ ' + data.error); return; }
+  const o = data.order;
+  document.getElementById('odName').value = o.name || '';
+  document.getElementById('odPhone').value = o.phone || '';
+  document.getElementById('odEmail').value = o.email || '';
+  document.getElementById('odCity').value = o.city || '';
+  document.getElementById('odCompany').value = o.company || '';
+  document.getElementById('odMessage').value = o.message || '';
+  splitItemsIntoPicker('od', o.items);
+  renderPickerItems('od');
+  document.getElementById('odTotal').value = o.total || 0;
+  document.getElementById('odItemSearch').value = '';
+  document.getElementById('odItemResults').innerHTML = '';
+  renderItemSuggest('od', o.message);
+  const hist = data.history || [];
+  document.getElementById('odHistory').innerHTML =
+    (hist.length ? `<div style="color:var(--muted);font-size:13px;margin-bottom:8px">Всего заказов этого клиента: ${hist.length + 1}</div>` : '') +
+    renderOrdersTable(hist, 'Первый заказ этого клиента');
+  await renderOrderNotes();
+  await renderOrderLog(id);
+  document.getElementById('orderNotesOverlay').classList.add('open');
+  if (focusNote) {
+    const ta = document.getElementById('newNoteText');
+    setTimeout(() => { ta.scrollIntoView({ block: 'center' }); ta.focus(); }, 50);
+  }
+}
+async function saveOrderDetail() {
+  const res = await apiFetch(`/api/admin/orders/${notesOrderId}`, 'PUT', {
+    name: document.getElementById('odName').value.trim(),
+    phone: document.getElementById('odPhone').value.trim(),
+    email: document.getElementById('odEmail').value.trim(),
+    city: document.getElementById('odCity').value.trim(),
+    company: document.getElementById('odCompany').value.trim(),
+    message: document.getElementById('odMessage').value.trim(),
+    items: pickerItemsOrManual('od'),
+    total: document.getElementById('odTotal').value
+  });
+  if (res.error) { showToast('❌ ' + res.error); return; }
+  showToast('✅ Сохранено', 'green');
+  await renderOrderLog(notesOrderId);
+  loadOrders();
+}
+// Напоминание к примечанию: сегодня (или просрочено) — красным, завтра — жёлтым,
+// более дальняя дата — нейтрально. dateStr — "YYYY-MM-DD", сравнение строкой (тот же
+// формат, что отдаёт <input type="date">), без парсинга Date — без сюрпризов с часовым поясом.
+function _todayStr() { const d = new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+function _tomorrowStr() { const d = new Date(); d.setDate(d.getDate()+1); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+function _fmtReminderDate(dateStr) { const [y,m,d] = dateStr.split('-'); return `${d}.${m}.${y.slice(2)}`; }
+function reminderTag(dateStr) {
+  if (!dateStr) return '';
+  // есть напоминание — жёлтым; за 1 день — оранжевым; в день напоминания (или просрочено) — красным
+  const cls = dateStr <= _todayStr() ? 'tag-red' : dateStr === _tomorrowStr() ? 'tag-orange' : 'tag-yellow';
+  return `<span class="tag ${cls}" title="Напоминание">⏰ ${_fmtReminderDate(dateStr)}</span>`;
+}
+async function renderOrderNotes() {
+  const data = await apiFetch(`/api/admin/orders/${notesOrderId}/notes`);
+  const list = document.getElementById('orderNotesList');
+  list.innerHTML = (data.notes || []).map(n => `
+    <div style="padding:8px 0;border-bottom:1px solid var(--border)">
+      <div style="font-size:12px;color:var(--muted)">${esc(n.admin || '—')} · ${fmtDate(n.created_at && n.created_at.replace(' ', 'T') + 'Z')} ${reminderTag(n.remind_at)}</div>
+      <div style="margin-top:2px;white-space:pre-wrap">${esc(n.text)}</div>
+    </div>`).join('') || '<div style="color:var(--muted);padding:8px 0">Пока нет примечаний</div>';
+}
+let odLogRows = [];
+async function renderOrderLog(id) {
+  const data = await apiFetch(`/api/admin/orders/${id}/log`);
+  odLogRows = data.rows || [];
+  const ICON = { login: '🔓', login_fail: '⛔', create: '➕', update: '✏️', delete: '🗑' };
+  document.getElementById('odLogList').innerHTML = odLogRows.map((r, i) => `
+    <div style="padding:8px 0;border-bottom:1px solid var(--border)${r.detail ? ';cursor:pointer' : ''}"${r.detail ? ` onclick="showOdLogDetail(${i})"` : ''}>
+      <div style="font-size:12px;color:var(--muted)">${esc(r.admin || '—')} · ${fmtDate(r.ts && r.ts.replace(' ', 'T') + 'Z')}</div>
+      <div style="margin-top:2px">${ICON[r.action] || ''} ${esc(r.label || r.action)}</div>
+      ${r.detail ? `<div class="log-more-hint">Подробнее →</div>` : ''}
+    </div>`).join('') || '<div style="color:var(--muted);padding:8px 0">История пуста</div>';
+}
+function showOdLogDetail(i) { renderLogDetailModal(odLogRows[i]); }
+async function addOrderNote() {
+  const text = document.getElementById('newNoteText').value.trim();
+  if (!text) return;
+  const remindAt = document.getElementById('newNoteRemind').value || null;
+  const res = await apiFetch(`/api/admin/orders/${notesOrderId}/notes`, 'POST', { text, remindAt });
+  if (res.error) { showToast('❌ ' + res.error); return; }
+  document.getElementById('newNoteText').value = '';
+  document.getElementById('newNoteRemind').value = '';
+  document.getElementById('orderNotesOverlay').classList.remove('open');
+  showToast('✅ Примечание добавлено', 'green');
+  loadOrders();
+  loadDashboard();
+}
+
+// ===== СОЗДАНИЕ ЗАКАЗА ВРУЧНУЮ =====
+function openNewOrder() {
+  ['noName','noPhone','noEmail','noCity','noCompany','noTotal','noMessage','noManualItem','noItemSearch'].forEach(id => document.getElementById(id).value = '');
+  pickers.no = [];
+  renderPickerItems('no');
+  document.getElementById('noItemResults').innerHTML = '';
+  document.getElementById('newOrderOverlay').classList.add('open');
+}
+async function saveNewOrder() {
+  const nameEl = document.getElementById('noName'), phoneEl = document.getElementById('noPhone');
+  if (!nameEl.reportValidity() || !phoneEl.reportValidity()) return;
+  const name = nameEl.value.trim();
+  const phone = phoneEl.value.trim();
+  const res = await apiFetch('/api/admin/orders', 'POST', {
+    name, phone,
+    email: document.getElementById('noEmail').value.trim(),
+    city: document.getElementById('noCity').value.trim(),
+    company: document.getElementById('noCompany').value.trim(),
+    message: document.getElementById('noMessage').value.trim(),
+    total: document.getElementById('noTotal').value,
+    items: pickerItemsOrManual('no')
+  });
+  if (res.error) { showToast('❌ ' + res.error); return; }
+  document.getElementById('newOrderOverlay').classList.remove('open');
+  showToast('✅ Заказ создан', 'green');
+  loadOrders();
 }
 
 // ===== ОТЗЫВЫ ТОВАРОВ =====
@@ -1433,6 +2020,13 @@ async function uploadSingleIcon() {
 }
 
 // ===== UTILS =====
+function lastNoteText(text, orderId, nextReminder) {
+  const btn = `<button type="button" class="action-btn" style="padding:3px 7px;margin-right:6px" title="Добавить примечание" onclick="event.stopPropagation();openOrderNotes(${orderId},true)">💬</button>`;
+  const rem = reminderTag(nextReminder);
+  if (!text) return btn + rem + '<span style="color:var(--muted)">—</span>';
+  const short = text.length > 60 ? text.slice(0, 60) + '…' : text;
+  return btn + rem + `<span title="${esc(text).replace(/"/g,'&quot;')}">${esc(short)}</span>`;
+}
 function getItemsSummary(items) {
   try {
     const arr = JSON.parse(items);
@@ -1441,9 +2035,42 @@ function getItemsSummary(items) {
   } catch { return esc(items||'—'); }
 }
 
+// Таблица истории заказов клиента — общая для карточки заказа и карточки клиента.
+function renderOrdersTable(orders, emptyText) {
+  if (!orders.length) return `<div style="color:var(--muted)">${emptyText}</div>`;
+  const th = 'text-align:left;padding:6px 8px;border-bottom:1.5px solid var(--border);color:var(--muted);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.3px';
+  const td = 'padding:8px;border-bottom:1px solid var(--border);vertical-align:top';
+  return `<table style="width:100%;border-collapse:collapse;font-size:13px">
+    <thead><tr>
+      <th style="${th}">№</th>
+      <th style="${th}">Товары</th>
+      <th style="${th}">Статус</th>
+      <th style="${th};text-align:right">Сумма</th>
+      <th style="${th};text-align:right">Дата</th>
+    </tr></thead>
+    <tbody>${orders.map(o => `
+      <tr>
+        <td style="${td}">№${o.id}</td>
+        <td style="${td}">${getItemsSummary(o.items)}</td>
+        <td style="${td}"><span class="tag ${statusTag(o.status)}">${statusLabel(o.status)}</span></td>
+        <td style="${td};text-align:right;white-space:nowrap">${fmtPrice(o.total)}</td>
+        <td style="${td};text-align:right;white-space:nowrap;color:var(--muted)">${fmtDate(o.created_at)}</td>
+      </tr>`).join('')}
+    </tbody>
+  </table>`;
+}
+
 function statusLabel(s) { return {new:'Новая',processing:'В работе',done:'Выполнена',cancelled:'Отменена'}[s]||s; }
 function statusTag(s) { return {new:'tag-blue',processing:'tag-yellow',done:'tag-green',cancelled:'tag-red'}[s]||'tag-muted'; }
-function fmtDate(d) { return d ? new Date(d).toLocaleString('ru',{day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'}) : '—'; }
+// Сервер хранит время в UTC как "YYYY-MM-DD HH:MM:SS" (без отметки часового пояса).
+// Часть мест в коде уже сама добавляла "T…Z" перед вызовом — здесь та же поправка
+// на случай сырой строки из БД, чтобы время везде показывалось по местному часовому
+// поясу браузера (Алматы), а не как есть (иначе разница ровно в 5 часов).
+function fmtDate(d) {
+  if (!d) return '—';
+  if (typeof d === 'string' && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(d)) d = d.replace(' ', 'T') + 'Z';
+  return new Date(d).toLocaleString('ru',{day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'});
+}
 function fmtPrice(n) { return n ? Number(n).toLocaleString('ru-KZ',{maximumFractionDigits:0}) + ' ₸' : '—'; }
 function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function plainText(s) { const d = document.createElement('div'); d.innerHTML = String(s||''); return (d.textContent || '').replace(/\s+/g,' ').trim(); }

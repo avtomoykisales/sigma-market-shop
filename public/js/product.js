@@ -32,11 +32,19 @@ async function showProduct(id) {
   setUrl('/product/' + id);
   await setView('product');
   setActiveNav('catalog');
-  document.getElementById('productViewBody').innerHTML = '<div class="spinner"><div class="spin"></div>&nbsp; Загрузка…</div>';
+  const body = document.getElementById('productViewBody');
+  // Сервер уже мог отрисовать этот же товар сразу в HTML (см. seo.productViewHtml) —
+  // если это тот самый товар, не стираем готовый контент спиннером до ответа fetch:
+  // иначе робот Google, у которого сам /api/ закрыт в robots.txt, увидит на странице
+  // только "Загрузка…" навсегда, вместо уже готового текста.
+  if (body.dataset.productId !== String(id)) {
+    body.innerHTML = '<div class="spinner"><div class="spin"></div>&nbsp; Загрузка…</div>';
+  }
   scrollToView('productView');
 
   const p = await apiFetch(`/api/products/${id}`);
   if (!p || p.error) { if (typeof showNotFound === 'function') showNotFound(); return; }
+  body.dataset.productId = String(id);
 
   replaceUrl(productUrl(p));   // уточняем адрес слагом ДО setMeta (чтобы Метрика видела полный URL)
   // SEO: title/description считает сервер (seo.productMeta) и отдаёт в p.seo — не дублируем формулу
@@ -86,8 +94,8 @@ async function showProduct(id) {
       })
     : '';
   const ytId = ytEmbed(p.youtube);
-  const ytBtn = p.youtube
-    ? `<a class="pv-youtube" href="${p.youtube}" target="_blank" rel="noopener">Смотреть на YouTube <span class="yt-badge">▶</span></a>` : '';
+  // const ytBtn = p.youtube
+  //   ? `<a class="pv-youtube" href="${p.youtube}" target="_blank" rel="noopener">Смотреть на YouTube <span class="yt-badge">▶</span></a>` : '';
 
   const favOn = favIds.includes(p.id);
   const favBtn = state.settings.favorites !== false
@@ -121,7 +129,6 @@ async function showProduct(id) {
         ${priceHtml}
         <div class="pv-actions">${offerBtn}${buyBtn}</div>
         ${contactHtml}
-        ${ytBtn}
         ${favBtn}
       </div>
     </div>
@@ -143,8 +150,7 @@ async function showProduct(id) {
     if (d && b && d.scrollHeight - d.clientHeight > 4) b.hidden = false;
   });
 
-  pushRecent(p.id);
-  renderRecent();
+  pushRecent(p.id);   // сама уже вызывает renderRecent() — второй раз звать не нужно
   loadProductReviews(p.id);
 }
 
@@ -275,5 +281,6 @@ function miniCard(p) {
 
 function requestModal(id) {
   if (!document.getElementById('cartPanel').classList.contains('open')) toggleCart();
-  document.getElementById('oMessage').value = `Прошу предоставить коммерческое предложение на товар #${id}`;
+  const url = location.origin + '/product/' + id;
+  document.getElementById('oMessage').value = `Прошу предоставить коммерческое предложение на товар #${id}\n${url}`;
 }

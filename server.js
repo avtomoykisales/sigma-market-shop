@@ -6,6 +6,10 @@ const cors = require('cors');
 const db = require('./database');
 const seo = require('./seo');
 const bitrix = require('./bitrix');
+const notify = require('./notify');
+const otp = require('./otp');
+const crypto = require('crypto');
+const { queryCategories, queryProducts } = require('./queries');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -58,6 +62,26 @@ function renderPage(html, activeView) {
     return getPartial(name) || m;
   });
 }
+// Данные для клиента "на будущее" — те же категории/товары, что сервер уже запросил
+// для построения HTML (см. seo.injectContent), кладём в window.__HYDRATE__, чтобы
+// init()/loadProducts() в браузере при первом заходе НЕ запрашивали их ещё раз —
+// только seoData.view (home/catalog/product/notFound) означает, что рендерится SPA
+// index.html; для отдельных статических страниц (about.html и т.п.) гидрация не нужна.
+async function buildHydrate(seoData, req) {
+  if (!seoData || !seoData.view) return null;
+  const hydrate = { categories: await queryCategories() };
+  if (seoData.view === 'catalog' && !seoData.notFound) {
+    const p = decodeURIComponent(req.path);
+    const mc = p.match(/^\/catalog(?:\/([^/]+)(?:\/([^/]+))?)?\/?$/);
+    const catSlug = (mc && mc[1]) || 'all';
+    const subSlug = (mc && mc[2]) || '';
+    hydrate.products = await queryProducts({
+      category: catSlug, subcategory: subSlug, page: 1, limit: 12, sort: 'default', facets: '1'
+    });
+    hydrate.productsFilter = { category: catSlug, subcat: subSlug };
+  }
+  return hydrate;
+}
 // robots.txt + sitemap.xml (динамические, из БД)
 app.get('/robots.txt', async (req, res) => {
   try { res.type('text/plain').send(await seo.robots(req)); }
@@ -88,6 +112,7 @@ app.get(/.*/, async (req, res, next) => {
       const seoData = await seo.build(req, '/index.html');
       let html = renderPage(fs.readFileSync(path.join(PUBLIC_DIR, 'index.html'), 'utf8'), (seoData.view || '').toLowerCase());
       html = seo.inject(html, seoData);
+      html = await seo.injectContent(html, seoData, req, await buildHydrate(seoData, req));
       return res.status(seoData.notFound ? 404 : 200).type('html').send(html);
     } catch (e) {
       console.error('ЧПУ render failed:', e.message);
@@ -112,6 +137,7 @@ app.get(/.*/, async (req, res, next) => {
   if (seoData) {
     try { html = seo.inject(html, seoData); }
     catch (e) { console.error('SEO inject failed:', e.message); }
+    html = await seo.injectContent(html, seoData, req, await buildHydrate(seoData, req));
   }
   res.type('html').send(html);
 });
@@ -146,10 +172,7 @@ const upload = multer({
 // ==================== CATEGORIES ====================
 app.get('/api/categories', async (req, res) => {
   try {
-    const cats = await db.allAsync(
-      `SELECT c.*, (SELECT COUNT(*) FROM products p WHERE p.category_id = c.id) AS product_count
-       FROM categories c ORDER BY c.id`);
-    res.json(cats);
+    res.json(await queryCategories());
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -171,7 +194,7 @@ app.get('/api/settings', async (req, res) => {
     res.json({
       blocks: s.blocks || {}, filters: s.filters || {},
       compare: s.compare !== false, favorites: s.favorites !== false,
-      quiz: s.quiz || {}, contacts: s.contacts || {}
+      quiz: s.quiz || {}, contacts: s.contacts || {}, bonus: s.bonus || {}
     });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -192,128 +215,7 @@ app.get('/api/subcategories', async (req, res) => {
 // ==================== PRODUCTS ====================
 app.get('/api/products', async (req, res) => {
   try {
-    const { category, subcategory, search, featured, page = 1, limit = 24,
-            brand, subtype, priceMin, priceMax, perfMin, perfMax, sort } = req.query;
-    const offset = (page - 1) * limit;
-
-    let where = [];
-    let params = [];
-
-    if (category && category !== 'all') { where.push('c.slug = ?'); params.push(category); }
-    let subcategoryNotFound = false;
-    if (subcategory) {
-      const subs = subcategory.split(',').filter(Boolean);
-      // раскрываем каждую подкатегорию до её поддерева: родитель → все потомки
-      const idRows = subs.length ? await db.allAsync(
-        `WITH RECURSIVE tree(id) AS (
-           SELECT id FROM subcategories WHERE slug IN (${subs.map(() => '?').join(',')})
-           UNION ALL SELECT s.id FROM subcategories s JOIN tree t ON s.parent_id = t.id
-         ) SELECT id FROM tree`, subs) : [];
-      const ids = idRows.map(r => r.id);
-      if (ids.length) { where.push('p.subcategory_id IN (' + ids.map(() => '?').join(',') + ')'); params.push(...ids); }
-      else {
-        where.push('1=0');
-        // Пустой idRows при ровно одном запрошенном слаге значит, что такой подкатегории
-        // вообще нет (сам её id тоже не нашёлся) — отличаем от «есть, но пуста».
-        if (subs.length === 1) subcategoryNotFound = true;
-      }
-    }
-    if (search) {
-      // SQLite LIKE не регистронезависим для кириллицы — добавляем вариант с заглавной буквы
-      const cap = search.charAt(0).toUpperCase() + search.slice(1);
-      const low = search.charAt(0).toLowerCase() + search.slice(1);
-      where.push('(p.name LIKE ? OR p.name LIKE ? OR p.name LIKE ? OR p.article LIKE ? OR p.brand LIKE ? OR p.brand LIKE ?)');
-      params.push(`%${search}%`, `%${cap}%`, `%${low}%`, `%${search}%`, `%${search}%`, `%${cap}%`);
-    }
-    if (featured === '1') where.push('p.featured = 1');
-    if (brand) {
-      // '__none__' — служебное значение для «Другой»: товары совсем без указанного бренда.
-      const bList = brand.split(',');
-      const bReal = bList.filter(b => b !== '__none__');
-      const bParts = [];
-      if (bReal.length) { bParts.push('p.brand IN (' + bReal.map(() => '?').join(',') + ')'); params.push(...bReal); }
-      if (bList.includes('__none__')) bParts.push("(p.brand IS NULL OR p.brand = '')");
-      if (bParts.length) where.push('(' + bParts.join(' OR ') + ')');
-    }
-    if (subtype) { where.push('p.subtype IN (' + subtype.split(',').map(() => '?').join(',') + ')'); params.push(...subtype.split(',')); }
-    if (priceMin) { where.push('p.price >= ?'); params.push(Number(priceMin)); }
-    if (priceMax) { where.push('(p.price <= ? AND p.price > 0)'); params.push(Number(priceMax)); }
-    if (perfMin)  { where.push('p.perf >= ?'); params.push(Number(perfMin)); }
-    if (perfMax)  { where.push('p.perf <= ?'); params.push(Number(perfMax)); }
-
-    const whereStr = where.length ? 'WHERE ' + where.join(' AND ') : '';
-
-    const orderMap = {
-      price_asc: 'p.price ASC', price_desc: 'p.price DESC',
-      name_asc: 'p.name ASC', default: 'p.featured DESC, p.id'
-    };
-    const orderStr = orderMap[sort] || orderMap.default;
-
-    const fromJoin = `FROM products p
-       JOIN categories c ON p.category_id = c.id
-       LEFT JOIN subcategories sc ON p.subcategory_id = sc.id`;
-
-    const countRow = await db.getAsync(`SELECT COUNT(*) as cnt ${fromJoin} ${whereStr}`, params);
-    const total = countRow.cnt;
-
-    const rows = await db.allAsync(
-      `SELECT p.*, c.name as category_name, c.slug as category_slug,
-              sc.name as subcategory_name, sc.slug as subcategory_slug
-       ${fromJoin}
-       ${whereStr} ORDER BY ${orderStr} LIMIT ? OFFSET ?`,
-      [...params, Number(limit), Number(offset)]);
-
-    // Фасеты (по категории, без учёта прочих фильтров) — для панели фильтров
-    let facets = null;
-    if (req.query.facets === '1') {
-      const catWhere = category && category !== 'all' ? 'AND c.slug = ?' : '';
-      const fParams = category && category !== 'all' ? [category] : [];
-      const brands = await db.allAsync(
-        `SELECT DISTINCT p.brand FROM products p JOIN categories c ON p.category_id=c.id
-         WHERE p.brand != '' ${catWhere} ORDER BY p.brand`, fParams);
-      const noBrand = await db.getAsync(
-        `SELECT COUNT(*) as cnt FROM products p JOIN categories c ON p.category_id=c.id
-         WHERE (p.brand IS NULL OR p.brand = '') ${catWhere}`, fParams);
-      const subtypes = await db.allAsync(
-        `SELECT DISTINCT p.subtype FROM products p JOIN categories c ON p.category_id=c.id
-         WHERE p.subtype IS NOT NULL AND p.subtype != '' ${catWhere} ORDER BY p.subtype`, fParams);
-      const range = await db.getAsync(
-        `SELECT MIN(NULLIF(p.price,0)) as pmin, MAX(p.price) as pmax,
-                MIN(p.perf) as perfmin, MAX(p.perf) as perfmax
-         FROM products p JOIN categories c ON p.category_id=c.id WHERE 1=1 ${catWhere}`, fParams);
-      const subcatRows = await db.allAsync(
-        `SELECT s.id, s.name, s.slug, s.icon, s.description, s.seo_title, s.seo_description, s.sort, s.parent_id,
-                par.slug AS parent_slug,
-                (SELECT COUNT(*) FROM products x WHERE x.subcategory_id = s.id) AS own_cnt
-         FROM subcategories s
-         JOIN categories c ON s.category_id = c.id
-         LEFT JOIN subcategories par ON s.parent_id = par.id
-         WHERE 1=1 ${catWhere}
-         ORDER BY s.sort, s.name`, fParams);
-      // свернуть own_cnt вверх по дереву → cnt поддерева
-      const _byId = new Map(subcatRows.map(r => [r.id, r]));
-      subcatRows.forEach(r => { r.cnt = r.own_cnt; });
-      subcatRows.forEach(r => {
-        let pid = r.parent_id;
-        while (pid && _byId.has(pid)) { _byId.get(pid).cnt += r.own_cnt; pid = _byId.get(pid).parent_id; }
-      });
-      const subcats = subcatRows.filter(r => r.cnt > 0).map(r => ({
-        name: r.name, slug: r.slug, icon: r.icon, description: r.description,
-        seo_title: r.seo_title, seo_description: r.seo_description,
-        cnt: r.cnt, parent_slug: r.parent_slug, sort: r.sort,
-      }));
-      const brandList = brands.map(b => b.brand).filter(Boolean);
-      if (noBrand.cnt > 0) brandList.push('__none__');   // «Другой» — товары совсем без бренда
-      facets = {
-        brands: brandList,
-        subtypes: subtypes.map(s => s.subtype).filter(Boolean),
-        subcategories: subcats,
-        priceMin: range.pmin || 0, priceMax: range.pmax || 0,
-        perfMin: range.perfmin || 0, perfMax: range.perfmax || 0
-      };
-    }
-
-    res.json({ total, page: Number(page), limit: Number(limit), products: rows, facets, subcategoryNotFound });
+    res.json(await queryProducts(req.query));
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -491,24 +393,51 @@ app.post('/api/orders', async (req, res) => {
       total = parsed.reduce((sum, item) => sum + (item.price || 0) * (item.qty || 1), 0);
     } catch {}
 
+    // Бонусы: если оформляет вошедший клиент, спишем запрошенную сумму
+    // (не больше остатка и не больше суммы заказа) и запомним, кто оформил.
+    const customer = await getCustomerByToken(req);
+    const s = await getSettings();
+    const bonusCfg = s.bonus || {};
+    let usedBonus = 0;
+    if (customer && bonusCfg.enabled) {
+      usedBonus = Math.max(0, Math.min(Number(req.body.useBonus) || 0, customer.bonus_balance, total));
+      if (usedBonus > 0) {
+        total -= usedBonus;
+        await db.runAsync('UPDATE customers SET bonus_balance = bonus_balance - ? WHERE id = ?', [usedBonus, customer.id]);
+        await db.runAsync('INSERT INTO bonus_log (customer_id, delta, reason) VALUES (?, ?, ?)', [customer.id, -usedBonus, 'order_redeem']);
+      }
+    }
+
     const result = await db.runAsync(
-      `INSERT INTO orders (name, phone, email, city, message, items, total)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [name, phone, email || '', city || '', message || '', itemsStr, total]
+      `INSERT INTO orders (name, phone, email, city, message, items, total, customer_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [name, phone, email || '', city || '', message || '', itemsStr, total, customer ? customer.id : null]
     );
 
-    // Bitrix24 — не блокируем ответ клиенту; ошибку только логируем
+    // Начисление бонусов за заказ — процент от суммы к оплате
+    if (customer && bonusCfg.enabled && bonusCfg.earn_percent > 0 && total > 0) {
+      const earned = Math.round(total * bonusCfg.earn_percent / 100);
+      if (earned > 0) {
+        await db.runAsync('UPDATE customers SET bonus_balance = bonus_balance + ? WHERE id = ?', [earned, customer.id]);
+        await db.runAsync('INSERT INTO bonus_log (customer_id, delta, reason, order_id) VALUES (?, ?, ?, ?)', [earned, customer.id, 'order_earn', result.lastID]);
+      }
+    }
+
+    // Bitrix24 + WhatsApp/Email — не блокируем ответ клиенту; ошибки только логируем
     getSettings().then(s => {
       const hook = s.crm && s.crm.bitrix_webhook;
-      if (!hook) return;
-      return bitrix.sendLead(hook, {
-        name, phone, email, city, message, items: itemsStr, total,
-        pageUrl: req.get('referer') || '',
-      }).then(id => console.log('Bitrix24: лид создан #' + id))
-        .catch(e => console.error('Bitrix24 lead failed:', e.message));
+      if (hook) {
+        bitrix.sendLead(hook, {
+          name, phone, email, city, message, items: itemsStr, total,
+          pageUrl: req.get('referer') || '',
+        }).then(id => console.log('Bitrix24: лид создан #' + id))
+          .catch(e => console.error('Bitrix24 lead failed:', e.message));
+      }
+      notify.notifyOrder({ id: result.lastID, name, phone, email, city, message, items: itemsStr, total })
+        .catch(e => console.error('Order notify failed:', e.message));
     }).catch(() => {});
 
-    res.json({ success: true, orderId: result.lastID });
+    res.json({ success: true, orderId: result.lastID, bonusUsed: usedBonus });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -531,6 +460,77 @@ app.post('/api/log-error', async (req, res) => {
     }
   } catch { /* лог ошибок не должен сам стать причиной ошибки */ }
   res.json({ ok: true });
+});
+
+// ==================== CUSTOMER AUTH (регистрация, бонусы) ====================
+// Токен — случайная строка в customer_sessions, живёт до выхода/навсегда (как в корзине).
+async function getCustomerByToken(req) {
+  const token = String(req.headers['x-customer-token'] || '');
+  if (!token) return null;
+  const row = await db.getAsync(
+    `SELECT c.* FROM customer_sessions s JOIN customers c ON c.id = s.customer_id WHERE s.token = ?`,
+    [token]
+  );
+  return row || null;
+}
+async function customerAuth(req, res, next) {
+  const customer = await getCustomerByToken(req);
+  if (!customer) return res.status(401).json({ error: 'Нужно войти в аккаунт' });
+  req.customer = customer;
+  next();
+}
+function customerPublic(c) {
+  return { id: c.id, name: c.name, phone: c.phone, email: c.email, bonusBalance: c.bonus_balance };
+}
+
+// Вход без пароля: код на телефон (WhatsApp, если нет — SMS) → подтверждение.
+app.post('/api/auth/request-code', async (req, res) => {
+  try {
+    const phone = String((req.body && req.body.phone) || '').replace(/\D/g, '');
+    if (!/^[78]\d{10}$/.test(phone)) return res.status(400).json({ error: 'Некорректный номер телефона' });
+    const result = await otp.requestCode(phone);
+    res.json(result);
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+app.post('/api/auth/verify-code', async (req, res) => {
+  try {
+    const phone = String((req.body && req.body.phone) || '').replace(/\D/g, '');
+    const code = String((req.body && req.body.code) || '').trim();
+    const name = String((req.body && req.body.name) || '').trim();
+    if (!phone || !code) return res.status(400).json({ error: 'Укажите телефон и код' });
+    let customer = await db.getAsync('SELECT * FROM customers WHERE phone = ?', [phone]);
+    // Новому клиенту без имени код пока не «сжигаем» — понадобится повторно с именем.
+    try { await otp.verifyCode(phone, code, !!customer || !!name); }
+    catch (e) { return res.status(400).json({ error: e.message }); }
+
+    let isNew = false;
+    if (!customer) {
+      if (!name) return res.status(400).json({ error: 'Укажите имя', needName: true });
+      const r = await db.runAsync('INSERT INTO customers (name, phone) VALUES (?, ?)', [name, phone]);
+      isNew = true;
+      const s = await getSettings();
+      const bonusCfg = s.bonus || {};
+      if (bonusCfg.enabled && bonusCfg.register_bonus > 0) {
+        await db.runAsync('UPDATE customers SET bonus_balance = bonus_balance + ? WHERE id = ?', [bonusCfg.register_bonus, r.lastID]);
+        await db.runAsync('INSERT INTO bonus_log (customer_id, delta, reason) VALUES (?, ?, ?)', [r.lastID, bonusCfg.register_bonus, 'register']);
+      }
+      customer = await db.getAsync('SELECT * FROM customers WHERE id = ?', [r.lastID]);
+    }
+
+    const token = crypto.randomBytes(24).toString('base64url');
+    await db.runAsync('INSERT INTO customer_sessions (token, customer_id) VALUES (?, ?)', [token, customer.id]);
+    res.json({ token, customer: customerPublic(customer), isNew });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/me', customerAuth, async (req, res) => {
+  res.json({ customer: customerPublic(req.customer) });
+});
+
+app.post('/api/logout', customerAuth, async (req, res) => {
+  await db.runAsync('DELETE FROM customer_sessions WHERE token = ?', [String(req.headers['x-customer-token'] || '')]);
+  res.json({ success: true });
 });
 
 // ==================== ADMIN AUTH ====================
@@ -557,14 +557,31 @@ function clientIp(req) {
   return String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || '')
     .split(',')[0].trim().replace(/^::ffff:/, '');
 }
-async function logAdmin(req, action, label, detail) {
+async function logAdmin(req, action, label, detail, orderId, customerId) {
   try {
     await db.runAsync(
-      `INSERT INTO admin_log (admin, action, label, detail, ip) VALUES (?,?,?,?,?)`,
-      [(req.admin && req.admin.username) || req._logUser || '—', action, label || null, detail || null, clientIp(req)]
+      `INSERT INTO admin_log (admin, action, label, detail, ip, order_id, customer_id) VALUES (?,?,?,?,?,?,?)`,
+      [(req.admin && req.admin.username) || req._logUser || '—', action, label || null, detail || null, clientIp(req), orderId || null, customerId || null]
     );
     await db.runAsync(`DELETE FROM admin_log WHERE id <= (SELECT MAX(id) - 10000 FROM admin_log)`);
   } catch { /* журнал не должен ломать основной запрос */ }
+}
+// Заявка, к которой относится запрос — либо из самого URL (/orders/:id...), либо
+// проставлена руками в обработчике (req._logOrderId — например, id новой заявки
+// после её создания, когда в URL id ещё не было). Нужно, чтобы показывать в карточке
+// заявки журнал именно по ней, а не искать по тексту label.
+function extractOrderId(req) {
+  if (req._logOrderId) return req._logOrderId;
+  const m = req.originalUrl.split('?')[0].match(/\/orders\/(\d+)/);
+  return m ? Number(m[1]) : null;
+}
+// То же самое для клиента (/customers/:id...), плюс req._logCustomerId — когда клиент
+// определяется не из URL, а внутри обработчика (например, при завершении заявки, где
+// клиент находится/создаётся по телефону).
+function extractCustomerId(req) {
+  if (req._logCustomerId) return req._logCustomerId;
+  const m = req.originalUrl.split('?')[0].match(/\/customers\/(\d+)/);
+  return m ? Number(m[1]) : null;
 }
 function adminActionLabel(req) {
   const u = req.originalUrl.split('?')[0];
@@ -580,6 +597,10 @@ function adminActionLabel(req) {
     [/\/subcategories$/,       { POST: ['create', 'Добавлена подкатегория'] }],
     [/\/subcategories\/\d+$/,  { PUT: ['update', 'Изменена подкатегория'], DELETE: ['delete', 'Удалена подкатегория'] }],
     [/\/orders\/\d+\/status$/, { PUT: ['update', `Статус заявки #${id}: ${(req.body && req.body.status) || ''}`] }],
+    [/\/orders\/\d+\/complete$/, { PUT: ['update', 'Заказ выполнен'] }],
+    [/\/orders\/\d+\/notes$/,  { POST: ['create', 'Добавлено примечание к заявке'] }],
+    [/\/orders\/\d+$/,         { PUT: ['update', 'Изменена заявка'] }],
+    [/\/customers\/\d+$/,      { PUT: ['update', 'Изменён клиент'] }],
     [/\/reviews\/\d+$/,        { PUT: ['update', `Отзыв #${id}: ${(req.body && req.body.status) || ''}`], DELETE: ['delete', `Удалён отзыв #${id}`] }],
     [/\/settings\/reset-quiz$/,{ POST: ['update', 'Сброс квиза к стандартному'] }],
     [/\/settings$/,            { PUT: ['update', 'Изменены настройки сайта'] }],
@@ -596,13 +617,13 @@ function adminActionLabel(req) {
   }
   return { action: m.toLowerCase(), label: `${m} ${u}` };
 }
-// Какие поля показывать в diff-е при редактировании (ключ поля -> подпись, либо {label, bool})
+
 const DIFF_FIELDS = {
   products: {
     name: 'Название', article: 'Артикул', brand: 'Бренд',
     category_id: 'Категория (id)', subcategory_id: 'Подкатегория (id)',
     price: 'Цена', price_on_request: { label: 'Цена по запросу', bool: true },
-    in_stock: { label: 'В наличии', bool: true }, featured: { label: 'Хит', bool: true },
+    in_stock: { label: 'В наличии', bool: true }, featured: { label: 'Хит продаж', bool: true },
     subtitle: 'Подзаголовок', description: 'Описание',
     perf: 'Производительность', perf_unit: 'Ед. произв.', subtype: 'Тип',
     youtube: 'Видео', icon: 'Иконка',
@@ -611,11 +632,15 @@ const DIFF_FIELDS = {
   },
   categories: { name: 'Название', slug: 'Slug', description: 'Описание', icon: 'Иконка', seo_title: 'SEO-заголовок', seo_description: 'SEO-описание' },
   subcategories: { category_id: 'Категория (id)', name: 'Название', slug: 'Slug', description: 'Описание', sort: 'Порядок', icon: 'Иконка', seo_title: 'SEO-заголовок', seo_description: 'SEO-описание' },
+  orders: { name: 'Имя', phone: 'Телефон', email: 'Email', city: 'Город', company: 'Компания', message: 'Комментарий', total: 'Сумма' },
+  customers: { name: 'Имя', phone: 'Телефон', email: 'Email', bonus_balance: { label: 'Бонусы', bodyKey: 'bonusBalance' } },
 };
 function diffEntity(u) {
   if (/\/products\/\d+$/.test(u)) return 'products';
   if (/\/categories\/\d+$/.test(u)) return 'categories';
   if (/\/subcategories\/\d+$/.test(u)) return 'subcategories';
+  if (/\/orders\/\d+$/.test(u)) return 'orders';
+  if (/\/customers\/\d+$/.test(u)) return 'customers';
   return null;
 }
 async function snapshotBefore(req) {
@@ -625,6 +650,7 @@ async function snapshotBefore(req) {
   const ent = diffEntity(u);
   if (ent) return db.getAsync(`SELECT * FROM ${ent} WHERE id = ?`, [id]);
   if (/\/orders\/\d+\/status$/.test(u)) return db.getAsync('SELECT id, status FROM orders WHERE id = ?', [id]);
+  if (/\/orders\/\d+\/complete$/.test(u)) return db.getAsync('SELECT id, total FROM orders WHERE id = ?', [id]);
   return null;
 }
 function shortVal(v) {
@@ -648,6 +674,15 @@ function diffDetail(req) {
   if (/\/orders\/\d+\/status$/.test(u)) {
     return before ? `${before.status || '?'} → ${body.status || '?'}` : null;
   }
+  if (/\/orders\/\d+\/complete$/.test(u)) {
+    const parts = [];
+    if (before && Number(before.total) !== Number(body.total)) parts.push(`Сумма: ${shortVal(before.total)} → ${shortVal(body.total)}`);
+    if (Number(body.bonusAward) > 0) parts.push(`Начислено бонусов: ${body.bonusAward}`);
+    return parts.length ? parts.join('\n') : null;
+  }
+  if (/\/orders\/\d+\/notes$/.test(u) && req.method === 'POST') {
+    return 'Текст: ' + shortVal(body.text) + (body.remindAt ? `\nНапоминание: ${body.remindAt}` : '');
+  }
   const ent = diffEntity(u);
   const map = ent && DIFF_FIELDS[ent];
   if (!map || !before) return null;
@@ -656,10 +691,13 @@ function diffDetail(req) {
     : (val == null ? '' : String(val));
   const parts = [];
   for (const [f, cfg] of Object.entries(map)) {
-    if (!(f in body)) continue;
+    // bodyKey — когда в запросе поле называется иначе, чем колонка в базе
+    // (например customers.bonus_balance приходит как body.bonusBalance).
+    const bodyKey = (cfg && cfg.bodyKey) || f;
+    if (!(bodyKey in body)) continue;
     const label = typeof cfg === 'string' ? cfg : cfg.label;
     const ov = norm(cfg, before[f]);
-    const nv = norm(cfg, body[f]);
+    const nv = norm(cfg, body[bodyKey]);
     if (ov === nv) continue;
     if (!cfg.bool && ov !== '' && nv !== '' && !isNaN(ov) && !isNaN(nv) && Number(ov) === Number(nv)) continue;
     parts.push(`${label}: ${shortVal(ov)} → ${shortVal(nv)}`);
@@ -678,7 +716,7 @@ app.use('/api/admin', async (req, res, next) => {
   res.on('finish', () => {
     if (res.statusCode < 200 || res.statusCode >= 300) return;
     const { action, label } = adminActionLabel(req);
-    logAdmin(req, action, label, diffDetail(req));
+    logAdmin(req, action, label, diffDetail(req), extractOrderId(req), extractCustomerId(req));
   });
   next();
 });
@@ -749,6 +787,26 @@ app.delete('/api/admin/admins/:id', adminAuth, async (req, res) => {
 });
 
 // ==================== ADMIN: ЖУРНАЛ ====================
+// Журнал действий по конкретной заявке — для карточки заказа (не весь общий журнал).
+app.get('/api/admin/orders/:id/log', adminAuth, async (req, res) => {
+  try {
+    const rows = await db.allAsync(
+      `SELECT * FROM admin_log WHERE order_id = ? ORDER BY id DESC LIMIT 100`,
+      [req.params.id]
+    );
+    res.json({ rows });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// То же самое для карточки клиента.
+app.get('/api/admin/customers/:id/log', adminAuth, async (req, res) => {
+  try {
+    const rows = await db.allAsync(
+      `SELECT * FROM admin_log WHERE customer_id = ? ORDER BY id DESC LIMIT 100`,
+      [req.params.id]
+    );
+    res.json({ rows });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 app.get('/api/admin/logs', adminAuth, async (req, res) => {
   try {
     const page = Math.max(1, Number(req.query.page) || 1);
@@ -1070,7 +1128,7 @@ app.delete('/api/admin/subcategories/:id', adminAuth, async (req, res) => {
 app.get('/api/admin/products-lite', adminAuth, async (req, res) => {
   try {
     const q = (req.query.q || '').trim().toLowerCase();
-    const rows = await db.allAsync(`SELECT id, name, article, brand FROM products ORDER BY name`);
+    const rows = await db.allAsync(`SELECT id, name, article, brand, price FROM products ORDER BY name`);
     const out = (q
       ? rows.filter(r => `${r.name} ${r.article} ${r.brand}`.toLowerCase().includes(q))
       : rows
@@ -1091,14 +1149,21 @@ app.delete('/api/admin/products/:id', adminAuth, async (req, res) => {
 // ==================== ADMIN ORDERS ====================
 app.get('/api/admin/orders', adminAuth, async (req, res) => {
   try {
-    const { page = 1, limit = 30, status } = req.query;
+    const { page = 1, limit = 30, status, search } = req.query;
     const offset = (page - 1) * limit;
     const statuses = status ? String(status).split(',').filter(Boolean) : [];
-    const where = statuses.length ? `WHERE status IN (${statuses.map(() => '?').join(',')})` : '';
-    const countRow = await db.getAsync(`SELECT COUNT(*) as cnt FROM orders ${where}`, statuses);
+    const clauses = [], params = [];
+    if (statuses.length) { clauses.push(`status IN (${statuses.map(() => '?').join(',')})`); params.push(...statuses); }
+    const q = String(search || '').trim();
+    if (q) { clauses.push('(name LIKE ? OR phone LIKE ? OR company LIKE ?)'); params.push(`%${q}%`, `%${q}%`, `%${q}%`); }
+    const where = clauses.length ? 'WHERE ' + clauses.join(' AND ') : '';
+    const countRow = await db.getAsync(`SELECT COUNT(*) as cnt FROM orders ${where}`, params);
     const rows = await db.allAsync(
-      `SELECT * FROM orders ${where} ORDER BY id DESC LIMIT ? OFFSET ?`,
-      [...statuses, Number(limit), Number(offset)]
+      `SELECT o.*, (SELECT COUNT(*) FROM order_notes n WHERE n.order_id = o.id) AS notesCount,
+       (SELECT text FROM order_notes n WHERE n.order_id = o.id ORDER BY n.id DESC LIMIT 1) AS lastNote,
+       (SELECT MIN(remind_at) FROM order_notes n WHERE n.order_id = o.id AND remind_at IS NOT NULL) AS nextReminder
+       FROM orders o ${where} ORDER BY id DESC LIMIT ? OFFSET ?`,
+      [...params, Number(limit), Number(offset)]
     );
     res.json({ total: countRow.cnt, orders: rows });
   } catch (e) {
@@ -1114,6 +1179,176 @@ app.put('/api/admin/orders/:id/status', adminAuth, async (req, res) => {
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
+});
+
+// Менеджер сам создаёт заказ (звонок, оффлайн-клиент и т.п.) — та же таблица orders,
+// source='manual' отличает его от заявок с сайта; без CRM/WhatsApp-уведомления — она и так знает.
+app.post('/api/admin/orders', adminAuth, async (req, res) => {
+  try {
+    const { name, phone, email, city, company, message, items, total } = req.body;
+    if (!name || !phone) return res.status(400).json({ error: 'Укажите имя и телефон' });
+    let itemsStr = typeof items === 'string' ? items : JSON.stringify(items || []);
+    let computedTotal = Number(total) || 0;
+    if (!computedTotal) {
+      try {
+        const parsed = JSON.parse(itemsStr);
+        computedTotal = parsed.reduce((sum, item) => sum + (item.price || 0) * (item.qty || 1), 0);
+      } catch {}
+    }
+    const result = await db.runAsync(
+      `INSERT INTO orders (name, phone, email, city, company, message, items, total, source)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'manual')`,
+      [name, phone, email || '', city || '', company || '', message || '', itemsStr, computedTotal]
+    );
+    req._logOrderId = result.lastID;   // в URL id ещё нет — заявка только что создана
+    res.json({ success: true, orderId: result.lastID });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Карточка заказа — сам заказ + история заказов этого же клиента (по телефону):
+// сколько раз покупал и что именно, чтобы менеджер видел это с одного взгляда.
+app.get('/api/admin/orders/:id', adminAuth, async (req, res) => {
+  try {
+    const order = await db.getAsync('SELECT * FROM orders WHERE id = ?', [req.params.id]);
+    if (!order) return res.status(404).json({ error: 'Не найдено' });
+    const history = await db.allAsync(
+      'SELECT id, items, total, status, created_at FROM orders WHERE phone = ? AND id != ? ORDER BY id DESC',
+      [order.phone, order.id]
+    );
+    res.json({ order, history });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.put('/api/admin/orders/:id', adminAuth, async (req, res) => {
+  try {
+    const cur = await db.getAsync('SELECT * FROM orders WHERE id = ?', [req.params.id]);
+    if (!cur) return res.status(404).json({ error: 'Не найдено' });
+    const name = String(req.body.name || '').trim() || cur.name;
+    const phone = String(req.body.phone || '').trim() || cur.phone;
+    const email = req.body.email != null ? String(req.body.email).trim() : cur.email;
+    const city = req.body.city != null ? String(req.body.city).trim() : cur.city;
+    const company = req.body.company != null ? String(req.body.company).trim() : cur.company;
+    const message = req.body.message != null ? String(req.body.message).trim() : cur.message;
+    const items = req.body.items != null ? JSON.stringify(req.body.items) : cur.items;
+    const total = req.body.total != null ? (Number(req.body.total) || 0) : cur.total;
+    await db.runAsync(
+      'UPDATE orders SET name=?, phone=?, email=?, city=?, company=?, message=?, items=?, total=? WHERE id=?',
+      [name, phone, email, city, company, message, items, total, req.params.id]
+    );
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Баланс бонусов клиента по телефону — для окна завершения заказа (только просмотр,
+// без создания: заводится клиент только при реальном начислении, см. ниже).
+app.get('/api/admin/customers', adminAuth, async (req, res) => {
+  try {
+    const page = Math.max(1, Number(req.query.page) || 1);
+    const limit = Math.min(100, Number(req.query.limit) || 30);
+    const q = String(req.query.search || '').trim();
+    const where = q ? 'WHERE (name LIKE ? OR phone LIKE ? OR email LIKE ?)' : '';
+    const params = q ? [`%${q}%`, `%${q}%`, `%${q}%`] : [];
+    const total = (await db.getAsync(`SELECT COUNT(*) AS c FROM customers ${where}`, params)).c;
+    const rows = await db.allAsync(
+      `SELECT c.*, (SELECT COUNT(*) FROM orders o
+         WHERE REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(o.phone,' ',''),'(',''),')',''),'-',''),'+','') = c.phone
+       ) AS ordersCount
+       FROM customers c ${where} ORDER BY c.id DESC LIMIT ? OFFSET ?`,
+      [...params, limit, (page - 1) * limit]
+    );
+    res.json({ total, customers: rows });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Карточка клиента + все его заказы (по телефону, та же нормализация, что и в списке) —
+// видно, что купил (статус «Выполнена»), что отменилось, что ещё в работе.
+app.get('/api/admin/customers/:id', adminAuth, async (req, res) => {
+  try {
+    const customer = await db.getAsync('SELECT * FROM customers WHERE id = ?', [req.params.id]);
+    if (!customer) return res.status(404).json({ error: 'Не найдено' });
+    const orders = await db.allAsync(
+      `SELECT id, items, total, status, created_at FROM orders
+       WHERE REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(phone,' ',''),'(',''),')',''),'-',''),'+','') = ?
+       ORDER BY id DESC`,
+      [customer.phone]
+    );
+    res.json({ customer, orders });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.put('/api/admin/customers/:id', adminAuth, async (req, res) => {
+  try {
+    const cur = await db.getAsync('SELECT * FROM customers WHERE id = ?', [req.params.id]);
+    if (!cur) return res.status(404).json({ error: 'Не найдено' });
+    const name = String(req.body.name || '').trim() || cur.name;
+    const phone = req.body.phone != null ? String(req.body.phone).replace(/\D/g, '') || cur.phone : cur.phone;
+    const email = req.body.email != null ? String(req.body.email).trim() : cur.email;
+    const bonusBalance = req.body.bonusBalance != null ? Math.max(0, Math.round(Number(req.body.bonusBalance) || 0)) : cur.bonus_balance;
+    try {
+      await db.runAsync('UPDATE customers SET name=?, phone=?, email=?, bonus_balance=? WHERE id=?', [name, phone, email, bonusBalance, req.params.id]);
+    } catch { return res.status(400).json({ error: 'Клиент с таким телефоном уже есть' }); }
+    const delta = bonusBalance - cur.bonus_balance;
+    if (delta !== 0) {
+      await db.runAsync('INSERT INTO bonus_log (customer_id, delta, reason) VALUES (?, ?, ?)', [req.params.id, delta, 'admin_adjust']);
+    }
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/admin/customers/by-phone/:phone', adminAuth, async (req, res) => {
+  try {
+    const phone = String(req.params.phone || '').replace(/\D/g, '');
+    const c = await db.getAsync('SELECT id, name, phone, bonus_balance FROM customers WHERE phone = ?', [phone]);
+    res.json({ customer: c ? { id: c.id, name: c.name, phone: c.phone, bonusBalance: c.bonus_balance } : null });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Завершение заказа: менеджер подтверждает состав/сумму и начисляет бонус.
+// Если клиента с таким телефоном ещё нет — заводим (по имени из заказа), чтобы бонус было куда положить;
+// он сможет потом войти по этому же номеру (код в WhatsApp/SMS) и увидеть баланс.
+app.put('/api/admin/orders/:id/complete', adminAuth, async (req, res) => {
+  try {
+    const order = await db.getAsync('SELECT * FROM orders WHERE id = ?', [req.params.id]);
+    if (!order) return res.status(404).json({ error: 'Не найдено' });
+    const items = req.body.items || [];
+    const itemsStr = JSON.stringify(items);
+    const total = Number(req.body.total) || 0;
+    const bonusAward = Math.max(0, Math.round(Number(req.body.bonusAward) || 0));
+
+    await db.runAsync('UPDATE orders SET items=?, total=?, status=? WHERE id=?', [itemsStr, total, 'done', req.params.id]);
+
+    let bonusBalance = null;
+    if (bonusAward > 0) {
+      const phone = String(order.phone || '').replace(/\D/g, '');
+      let customer = await db.getAsync('SELECT * FROM customers WHERE phone = ?', [phone]);
+      if (!customer) {
+        const r = await db.runAsync('INSERT INTO customers (name, phone) VALUES (?, ?)', [order.name, phone]);
+        customer = await db.getAsync('SELECT * FROM customers WHERE id = ?', [r.lastID]);
+      }
+      await db.runAsync('UPDATE customers SET bonus_balance = bonus_balance + ? WHERE id = ?', [bonusAward, customer.id]);
+      await db.runAsync('INSERT INTO bonus_log (customer_id, delta, reason, order_id) VALUES (?, ?, ?, ?)', [customer.id, bonusAward, 'order_earn', order.id]);
+      bonusBalance = customer.bonus_balance + bonusAward;
+      req._logCustomerId = customer.id;   // чтобы начисление бонуса попало и в историю клиента
+    }
+    res.json({ success: true, bonusBalance });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ---- Примечания к заказу (история обработки менеджерами) ----
+app.get('/api/admin/orders/:id/notes', adminAuth, async (req, res) => {
+  try {
+    const rows = await db.allAsync('SELECT * FROM order_notes WHERE order_id = ? ORDER BY id', [req.params.id]);
+    res.json({ notes: rows });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post('/api/admin/orders/:id/notes', adminAuth, async (req, res) => {
+  try {
+    const text = String((req.body && req.body.text) || '').trim();
+    if (!text) return res.status(400).json({ error: 'Пустое примечание' });
+    const remindAt = /^\d{4}-\d{2}-\d{2}$/.test(req.body && req.body.remindAt) ? req.body.remindAt : null;
+    await db.runAsync('INSERT INTO order_notes (order_id, admin, text, remind_at) VALUES (?, ?, ?, ?)', [req.params.id, req.admin.username, text, remindAt]);
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // ==================== UPLOAD ICON ====================

@@ -15,6 +15,17 @@ module.exports = {
         SITE_URL: 'https://b2btech.kz',
         SITE_NOINDEX: '0',
         YM_ID: 112428503,
+        // Уведомления о заказах (WhatsApp + почта)
+        GREEN_API_ID: '',
+        GREEN_API_TOKEN: '',
+        NOTIFY_PHONE: '',
+        SMTP_HOST: 'smtp.gmail.com',
+        SMTP_PORT: '465',
+        SMTP_USER: 'zhakiyeva.mira@gmail.com',
+        SMTP_PASS: 'nfruyernfnpvcuat',
+        NOTIFY_EMAIL: 'avtomoyki.sales@gmail.com',
+        // Вход клиентов по коду: WhatsApp через Green API выше, SMS-резерв — Mobizon
+        MOBIZON_API_KEY: '',
       },
     },
   ],

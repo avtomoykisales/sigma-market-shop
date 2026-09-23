@@ -50,12 +50,15 @@ a { text-decoration: none; color: inherit; }
 button { cursor: pointer; }
 
 /* ==================== TOAST ==================== */
-/* Магазин — по центру снизу */
+/* Магазин — по центру снизу. На узких экранах nowrap обрезал длинные сообщения
+   (например, подтверждение отправки заявки) за краями экрана — из-за этого его
+   не было видно, и люди отправляли заявку повторно. */
 body.shop .toast {
   position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(80px);
-  background: #1f2937; color: white; padding: 12px 24px;
+  background: #1f2937; color: white; padding: 14px 24px;
   border-radius: 8px; font-size: 14px; font-weight: 600; z-index: 9999;
-  transition: transform .3s; white-space: nowrap;
+  transition: transform .3s; white-space: normal; text-align: center;
+  max-width: min(420px, calc(100vw - 32px)); box-shadow: 0 4px 16px rgba(0,0,0,.25);
 }
 body.shop .toast.show { transform: translateX(-50%) translateY(0); }
 
@@ -356,7 +359,7 @@ body.shop .about-section {
   /* background: #f7f9f7;*/
    } 
 body.shop .about-inner {
-  display: block; max-width: 760px;
+  display: grid; grid-template-columns: 1fr 1fr; gap: 60px; align-items: center;
 }
 body.shop .about-text { display: flex; flex-direction: column; gap: 16px; }
 body.shop .about-text p { font-size: 15px; line-height: 1.7; color: var(--text-muted); }
@@ -657,6 +660,8 @@ body.shop .qty-btn {
 body.shop .qty-val { font-size: 13px; font-weight: 700; min-width: 18px; text-align: center; }
 body.shop .cart-remove { background: none; border: none; color: #ef4444; font-size: 16px; cursor: pointer; }
 body.shop .cart-footer { padding: 16px 22px; border-top: 1px solid var(--border); }
+body.shop .cart-bonus-row { font-size: 13px; margin-bottom: 10px; }
+body.shop .cart-bonus-row label { display: flex; align-items: center; gap: 7px; cursor: pointer; color: var(--text-muted); }
 body.shop .cart-total { font-size: 17px; font-weight: 800; margin-bottom: 14px; }
 body.shop .cart-total span { color: var(--green); }
 body.shop .order-form { display: flex; flex-direction: column; gap: 8px; }
@@ -1079,6 +1084,25 @@ body.shop .hdr-fav .fav-count {
   display: inline-flex; align-items: center; justify-content: center;
 }
 
+/* --- Личный кабинет: кнопка в шапке + вкладки входа/регистрации --- */
+body.shop .hdr-account {
+  border: 1.5px solid var(--border); border-radius: 8px; background: none; cursor: pointer;
+  padding: 7px 12px; font-size: 14px; color: var(--text);
+  display: flex; align-items: center; gap: 6px; transition: border-color .2s;
+}
+body.shop .hdr-account:hover { border-color: var(--green); }
+body.shop .acc-tabs { display: flex; gap: 6px; margin: 6px 0 20px; }
+body.shop .acc-tab-btn {
+  flex: 1; padding: 10px; border: 1.5px solid var(--border); border-radius: 8px;
+  background: none; cursor: pointer; font-weight: 700; font-size: 14px; color: var(--text-muted);
+}
+body.shop .acc-tab-btn.active { border-color: var(--green); color: var(--green); background: #f0fdf4; }
+body.shop .acc-resend {
+  display: block; width: 100%; text-align: center; margin-top: 10px;
+  background: none; border: none; color: var(--text-muted); font-size: 13px; cursor: pointer;
+}
+body.shop .acc-resend:disabled { cursor: default; opacity: .7; }
+
 /* --- Подкатегории (лента над каталогом) --- */
 body.shop .subcat-bar { margin: 4px 0 22px; }
 body.shop .subcat-row { display: flex; flex-wrap: wrap; gap: 7px; align-items: center; }
@@ -1318,6 +1342,8 @@ body.shop .quiz-result-actions { display: flex; gap: 12px; flex-wrap: wrap; marg
     border: none; border-radius: 8px; padding: 9px 14px; font-weight: 700; font-size: 13px; cursor: pointer;
   }
   body.shop .hdr-fav { padding: 7px 9px; }
+  body.shop .hdr-account { padding: 7px 9px; }
+  body.shop .hdr-account .acc-name { display: none; }
   body.shop .catalog-filters { padding: 18px 20px 90px; }
   body.shop .filters-close {
     display: block; background: none; border: none; font-size: 20px; cursor: pointer; color: var(--text); line-height: 1;
@@ -1473,6 +1499,14 @@ body.admin .topbar { display: flex; align-items: center; justify-content: space-
 body.admin .topbar h1 { font-size: 22px; font-weight: 800; }
 body.admin .logout-btn { background: none; border: 1.5px solid var(--border); border-radius: 8px; padding: 8px 16px; font-size: 14px; color: var(--text-muted); }
 body.admin .logout-btn:hover { border-color: #ef4444; color: #ef4444; }
+body.admin .hamburger-btn {
+  display: none; background: none; border: 1.5px solid var(--border); border-radius: 8px;
+  width: 40px; height: 40px; font-size: 18px; cursor: pointer; margin-right: 12px; flex-shrink: 0;
+}
+body.admin .sidebar-overlay {
+  display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 49;
+}
+body.admin .sidebar-overlay.open { display: block; }
 
 /* LOGIN */
 body.admin .login-card { background: var(--white); border-radius: 14px; padding: 40px; width: 380px; box-shadow: 0 8px 32px rgba(0,0,0,0.12); }
@@ -1521,6 +1555,7 @@ body.admin .tag-green { background: var(--green-light); color: var(--green); }
 body.admin .tag-muted { background: #f3f4f6; color: var(--text-muted); }
 body.admin .tag-blue { background: #eff6ff; color: #1d4ed8; }
 body.admin .tag-yellow { background: #fef3c7; color: #92400e; }
+body.admin .tag-orange { background: #ffedd5; color: #9a3412; }
 body.admin .tag-red { background: #fee2e2; color: #991b1b; }
 body.admin .action-btn { padding: 5px 10px; border-radius: 6px; border: 1.5px solid var(--border); background: var(--white); font-size: 12px; margin-right: 4px; }
 body.admin .action-btn:hover { background: var(--bg); }
@@ -1534,11 +1569,19 @@ body.admin .total-label { font-size: 13px; color: var(--text-muted); margin-righ
 
 /* FORM MODAL */
 body.admin .overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 200; display: none; align-items: flex-start; justify-content: center; padding: 32px 20px; overflow-y: auto; }
+/* "Подробнее" в журнале открывается поверх карточки заявки (тоже .overlay) — без этого
+   оба оказываются на одном z-index и деталь просто прячется за уже открытой карточкой. */
+body.admin #logDetailOverlay { z-index: 210; }
 body.admin .overlay.open { display: flex; }
 body.admin .form-modal { background: var(--white); border-radius: 14px; padding: 32px 40px; width: min(1320px, 95vw); max-height: calc(100vh - 48px); overflow-y: auto; margin: auto; }
 body.admin .form-modal h3 { font-size: 20px; font-weight: 800; margin-bottom: 22px; }
 body.admin .form-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px 20px; }
+body.admin .form-grid.form-grid-2 { grid-template-columns: 1fr 1fr; }
 body.admin .form-grid .fg.full { grid-column: 1 / -1; }
+/* Grid-элемент .fg по умолчанию min-width:auto — считает минимальную ширину
+   по содержимому (у <input> она не 0), поэтому колонка не сжимается уже поле
+   не влезает, и вся модалка распирается по горизонтали на узких экранах. */
+body.admin .form-grid .fg { min-width: 0; }
 body.admin .form-modal textarea { min-height: 90px; }
 body.admin .form-modal #fSpecs { min-height: 130px; }
 
@@ -1555,9 +1598,24 @@ body.admin .log-more-hint { color: var(--green); font-size: 12px; font-weight: 6
 @media (max-width: 900px) {
   body.admin .form-modal { padding: 24px 20px; }
   body.admin .form-grid { grid-template-columns: 1fr 1fr; }
+  body.admin .hamburger-btn { display: block; }
+  body.admin .sidebar {
+    transform: translateX(-100%); transition: transform .25s; z-index: 51;
+  }
+  body.admin .sidebar.open { transform: translateX(0); box-shadow: 4px 0 24px rgba(0,0,0,0.25); }
+  body.admin .main-area { margin-left: 0; padding: 18px; }
+  body.admin .topbar { margin-bottom: 18px; }
+  body.admin .topbar h1 { font-size: 18px; }
+  body.admin .card-header { flex-wrap: wrap; gap: 10px; }
 }
 @media (max-width: 560px) {
-  body.admin .form-grid { grid-template-columns: 1fr; }
+  body.admin .form-grid,
+  body.admin .form-grid.form-grid-2 { grid-template-columns: 1fr; }
+  body.admin .main-area { padding: 14px; }
+  body.admin .stats-grid { grid-template-columns: 1fr 1fr; gap: 12px; }
+  body.admin .stat-card { padding: 14px; }
+  body.admin .stat-card .val { font-size: 22px; }
+  body.admin th, body.admin td { padding: 10px 12px; }
 }
 body.admin .fg { display: flex; flex-direction: column; gap: 6px; }
 body.admin .fg.full { grid-column: span 2; }
@@ -1565,6 +1623,11 @@ body.admin .fg label { font-size: 12px; font-weight: 700; color: var(--text-mute
 body.admin .fg input,
 body.admin .fg select,
 body.admin .fg textarea { padding: 10px 12px; border: 1.5px solid var(--border); border-radius: 8px; font-size: 14px; outline: none; }
+/* Поля внутри flex-рядов (производительность, «имя файла + загрузить» и т.п.)
+   не сжимались на узких экранах и распирали модалку по горизонтали — у input
+   по умолчанию min-width:auto, а не 0, даже с flex:1. */
+body.admin .form-modal input,
+body.admin .form-modal select { min-width: 0; }
 body.admin .fg input:focus,
 body.admin .fg select:focus,
 body.admin .fg textarea:focus { border-color: var(--green); }
@@ -1611,6 +1674,7 @@ body.admin .status-select { padding: 5px 10px; border: 1.5px solid var(--border)
 
 /* ORDER ITEMS */
 body.admin .order-items-list { font-size: 12px; max-width: 300px; color: var(--text-muted); }
+body.admin .order-note-cell { font-size: 12px; max-width: 220px; color: var(--text-muted); }
 
 /* Настройки вовлечённости */
 body.admin .eng-check {
