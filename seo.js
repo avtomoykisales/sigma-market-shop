@@ -449,6 +449,12 @@ async function build(req, relPath, opts = {}) {
     return seo;
   }
 
+  if (relPath === '/account.html') {
+    seo.title = 'Личный кабинет — ' + SITE_NAME;
+    seo.robots = 'noindex, nofollow';
+    return seo;
+  }
+
   const st = STATIC_PAGES[relPath];
   if (st) {
     seo.title = st.title;

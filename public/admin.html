@@ -28,12 +28,13 @@
   <div class="sidebar" id="sidebar">
     <div class="sidebar-logo">Σ <span>SIGMA</span> ADMIN</div>
     <div class="nav-item active" onclick="showPanel('dashboard')" id="nav-dashboard"><span class="icon">📊</span>Дашборд</div>
+    <div class="nav-item" onclick="showPanel('stats')" id="nav-stats"><span class="icon">📈</span>Статистика</div>
     <div class="nav-item" onclick="showPanel('orders')" id="nav-orders"><span class="icon">📋</span>Заявки</div>
     <div class="nav-item" onclick="showPanel('products')" id="nav-products"><span class="icon">📦</span>Товары</div>
     <div class="nav-item" onclick="showPanel('subcats')" id="nav-subcats"><span class="icon">🗂</span>Категории</div>
     <div class="nav-item" onclick="showPanel('customers')" id="nav-customers"><span class="icon">🧑‍🤝‍🧑</span>Клиенты</div>
     <div class="nav-item" onclick="showPanel('reviews')" id="nav-reviews"><span class="icon">⭐</span>Отзывы товаров</div>
-    <div class="nav-item" onclick="showPanel('engage')" id="nav-engage"><span class="icon">⚙️</span>Вовлечённость</div>
+    <div class="nav-item" onclick="showPanel('engage')" id="nav-engage"><span class="icon">⚙️</span>Настройки</div>
     <div class="nav-item" onclick="showPanel('upload')" id="nav-upload"><span class="icon">🖼</span>Иконки (ZIP)</div>
     <div class="nav-item" onclick="showPanel('logs')" id="nav-logs"><span class="icon">📜</span>Журнал</div>
     <div class="nav-item" onclick="showPanel('errors')" id="nav-errors"><span class="icon">🐞</span>Ошибки сайта</div>
@@ -59,9 +60,92 @@
       </div>
       <div class="card">
         <div class="card-header"><h3>Последние заявки — новые и в работе</h3></div>
+        <div style="font-size:12px;color:var(--muted);margin:2px 0 8px"></div>
         <div class="table-wrap"><table>
-          <thead><tr><th>№</th><th>Имя</th><th>Телефон</th><th>Товары</th><th>Статус</th><th>Дата</th><th>Примечание</th><th>Действия</th></tr></thead>
+          <thead><tr>
+            <th class="sortable" data-sort="id" onclick="sortDashboardBy('id', event.shiftKey)">№</th>
+            <th class="sortable" data-sort="name" onclick="sortDashboardBy('name', event.shiftKey)">Имя</th>
+            <th class="sortable" data-sort="company" onclick="sortDashboardBy('company', event.shiftKey)">Компания</th>
+            <th class="sortable" data-sort="city" onclick="sortDashboardBy('city', event.shiftKey)">Город</th>
+            <th class="sortable" data-sort="phone" onclick="sortDashboardBy('phone', event.shiftKey)">Телефон</th>
+            <th>Товары</th>
+            <th>Комментарий</th>
+            <th class="sortable" data-sort="status" onclick="sortDashboardBy('status', event.shiftKey)">Статус</th>
+            <th class="sortable" data-sort="created_at" onclick="sortDashboardBy('created_at', event.shiftKey)">Дата</th>
+            <th class="sortable" data-sort="reminder" onclick="sortDashboardBy('reminder', event.shiftKey)">Примечание</th>
+            <th>Действия</th>
+          </tr></thead>
           <tbody id="recentOrdersTbody"></tbody>
+        </table></div>
+      </div>
+    </div>
+
+    <!-- STATS -->
+    <div class="panel" id="panel-stats">
+      <div class="card" style="padding:20px 24px">
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <span style="font-size:13px;color:var(--muted);font-weight:700">Период:</span>
+          <button class="action-btn" id="statsDays-0" onclick="loadStats(0)">Сегодня</button>
+          <button class="action-btn" id="statsDays-7" onclick="loadStats(7)">7 дней</button>
+          <button class="action-btn" id="statsDays-30" onclick="loadStats(30)">30 дней</button>
+          <button class="action-btn" id="statsDays-90" onclick="loadStats(90)">90 дней</button>
+        </div>
+      </div>
+    </br>
+      <div class="stats-grid">
+        <div class="stat-card"><div class="label">👁 Просмотров страниц</div><div class="val" id="stat-views">—</div></div>
+        <div class="stat-card"><div class="label">🔍 Поисковых запросов</div><div class="val" id="stat-searches">—</div></div>
+        <div class="stat-card"><div class="label">📦 Просмотров товаров</div><div class="val" id="stat-productviews">—</div></div>
+      </div>
+    </br>
+      <div class="card">
+        <div class="card-header"><h3>Клики по кнопкам</h3></div>
+        <div class="stats-grid">
+          <div class="stat-card"><div class="label">🧭 Подбор оборудования</div><div class="val" id="stat-cta-quiz">—</div></div>
+          <div class="stat-card"><div class="label">📝 Запросить КП</div><div class="val" id="stat-cta-offer">—</div></div>
+          <div class="stat-card"><div class="label">📞 Позвонить</div><div class="val" id="stat-cta-call">—</div></div>
+          <div class="stat-card"><div class="label">💬 Написать в WhatsApp</div><div class="val" id="stat-cta-whatsapp">—</div></div>
+        </div>
+      </div>
+    </br>
+      <div class="card">
+        <div class="card-header"><h3>Клики по кнопкам — по товарам</h3></div>
+        <div class="table-wrap" style="max-height:400px;overflow:auto"><table>
+          <thead><tr><th>Товар</th><th>КП</th><th>Позвонить</th><th>WhatsApp</th><th></th></tr></thead>
+          <tbody id="statsCtaByProductTbody"></tbody>
+        </table></div>
+      </div>
+    </br>
+      <div class="card">
+        <div class="card-header"><h3>Просмотры по дням</h3></div>
+        <div class="table-wrap" style="max-height:260px;overflow:auto"><table>
+          <thead><tr><th>Дата</th><th>Просмотров</th></tr></thead>
+          <tbody id="statsByDayTbody"></tbody>
+        </table></div>
+      </div>
+    </br>
+      <div class="card">
+        <div class="card-header"><h3>Топ поисковых запросов</h3></div>
+        <div class="table-wrap" style="max-height:320px;overflow:auto"><table>
+          <thead><tr><th>Запрос</th><th>Раз</th></tr></thead>
+          <tbody id="statsSearchTbody"></tbody>
+        </table></div>
+      </div>
+    </br>
+      <div class="card">
+        <div class="card-header"><h3>Самые просматриваемые товары</h3></div>
+        <div class="table-wrap" style="max-height:400px;overflow:auto"><table>
+          <thead><tr><th>Товар</th><th>Просмотров</th><th></th></tr></thead>
+          <tbody id="statsProductsTbody"></tbody>
+        </table></div>
+      </div>
+    </br>
+      <div class="card">
+        <div class="card-header"><h3>Когда и что смотрели</h3></div>
+        <p style="color:var(--muted);font-size:13px;padding:0 4px 8px">Последние 200 просмотров за выбранный период, самые свежие сверху.</p>
+        <div class="table-wrap" style="max-height:420px;overflow:auto"><table>
+          <thead><tr><th>Время</th><th>Страница</th></tr></thead>
+          <tbody id="statsRecentTbody"></tbody>
         </table></div>
       </div>
     </div>
@@ -75,12 +159,17 @@
         </div>
         <div class="toolbar">
           <input class="search-input" id="prodSearch" placeholder="Поиск по названию, артикулу…" oninput="searchProds()">
-          <select class="search-input" id="prodCatFilter" onchange="searchProds()" style="min-width:160px">
+          <select class="search-input" id="prodCatFilter" onchange="onProdCatFilterChange()" style="min-width:160px">
             <option value="">Все категории</option>
           </select>
+          <select class="search-input" id="prodSubcatFilter" onchange="searchProds()" style="min-width:200px">
+            <option value="">Все подкатегории</option>
+          </select>
         </div>
+        <p id="prodReorderHint" style="color:var(--muted);font-size:13px;margin:-6px 0 10px;display:none">
+        </p>
         <div class="table-wrap"><table>
-          <thead><tr><th>ID</th><th>Товар</th><th>Бренд</th><th>Категория</th><th>Цена</th><th>Статус</th><th>Действия</th></tr></thead>
+          <thead><tr><th></th><th>ID</th><th></th><th>Товар</th><th>Бренд</th><th>Подкатегория</th><th>Категория</th><th>Цена</th><th>Статус</th><th>Действия</th></tr></thead>
           <tbody id="prodsTbody"></tbody>
         </table></div>
         <div class="pagination">
@@ -106,8 +195,21 @@
             <option value="cancelled">❌ Отменена</option>
           </select>
         </div>
+        
         <div class="table-wrap"><table>
-          <thead><tr><th>№</th><th>Имя</th><th>Телефон</th><th>Товары</th><th>Сумма</th><th>Статус</th><th>Дата</th><th>Примечание</th><th>Действия</th></tr></thead>
+          <thead><tr>
+            <th class="sortable" data-sort="id" onclick="sortOrdersBy('id', event.shiftKey)">№</th>
+            <th class="sortable" data-sort="name" onclick="sortOrdersBy('name', event.shiftKey)">Имя</th>
+            <th class="sortable" data-sort="company" onclick="sortOrdersBy('company', event.shiftKey)">Компания</th>
+            <th class="sortable" data-sort="city" onclick="sortOrdersBy('city', event.shiftKey)">Город</th>
+            <th class="sortable" data-sort="phone" onclick="sortOrdersBy('phone', event.shiftKey)">Телефон</th>
+            <th>Товары</th>
+            <th class="sortable" data-sort="total" onclick="sortOrdersBy('total', event.shiftKey)">Сумма</th>
+            <th class="sortable" data-sort="status" onclick="sortOrdersBy('status', event.shiftKey)">Статус</th>
+            <th class="sortable" data-sort="created_at" onclick="sortOrdersBy('created_at', event.shiftKey)">Дата</th>
+            <th class="sortable" data-sort="reminder" onclick="sortOrdersBy('reminder', event.shiftKey)">Примечание</th>
+            <th>Действия</th>
+          </tr></thead>
           <tbody id="ordersTbody"></tbody>
         </table></div>
         <div class="pagination">
@@ -229,7 +331,6 @@
         <h3 style="margin:26px 0 6px">Фильтры в каталоге</h3>
         <label class="eng-check"><input type="checkbox" id="flt-enabled"> Показывать панель фильтров</label>
         <label class="eng-check"><input type="checkbox" id="flt-brand"> Фильтр по бренду</label>
-        <label class="eng-check"><input type="checkbox" id="flt-subtype"> Фильтр по типу <span>— поле «Тип» в карточке</span></label>
         <label class="eng-check"><input type="checkbox" id="flt-price"> Фильтр по цене</label>
         <label class="eng-check"><input type="checkbox" id="flt-perf"> Фильтр по производительности <span>— поле «Производительность» в карточке</span></label>
 
@@ -261,9 +362,23 @@
         <div class="fg" style="margin-top:10px"><label>Бонус за регистрацию (₸)</label><input id="bon-register" placeholder="500"></div>
         <div class="fg" style="margin-top:10px"><label>Процент от суммы заказа бонусами (%)</label><input id="bon-percent" placeholder="3"></div>
 
+        <h3 style="margin:26px 0 6px">КП (коммерческое предложение)</h3>
+        <label class="eng-check"><input type="checkbox" id="kp-instant"> Мгновенное скачивание (по коду на телефон) — если выключено, кнопка работает как раньше, через обычную заявку</label>
+        <div class="fg" style="margin-top:10px"><label>Бесплатная доставка при заказе от (₸)</label><input id="kp-threshold" placeholder="1000000"></div>
+        <p style="color:var(--muted);font-size:12px;margin-top:6px">Ниже этой суммы в КП пишется «Уточняйте у менеджера».</p>
+
         <div class="form-actions" style="justify-content:flex-start;margin-top:24px">
           <button class="btn-save" onclick="saveEngage()">💾 Сохранить настройки</button>
         </div>
+      </div>
+
+      <div class="card" style="padding:28px;max-width:820px;margin-top:20px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+          <h3>Заявки на КП (подтверждённые телефоны)</h3>
+          <button class="action-btn" onclick="loadKpLeads()">↺ Обновить</button>
+        </div>
+        <p style="color:var(--muted);font-size:13px;margin-bottom:14px">Клиенты, которые ввели и подтвердили номер, чтобы скачать КП — даже если заявку потом не оставили.</p>
+        <div id="kpLeadsList" style="color:var(--muted);font-size:13px">Загрузка…</div>
       </div>
 
       <div class="card" style="padding:28px;max-width:820px;margin-top:20px">
@@ -368,7 +483,7 @@
         <div class="card-header"><h3>Администраторы</h3></div>
         <p style="padding:0 20px 4px;color:var(--muted);font-size:13px"></p>
         <div class="table-wrap"><table>
-          <thead><tr><th>#</th><th>Логин</th><th style="width:260px">Действия</th></tr></thead>
+          <thead><tr><th>#</th><th>Логин</th><th>Роль</th><th style="width:260px">Действия</th></tr></thead>
           <tbody id="adminsTbody"></tbody>
         </table></div>
         <div style="padding:18px 20px;border-top:1px solid var(--border)">
@@ -376,8 +491,13 @@
           <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
             <input class="search-input" id="newAdminUser" placeholder="Логин (от 3 символов)" style="flex:1;min-width:160px">
             <input class="search-input" id="newAdminPass" placeholder="Пароль (от 4 символов)" style="flex:1;min-width:160px">
+            <select id="newAdminRole" class="search-input" style="flex:0 0 180px">
+              <option value="admin">Админ</option>
+              <option value="superadmin">Супер-админ</option>
+            </select>
             <button class="btn-save" onclick="createAdmin()">＋ Создать</button>
           </div>
+          <p style="color:var(--muted);font-size:12px;margin-top:8px">Только супер-админ может менять бонусы клиентам (в карточке клиента и при завершении заказа) и управлять администраторами.</p>
           <div id="adminFormMsg" style="margin-top:10px;font-size:13px"></div>
         </div>
       </div>
@@ -411,7 +531,6 @@
       <input type="hidden" id="fIcon">
       <div class="fg full"><label>Подзаголовок (под названием на странице товара)</label><input id="fSubtitle"></div>
       <div class="fg full"><label>Видео-обзор (ссылка YouTube)</label><input id="fYoutube" placeholder="https://youtu.be/..."></div>
-      <div class="fg"><label>Тип (для фильтра)</label><input id="fSubtype" placeholder="Портальная / Туннельная …"></div>
       <div class="fg"><label>Производительность (число + ед.)</label>
         <div style="display:flex;gap:8px">
           <input id="fPerf" type="number" placeholder="55" style="flex:1">
@@ -559,12 +678,16 @@
     </div>
     <div class="fg" style="margin-top:10px"><label>Или просто напишите, что купил клиент <span style="font-weight:400;text-transform:none;color:var(--muted)">— если товара нет в каталоге</span></label><textarea id="coManualItem" style="min-height:60px" placeholder=""></textarea></div>
 
-    <div class="fg" style="margin-top:14px"><label>Сумма заказа (₸)</label><input id="coTotal" type="number"></div>
+    <div class="fg" style="margin-top:14px"><label>Сумма заказа (₸)</label><input id="coTotal" type="number" oninput="updateCoBonusHint()"></div>
 
     <div style="margin-top:16px;padding:12px 14px;background:var(--bg);border-radius:8px;font-size:13px">
       Бонусов у клиента сейчас: <b id="coCurrentBonus">—</b>
     </div>
-    <div class="fg" style="margin-top:10px"><label>Начислить бонус за этот заказ (₸)</label><input id="coBonusAward" type="number"></div>
+    <div class="fg" style="margin-top:10px">
+      <label>Начислить бонус за этот заказ (₸)</label>
+      <input id="coBonusAward" type="number">
+      <p id="coBonusHint" style="color:var(--muted);font-size:12px;margin-top:4px"></p>
+    </div>
 
     <div class="form-actions">
       <button class="btn-cancel" onclick="closeCompleteOrder()">Отмена</button>
@@ -581,7 +704,15 @@
       <div class="fg"><label>Имя</label><input id="cuName"></div>
       <div class="fg"><label>Телефон</label><input id="cuPhone"></div>
       <div class="fg"><label>Email</label><input id="cuEmail"></div>
-      <div class="fg"><label>Бонусы (₸)</label><input id="cuBonus" type="number"></div>
+      <div class="fg"><label>Город</label><input id="cuCity"></div>
+      <div class="fg"><label>Компания</label><input id="cuCompany"></div>
+      <div class="fg">
+        <label>Бонусы (₸)</label>
+        <div style="display:flex;align-items:center;gap:10px;padding:9px 0">
+          <b id="cuBonusDisplay" style="font-size:15px">0</b>
+          <button type="button" class="action-btn superadmin-only" onclick="openDeductBonus()">➖ Списать бонус</button>
+        </div>
+      </div>
     </div>
     <div class="form-actions" style="justify-content:flex-start;margin-top:6px">
       <button class="btn-save" onclick="saveCustomer()">💾 Сохранить</button>
@@ -607,6 +738,19 @@
     <div class="form-actions">
       <button class="btn-cancel" onclick="closeCancelOrder()">Не отменять</button>
       <button class="btn-save" onclick="confirmCancelOrder()">❌ Отменить заказ</button>
+    </div>
+  </div>
+</div>
+
+<!-- СПИСАНИЕ БОНУСА (только superadmin) -->
+<div class="overlay" id="deductBonusOverlay">
+  <div class="form-modal" style="width:min(360px,95vw)">
+    <h3>Списать бонус</h3>
+    <p style="color:var(--muted);font-size:13px;margin-bottom:10px">Доступно у клиента: <b id="deductBonusAvail">0</b> ₸</p>
+    <div class="fg"><label>Сумма списания (₸)</label><input id="deductBonusAmount" type="number" min="1"></div>
+    <div class="form-actions">
+      <button class="btn-cancel" onclick="closeDeductBonus()">Отмена</button>
+      <button class="btn-save" onclick="confirmDeductBonus()">➖ Списать</button>
     </div>
   </div>
 </div>
@@ -651,8 +795,54 @@ let editId = null;
 let subcatEditId = null;
 let prodPage = 1;
 let ordPage = 1;
+// Сортировка заявок — список {col, dir}, порядок важен (первый — главный ключ).
+// Обычный клик по заголовку — сортировка заново по одной колонке.
+// Shift+клик — добавить/переключить колонку как дополнительный ключ сортировки.
+let ordersSort = [{ col: 'id', dir: 'desc' }];
 let custPage = 1;
 let prodSearchTimer;
+
+// Маска +7 (xxx) xxx-xx-xx для поля телефона при создании заказа вручную (#noPhone) —
+// та же логика, что на сайте (public/js/site.js): цифры собираются заново в
+// el.dataset.phoneDigits, backspace над скобкой/дефисом реально удаляет цифру.
+function formatKzPhoneAdmin(digits) {
+  if (!digits) return '';
+  let out = '+7 (' + digits.slice(0, 3);
+  if (digits.length >= 3) out += ')';
+  if (digits.length > 3) out += ' ' + digits.slice(3, 6);
+  if (digits.length > 6) out += '-' + digits.slice(6, 8);
+  if (digits.length > 8) out += '-' + digits.slice(8, 10);
+  return out;
+}
+function renderKzPhoneAdmin(el) {
+  el.value = formatKzPhoneAdmin(el.dataset.phoneDigits || '');
+  const pos = el.value.length;
+  el.setSelectionRange(pos, pos);
+}
+document.addEventListener('keydown', e => {
+  const el = e.target;
+  if (!el || el.id !== 'noPhone') return;
+  if (e.key !== 'Backspace' && e.key !== 'Delete') return;
+  e.preventDefault();
+  const hasSelection = el.selectionStart !== el.selectionEnd;
+  el.dataset.phoneDigits = hasSelection ? '' : (el.dataset.phoneDigits || '').slice(0, -1);
+  renderKzPhoneAdmin(el);
+});
+document.addEventListener('input', e => {
+  const el = e.target;
+  if (!el || el.id !== 'noPhone') return;
+  const prevDigits = el.dataset.phoneDigits || '';
+  const allDigits = el.value.replace(/\D/g, '');
+  let added;
+  if (prevDigits) {
+    added = allDigits.slice(1 + prevDigits.length);
+  } else {
+    added = allDigits;
+    if (added.length > 10) added = added.slice(added.length - 10);
+  }
+  el.dataset.phoneDigits = (prevDigits + added).slice(0, 10);
+  renderKzPhoneAdmin(el);
+});
 
 // ===== ПРОСТОЙ HTML-РЕДАКТОР (для «Описание» категорий/подкатегорий) =====
 function initRichEditor(taId) {
@@ -733,7 +923,7 @@ async function doLogin() {
     } else {
       document.getElementById('loginError').textContent = 'Неверный логин или пароль';
     }
-  } catch { document.getElementById('loginError').textContent = 'Ошибка подключения'; }
+  } catch (e) { document.getElementById('loginError').textContent = 'Ошибка подключения'; }
 }
 
 function logout() {
@@ -745,12 +935,21 @@ function logout() {
 
 // ===== INIT =====
 let siteContacts = {};
+let myRole = 'admin';
+async function applyRoleRestrictions() {
+  try { myRole = (await apiFetch('/api/admin/me')).role || 'admin'; } catch (e) { myRole = 'admin'; }
+  const isSuperadmin = myRole === 'superadmin';
+  const navAdmins = document.getElementById('nav-admins');
+  if (navAdmins) navAdmins.style.display = isSuperadmin ? '' : 'none';
+  document.querySelectorAll('.superadmin-only').forEach(el => { el.style.display = isSuperadmin ? '' : 'none'; });
+}
 async function initApp() {
   categories = await apiFetch('/api/categories');
   await reloadSubcats();
-  try { siteContacts = (await apiFetch('/api/admin/settings')).contacts || {}; } catch { siteContacts = {}; }
+  try { siteContacts = (await apiFetch('/api/admin/settings')).contacts || {}; } catch (e) { siteContacts = {}; }
   fillCatSelect();
   fillCatFilter();
+  await applyRoleRestrictions();
   loadDashboard();
 }
 function fillContactPrimarySelect() {
@@ -783,13 +982,50 @@ function fillSubcatSelect(selectedId) {
   if (selectedId) sel.value = selectedId;
 }
 async function reloadSubcats() {
-  try { subcategories = await apiFetch('/api/admin/subcategories'); } catch { subcategories = []; }
+  try { subcategories = await apiFetch('/api/admin/subcategories'); } catch (e) { subcategories = []; }
 }
 
 function fillCatFilter() {
   const sel = document.getElementById('prodCatFilter');
   sel.innerHTML = `<option value="">Все категории</option>` +
-    categories.map(c => `<option value="${c.slug}">${c.name}</option>`).join('');
+    categories.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+  fillProdSubcatFilter();
+}
+// Плоский список из полусотни подкатегорий вперемешку неудобно листать — без выбранной
+// категории список слишком большой и бессистемный, поэтому просим сначала выбрать её.
+// А внутри категории строим по дереву (родитель сразу над своими детьми, с отступом),
+// а не как раньше — в произвольном порядке с длинным префиксом "Родитель / Ребёнок".
+function fillProdSubcatFilter() {
+  const catId = +document.getElementById('prodCatFilter').value || null;
+  const sel = document.getElementById('prodSubcatFilter');
+  const prev = sel.value;
+  if (!catId) {
+    sel.innerHTML = `<option value="">Сначала выберите категорию</option>`;
+    sel.disabled = true;
+    return;
+  }
+  sel.disabled = false;
+  const list = subcategories.filter(s => s.category_id === catId);
+  const byParent = new Map();
+  list.forEach(s => {
+    const key = s.parent_id || 0;
+    if (!byParent.has(key)) byParent.set(key, []);
+    byParent.get(key).push(s);
+  });
+  byParent.forEach(arr => arr.sort((a, b) => (a.sort - b.sort) || a.name.localeCompare(b.name)));
+  const ordered = [];
+  const walk = (parentKey, depth) => {
+    (byParent.get(parentKey) || []).forEach(s => { ordered.push({ s, depth }); walk(s.id, depth + 1); });
+  };
+  walk(0, 0);
+  sel.innerHTML = `<option value="">Все подкатегории</option>` +
+    ordered.map(({ s, depth }) => `<option value="${s.id}">${'— '.repeat(depth)}${esc(s.name)}</option>`).join('');
+  if (list.some(s => String(s.id) === prev)) sel.value = prev;
+}
+function onProdCatFilterChange() {
+  fillProdSubcatFilter();
+  prodPage = 1;
+  loadProducts();
 }
 
 // ===== PANELS =====
@@ -801,14 +1037,15 @@ function showPanel(name) {
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
   document.getElementById('panel-'+name).classList.add('active');
   document.getElementById('nav-'+name).classList.add('active');
-  const titles = {dashboard:'Дашборд',products:'Управление товарами',subcats:'Категории и подкатегории',orders:'Заявки клиентов',customers:'Клиенты',reviews:'Отзывы на товары',engage:'Вовлечённость и подбор',upload:'Загрузка иконок',logs:'Журнал действий',errors:'Ошибки сайта',admins:'Администраторы'};
+  const titles = {dashboard:'Дашборд',stats:'Статистика',products:'Управление товарами',subcats:'Категории и подкатегории',orders:'Заявки клиентов',customers:'Клиенты',reviews:'Отзывы на товары',engage:'Вовлечённость и подбор',upload:'Загрузка иконок',logs:'Журнал действий',errors:'Ошибки сайта',admins:'Администраторы'};
   document.getElementById('panelTitle').textContent = titles[name] || name;
+  if (name === 'stats') loadStats();
   if (name === 'products') loadProducts();
   if (name === 'orders') loadOrders();
   if (name === 'customers') loadCustomers();
   if (name === 'reviews') loadReviews();
   if (name === 'dashboard') loadDashboard();
-  if (name === 'engage') loadEngage();
+  if (name === 'engage') { loadEngage(); loadKpLeads(); }
   if (name === 'subcats') { loadCats(); loadSubcats(); }
   if (name === 'logs') loadLogs(1);
   if (name === 'errors') loadErrors(1);
@@ -914,6 +1151,12 @@ async function loadAdmins() {
       <td>${a.id}</td>
       <td><b>${esc(a.username)}</b>${a.me ? ' <span style="color:var(--muted);font-size:12px">— вы</span>' : ''}</td>
       <td>
+        <select onchange="changeAdminRole(${a.id}, this.value)" ${a.me ? 'disabled title="Себе роль не меняем"' : ''}>
+          <option value="admin" ${a.role !== 'superadmin' ? 'selected' : ''}>Админ</option>
+          <option value="superadmin" ${a.role === 'superadmin' ? 'selected' : ''}>Супер-админ</option>
+        </select>
+      </td>
+      <td>
         <button class="action-btn" onclick="changeAdminPass(${a.id}, '${esc(a.username)}')">🔑 Сменить пароль</button>
         ${a.me ? '' : `<button class="action-btn" style="color:#dc2626" onclick="deleteAdmin(${a.id}, '${esc(a.username)}')">🗑</button>`}
       </td>
@@ -922,13 +1165,19 @@ async function loadAdmins() {
 async function createAdmin() {
   const username = document.getElementById('newAdminUser').value.trim();
   const password = document.getElementById('newAdminPass').value;
+  const role = document.getElementById('newAdminRole').value;
   const msg = document.getElementById('adminFormMsg');
-  const res = await apiFetch('/api/admin/admins', 'POST', { username, password });
+  const res = await apiFetch('/api/admin/admins', 'POST', { username, password, role });
   if (res.error) { msg.style.color = '#dc2626'; msg.textContent = res.error; return; }
   msg.style.color = '#16a34a'; msg.textContent = 'Администратор создан';
   document.getElementById('newAdminUser').value = '';
   document.getElementById('newAdminPass').value = '';
   loadAdmins();
+}
+async function changeAdminRole(id, role) {
+  const res = await apiFetch('/api/admin/admins/' + id, 'PUT', { role });
+  if (res.error) { showToast(res.error, 'error'); loadAdmins(); return; }
+  showToast('Роль обновлена', 'green');
 }
 async function changeAdminPass(id, username) {
   const password = prompt(`Новый пароль для «${username}» (от 4 символов):`);
@@ -990,7 +1239,7 @@ async function uploadCatIcon() {
     const d = await r.json();
     if (d.filename) { ctIcon = d.filename; renderCtIcon(); }
     else { res.textContent = '❌ ' + (d.error || 'Ошибка'); res.style.color = '#ef4444'; }
-  } catch { res.textContent = '❌ Ошибка загрузки'; res.style.color = '#ef4444'; }
+  } catch (e) { res.textContent = '❌ Ошибка загрузки'; res.style.color = '#ef4444'; }
   document.getElementById('ctIconFile').value = '';
 }
 function openCatForm(id) {
@@ -1038,7 +1287,7 @@ async function deleteCat(id) {
 // ===== ПОДКАТЕГОРИИ =====
 let scIcon = '';
 let subcatCollapsed = new Set();
-try { subcatCollapsed = new Set(JSON.parse(localStorage.getItem('subcatCollapsed') || '[]')); } catch {}
+try { subcatCollapsed = new Set(JSON.parse(localStorage.getItem('subcatCollapsed') || '[]')); } catch (e) {}
 
 async function loadSubcats() {
   await reloadSubcats();
@@ -1046,14 +1295,14 @@ async function loadSubcats() {
 }
 function toggleSubcatNode(id) {
   if (subcatCollapsed.has(id)) subcatCollapsed.delete(id); else subcatCollapsed.add(id);
-  try { localStorage.setItem('subcatCollapsed', JSON.stringify([...subcatCollapsed])); } catch {}
+  try { localStorage.setItem('subcatCollapsed', JSON.stringify([...subcatCollapsed])); } catch (e) {}
   renderSubcatTree();
 }
 function subcatCollapseAll(collapse) {
   subcatCollapsed = collapse
     ? new Set(subcategories.filter(s => subcategories.some(k => k.parent_id === s.id)).map(s => s.id))
     : new Set();
-  try { localStorage.setItem('subcatCollapsed', JSON.stringify([...subcatCollapsed])); } catch {}
+  try { localStorage.setItem('subcatCollapsed', JSON.stringify([...subcatCollapsed])); } catch (e) {}
   renderSubcatTree();
 }
 function renderSubcatTree() {
@@ -1122,7 +1371,7 @@ async function uploadSubcatIcon() {
     const d = await r.json();
     if (d.filename) { scIcon = d.filename; renderScIcon(); }
     else { res.textContent = '❌ ' + (d.error || 'Ошибка'); res.style.color = '#ef4444'; }
-  } catch { res.textContent = '❌ Ошибка загрузки'; res.style.color = '#ef4444'; }
+  } catch (e) { res.textContent = '❌ Ошибка загрузки'; res.style.color = '#ef4444'; }
   document.getElementById('scIconFile').value = '';
 }
 function fillScParent(selectedId) {
@@ -1190,7 +1439,7 @@ async function loadEngage() {
   const b = engSettings.blocks || {}, f = engSettings.filters || {}, q = engSettings.quiz || {};
   const set = (id, v) => { const el = document.getElementById(id); if (el) el.checked = v !== false; };
   set('blk-accessories', b.accessories); set('blk-bundle', b.bundle); set('blk-similar', b.similar); set('blk-recent', b.recent);
-  set('flt-enabled', f.enabled); set('flt-brand', f.brand); set('flt-subtype', f.subtype); set('flt-price', f.price); set('flt-perf', f.perf);
+  set('flt-enabled', f.enabled); set('flt-brand', f.brand); set('flt-price', f.price); set('flt-perf', f.perf);
   set('opt-compare', engSettings.compare); set('opt-favorites', engSettings.favorites);
   document.getElementById('quiz-enabled').checked = q.enabled !== false;
   document.getElementById('quiz-title').value = q.title || '';
@@ -1199,12 +1448,27 @@ async function loadEngage() {
   const c = engSettings.contacts || {};
   document.getElementById('contact-phone1').value = c.phone1 || '';
   document.getElementById('contact-phone2').value = c.phone2 || '';
-  document.getElementById('crm-bitrix').value = (engSettings.crm || {}).bitrix_webhook || '';
   const bn = engSettings.bonus || {};
   document.getElementById('bon-visible').checked = bn.visible === true;
   document.getElementById('bon-enabled').checked = bn.enabled !== false;
   document.getElementById('bon-register').value = bn.register_bonus != null ? bn.register_bonus : '';
   document.getElementById('bon-percent').value = bn.earn_percent != null ? bn.earn_percent : '';
+  const kpCfg = engSettings.kp || {};
+  document.getElementById('kp-instant').checked = kpCfg.instantDownload === true;
+  document.getElementById('kp-threshold').value = kpCfg.freeDeliveryThreshold != null ? kpCfg.freeDeliveryThreshold : '';
+}
+async function loadKpLeads() {
+  const box = document.getElementById('kpLeadsList');
+  box.textContent = 'Загрузка…';
+  const res = await apiFetch('/api/admin/kp-leads?limit=30');
+  if (res.error) { box.textContent = '❌ ' + res.error; return; }
+  if (!res.leads.length) { box.textContent = 'Пока пусто'; return; }
+  box.innerHTML = '<table style="width:100%;border-collapse:collapse;font-size:13px">' +
+    res.leads.map(l => `<tr>
+      <td style="padding:6px 8px;border-bottom:1px solid var(--border)">${esc(l.phone)}</td>
+      <td style="padding:6px 8px;border-bottom:1px solid var(--border)">${esc(l.product_name)}</td>
+      <td style="padding:6px 8px;border-bottom:1px solid var(--border);text-align:right;white-space:nowrap;color:var(--muted)">${fmtDate(l.created_at)}</td>
+    </tr>`).join('') + '</table>';
 }
 async function testCrm() {
   const out = document.getElementById('crm-test-result');
@@ -1221,19 +1485,32 @@ async function saveEngage() {
     phone1: document.getElementById('contact-phone1').value.trim(),
     phone2: document.getElementById('contact-phone2').value.trim()
   };
-  await apiFetch('/api/admin/settings', 'PUT', {
-    blocks: { accessories: on('blk-accessories'), bundle: on('blk-bundle'), similar: on('blk-similar'), recent: on('blk-recent') },
-    filters: { enabled: on('flt-enabled'), brand: on('flt-brand'), subtype: on('flt-subtype'), price: on('flt-price'), perf: on('flt-perf') },
-    compare: on('opt-compare'), favorites: on('opt-favorites'),
-    contacts,
-    crm: { bitrix_webhook: document.getElementById('crm-bitrix').value.trim() },
-    bonus: {
-      visible: document.getElementById('bon-visible').checked,
-      enabled: document.getElementById('bon-enabled').checked,
-      register_bonus: Number(document.getElementById('bon-register').value) || 0,
-      earn_percent: Number(document.getElementById('bon-percent').value) || 0
-    }
-  });
+  let res;
+  try {
+    res = await apiFetch('/api/admin/settings', 'PUT', {
+      blocks: { accessories: on('blk-accessories'), bundle: on('blk-bundle'), similar: on('blk-similar'), recent: on('blk-recent') },
+      filters: { enabled: on('flt-enabled'), brand: on('flt-brand'), price: on('flt-price'), perf: on('flt-perf') },
+      compare: on('opt-compare'), favorites: on('opt-favorites'),
+      contacts,
+      bonus: {
+        visible: document.getElementById('bon-visible').checked,
+        enabled: document.getElementById('bon-enabled').checked,
+        register_bonus: Number(document.getElementById('bon-register').value) || 0,
+        earn_percent: Number(document.getElementById('bon-percent').value) || 0
+      },
+      kp: {
+        instantDownload: document.getElementById('kp-instant').checked,
+        freeDeliveryThreshold: Number(document.getElementById('kp-threshold').value) || 1000000
+      }
+    });
+  } catch (e) {
+    logAdminError('saveEngage: ' + e.message, 'admin_settings');
+    showToast('❌ Не удалось сохранить — нет связи с сервером'); return;
+  }
+  if (!res || res.error) {
+    logAdminError('saveEngage: ' + (res && res.error || 'пустой ответ сервера'), 'admin_settings');
+    showToast('❌ Не удалось сохранить: ' + (res && res.error || 'ошибка сервера')); return;
+  }
   siteContacts = contacts;
   fillContactPrimarySelect();
   showToast('✅ Настройки сохранены', 'green');
@@ -1241,14 +1518,24 @@ async function saveEngage() {
 async function saveQuiz() {
   let steps;
   try { steps = JSON.parse(document.getElementById('quiz-steps').value); }
-  catch { showToast('❌ Ошибка в JSON шагов'); return; }
+  catch (e) { showToast('❌ Ошибка в JSON шагов'); return; }
   const quiz = {
     enabled: document.getElementById('quiz-enabled').checked,
     title: document.getElementById('quiz-title').value.trim(),
     subtitle: document.getElementById('quiz-subtitle').value.trim(),
     steps
   };
-  await apiFetch('/api/admin/settings', 'PUT', { quiz });
+  let res;
+  try {
+    res = await apiFetch('/api/admin/settings', 'PUT', { quiz });
+  } catch (e) {
+    logAdminError('saveQuiz: ' + e.message, 'admin_settings');
+    showToast('❌ Не удалось сохранить — нет связи с сервером'); return;
+  }
+  if (!res || res.error) {
+    logAdminError('saveQuiz: ' + (res && res.error || 'пустой ответ сервера'), 'admin_settings');
+    showToast('❌ Не удалось сохранить: ' + (res && res.error || 'ошибка сервера')); return;
+  }
   showToast('✅ Квиз сохранён', 'green');
 }
 async function resetQuiz() {
@@ -1314,12 +1601,36 @@ function renderImgGrid() {
   document.getElementById('fIcon').value = imgList[0] || '';
   if (!imgList.length) { g.innerHTML = '<div class="img-empty">Изображений нет</div>'; return; }
   g.innerHTML = imgList.map((fn, i) => `
-    <div class="img-cell${i === 0 ? ' main' : ''}">
+    <div class="img-cell${i === 0 ? ' main' : ''}" draggable="true" data-i="${i}" title="Перетащите, чтобы изменить порядок">
       <img src="/icons/${fn}" alt="" onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'img-broken',textContent:'нет файла'}))">
       ${i === 0 ? '<span class="img-badge">Главная</span>' : `<button type="button" class="img-mkmain" title="Сделать главной" onclick="imgSetMain(${i})">★</button>`}
       <button type="button" class="img-del" title="Убрать" onclick="imgRemove(${i})">✕</button>
       <div class="img-fn">${fn}</div>
     </div>`).join('');
+  initImgDrag(g);
+}
+// Перетаскивание миниатюр мышью — двигаем сам DOM-элемент (не перерисовываем сетку
+// на каждом dragover — замена перетаскиваемого узла на лету обычно обрывает drag
+// в браузере), а массив imgList пересчитываем по итоговому порядку только при drop.
+// Первая после перетаскивания сама становится главной (renderImgGrid: i===0 → "Главная").
+let _imgDragCell = null;
+function initImgDrag(g) {
+  g.querySelectorAll('.img-cell').forEach(cell => {
+    cell.ondragstart = () => { _imgDragCell = cell; cell.classList.add('dragging'); };
+    cell.ondragend = () => { cell.classList.remove('dragging'); _imgDragCell = null; };
+    cell.ondragover = (e) => {
+      e.preventDefault();
+      if (!_imgDragCell || _imgDragCell === cell) return;
+      const rect = cell.getBoundingClientRect();
+      const after = (e.clientX - rect.left) > rect.width / 2;
+      cell.parentNode.insertBefore(_imgDragCell, after ? cell.nextSibling : cell);
+    };
+    cell.ondrop = (e) => {
+      e.preventDefault();
+      imgList = Array.from(g.querySelectorAll('.img-cell')).map(c => imgList[+c.dataset.i]);
+      renderImgGrid();
+    };
+  });
 }
 function imgSetMain(i) { const [x] = imgList.splice(i, 1); imgList.unshift(x); renderImgGrid(); }
 function imgRemove(i) { imgList.splice(i, 1); renderImgGrid(); }
@@ -1340,7 +1651,7 @@ async function uploadProductImages() {
     const r = await fetch('/api/admin/upload-images', { method: 'POST', headers: { 'x-admin-token': token }, body: fd });
     let d;
     try { d = await r.json(); }
-    catch { res.textContent = '❌ Сервер вернул не JSON. Перезапустите node server.js (нужен новый эндпоинт).'; res.style.color = '#ef4444'; return; }
+    catch (e) { res.textContent = '❌ Сервер вернул не JSON. Перезапустите node server.js (нужен новый эндпоинт).'; res.style.color = '#ef4444'; return; }
     if (d.filenames) {
       d.filenames.forEach(fn => { if (!imgList.includes(fn)) imgList.push(fn); });
       renderImgGrid();
@@ -1351,24 +1662,111 @@ async function uploadProductImages() {
 }
 
 // ===== DASHBOARD =====
+// ===== СТАТИСТИКА =====
+let statsCurrentDays = 0;   // по умолчанию — «Сегодня»
+function fmtStatsDate(d) { const [y,m,day] = d.split('-'); return `${day}.${m}.${y.slice(2)}`; }
+async function loadStats(days) {
+  statsCurrentDays = days != null ? days : statsCurrentDays;
+  document.querySelectorAll('[id^="statsDays-"]').forEach(b => b.classList.remove('active'));
+  const activeBtn = document.getElementById('statsDays-' + statsCurrentDays);
+  if (activeBtn) activeBtn.classList.add('active');
+  const data = await apiFetch('/api/admin/stats?days=' + statsCurrentDays);
+  if (data.error) { showToast('❌ ' + data.error); return; }
+
+  document.getElementById('stat-views').textContent = data.totalViews;
+  const searchTotal = (data.topSearches || []).reduce((s, r) => s + r.count, 0);
+  document.getElementById('stat-searches').textContent = searchTotal;
+  const productViewsTotal = (data.topProducts || []).reduce((s, r) => s + r.count, 0);
+  document.getElementById('stat-productviews').textContent = productViewsTotal;
+
+  const cta = data.ctaClicks || {};
+  document.getElementById('stat-cta-quiz').textContent = cta.quiz || 0;
+  document.getElementById('stat-cta-offer').textContent = cta.offer || 0;
+  document.getElementById('stat-cta-call').textContent = cta.call || 0;
+  document.getElementById('stat-cta-whatsapp').textContent = cta.whatsapp || 0;
+
+  const byDay = (data.byDay || []).slice().reverse();
+  document.getElementById('statsByDayTbody').innerHTML = byDay.map(r => `
+    <tr><td>${fmtStatsDate(r.date)}</td><td>${r.count}</td></tr>`).join('')
+    || '<tr><td colspan="2" style="padding:20px;color:var(--muted)">Пока нет данных</td></tr>';
+
+  document.getElementById('statsSearchTbody').innerHTML = (data.topSearches || []).map(r => `
+    <tr><td>${esc(r.value)}</td><td>${r.count}</td></tr>`).join('')
+    || '<tr><td colspan="2" style="padding:20px;color:var(--muted)">Пока никто ничего не искал</td></tr>';
+
+  document.getElementById('statsProductsTbody').innerHTML = (data.topProducts || []).map(r => `
+    <tr>
+      <td>${r.icon ? `<img src="/icons/${esc(r.icon)}" style="width:32px;height:32px;object-fit:cover;border-radius:6px;vertical-align:middle;margin-right:8px">` : ''}${esc(r.name || ('Товар #' + r.ref_id + ' (удалён)'))}</td>
+      <td>${r.count}</td>
+      <td>${r.name ? `<button class="action-btn" onclick="showPanel('products');openProductForm(${r.ref_id})">✏️</button>` : ''}</td>
+    </tr>`).join('')
+    || '<tr><td colspan="3" style="padding:20px;color:var(--muted)">Пока нет просмотров товаров</td></tr>';
+
+  document.getElementById('statsCtaByProductTbody').innerHTML = (data.ctaByProduct || []).map(r => `
+    <tr>
+      <td>${r.icon ? `<img src="/icons/${esc(r.icon)}" style="width:32px;height:32px;object-fit:cover;border-radius:6px;vertical-align:middle;margin-right:8px">` : ''}${esc(r.name || ('Товар #' + r.productId + ' (удалён)'))}</td>
+      <td>${r.offer || 0}</td>
+      <td>${r.call || 0}</td>
+      <td>${r.whatsapp || 0}</td>
+      <td>${r.name ? `<button class="action-btn" onclick="showPanel('products');openProductForm(${r.productId})">✏️</button>` : ''}</td>
+    </tr>`).join('')
+    || '<tr><td colspan="5" style="padding:20px;color:var(--muted)">Пока нет кликов по товарам</td></tr>';
+
+  document.getElementById('statsRecentTbody').innerHTML = (data.recentViews || []).map(r => {
+    const page = r.type === 'product_view'
+      ? esc(r.product_name || ('Товар #' + r.ref_id + ' (удалён)')) + ' <span style="color:var(--muted)">— карточка товара</span>'
+      : esc(r.path || '/');
+    return `<tr><td style="white-space:nowrap">${fmtDate(r.ts.replace(' ', 'T') + 'Z')}</td><td>${page}</td></tr>`;
+  }).join('')
+    || '<tr><td colspan="2" style="padding:20px;color:var(--muted)">Пока нет просмотров</td></tr>';
+}
+let dashboardSort = [{ col: 'id', dir: 'desc' }];
+function sortDashboardBy(col, additive) {
+  const idx = dashboardSort.findIndex(s => s.col === col);
+  if (additive) {
+    if (idx === -1) dashboardSort.push({ col, dir: SORT_DEFAULT_DIR(col) });
+    else dashboardSort[idx].dir = dashboardSort[idx].dir === 'asc' ? 'desc' : 'asc';
+  } else if (dashboardSort.length === 1 && idx === 0) {
+    dashboardSort[0].dir = dashboardSort[0].dir === 'asc' ? 'desc' : 'asc';
+  } else {
+    dashboardSort = [{ col, dir: SORT_DEFAULT_DIR(col) }];
+  }
+  loadDashboard();
+}
+function updateDashboardSortHeaders() {
+  document.querySelectorAll('#panel-dashboard th.sortable').forEach(th => {
+    if (!th.dataset.label) th.dataset.label = th.textContent.trim();
+    const label = th.dataset.label;
+    const i = dashboardSort.findIndex(s => s.col === th.dataset.sort);
+    if (i === -1) { th.innerHTML = `${label} <span class="sort-icon">⇅</span>`; return; }
+    const arrow = dashboardSort[i].dir === 'asc' ? '▲' : '▼';
+    const num = dashboardSort.length > 1 ? ORDERS_SORT_SUP[i + 1] : '';
+    th.innerHTML = `${label} <span class="sort-icon active">${arrow}${num}</span>`;
+  });
+}
 async function loadDashboard() {
+  const sortParam = encodeURIComponent(dashboardSort.map(s => `${s.col}:${s.dir}`).join(','));
   const [prods, orders, newOrders, activeOrders, cats] = await Promise.all([
     apiFetch('/api/admin/products?limit=1'),
     apiFetch('/api/admin/orders?limit=1'),
     apiFetch('/api/admin/orders?limit=1&status=new'),
-    apiFetch('/api/admin/orders?limit=100&status=new,processing'),
+    apiFetch('/api/admin/orders?limit=100&status=new,processing&sort=' + sortParam),
     apiFetch('/api/categories')
   ]);
   document.getElementById('stat-products').textContent = prods.total;
   document.getElementById('stat-orders').textContent = orders.total;
   document.getElementById('stat-cats').textContent = cats.length;
   document.getElementById('stat-new').textContent = newOrders.total;
+  updateDashboardSortHeaders();
   const tbody = document.getElementById('recentOrdersTbody');
   tbody.innerHTML = (activeOrders.orders.length ? activeOrders.orders.map(o => `<tr>
     <td>#${o.id}</td>
     <td><strong>${esc(o.name)}</strong></td>
+    <td>${esc(o.company || '—')}</td>
+    <td>${esc(o.city || '—')}</td>
     <td>${esc(o.phone)}</td>
     <td class="order-items-list">${getItemsSummary(o.items)}</td>
+    <td style="max-width:220px;white-space:pre-wrap" title="${esc(o.message || '')}">${o.message ? esc(o.message.length > 80 ? o.message.slice(0, 80) + '…' : o.message) : '—'}</td>
     <td>
       <select class="status-select" data-prev="${o.status}" onchange="handleStatusChange(${o.id}, this)">
         <option value="new" ${o.status==='new'?'selected':''}>🆕 Новая</option>
@@ -1379,31 +1777,39 @@ async function loadDashboard() {
     </td>
     <td>${fmtDate(o.created_at)}</td>
     <td class="order-note-cell">${lastNoteText(o.lastNote, o.id, o.nextReminder)}</td>
-    <td><button class="action-btn" onclick="openOrderNotes(${o.id})">✏️ Редактировать</button></td>
-  </tr>`).join('') : '<tr><td colspan="8" style="padding:20px;color:var(--muted)">Новых заявок и заявок в работе нет</td></tr>');
+    <td><button class="action-btn" onclick="openOrderNotes(${o.id})" title="Редактировать">✏️</button></td>
+  </tr>`).join('') : '<tr><td colspan="11" style="padding:20px;color:var(--muted)">Новых заявок и заявок в работе нет</td></tr>');
 }
 
 // ===== PRODUCTS =====
 async function loadProducts() {
   const search = document.getElementById('prodSearch').value.trim();
   const cat = document.getElementById('prodCatFilter').value;
+  const subcat = document.getElementById('prodSubcatFilter').value;
   let url = `/api/admin/products?page=${prodPage}&limit=20`;
   if (search) url += `&search=${encodeURIComponent(search)}`;
+  if (cat) url += `&category=${cat}`;
+  if (subcat) url += `&subcategory=${subcat}`;
   const data = await apiFetch(url);
-  let prods = data.products;
-  if (cat) prods = prods.filter(p => {
-    const c = categories.find(cc => cc.slug === cat);
-    return c && p.category_id === c.id;
-  });
+  const prods = data.products;
+  // Порядок перетаскиванием осмыслен только внутри одной подкатегории — там сервер
+  // отдаёт сразу весь список (см. /api/admin/products), без постраничной разбивки.
+  const reorderable = !!subcat;
+  document.getElementById('prodReorderHint').style.display = reorderable ? '' : 'none';
   document.getElementById('prodTotal').textContent = `Всего: ${data.total} товаров`;
   const tbody = document.getElementById('prodsTbody');
-  tbody.innerHTML = prods.map(p => `<tr>
+  tbody.innerHTML = prods.map(p => `<tr data-id="${p.id}" ${reorderable ? 'draggable="true"' : ''}>
+    <td class="drag-handle" style="cursor:${reorderable ? 'grab' : 'default'};color:var(--muted);width:20px">${reorderable ? '⠿' : ''}</td>
     <td style="color:var(--muted)">${p.id}</td>
+    <td style="width:44px">${p.icon
+      ? `<img src="/icons/${esc(p.icon)}" alt="" style="width:40px;height:40px;object-fit:contain;border:1px solid var(--border);border-radius:6px;background:#fff" onerror="this.style.visibility='hidden'">`
+      : `<div style="width:40px;height:40px;border:1px solid var(--border);border-radius:6px;background:var(--bg)"></div>`}</td>
     <td>
       <strong>${esc(p.name)}</strong>
       ${p.article ? `<br><span style="font-size:11px;color:var(--muted)">Арт: ${esc(p.article)}</span>` : ''}
     </td>
     <td>${esc(p.brand||'')}</td>
+    <td>${p.subcategory_name ? `<span class="tag tag-muted">${esc(p.subcategory_name)}</span>` : ''}</td>
     <td><span class="tag tag-blue">${esc(p.category_name)}</span></td>
     <td>${p.price_on_request ? '<span class="tag tag-muted">По запросу</span>' : fmtPrice(p.price)}</td>
     <td><span class="tag ${p.in_stock ? 'tag-green' : 'tag-red'}">${p.in_stock ? 'В наличии' : 'Нет'}</span>
@@ -1414,10 +1820,42 @@ async function loadProducts() {
     </td>
   </tr>`).join('');
   const pager = document.getElementById('prodPager');
-  const pages = Math.ceil(data.total / 20);
-  pager.innerHTML = pages > 1 ? Array.from({length: Math.min(pages,10)}, (_,i) =>
-    `<button class="page-btn${i+1===prodPage?' active':''}" onclick="prodPage=${i+1};loadProducts()">${i+1}</button>`
-  ).join('') : '';
+  if (reorderable) {
+    pager.innerHTML = '';
+  } else {
+    const pages = Math.ceil(data.total / 20);
+    pager.innerHTML = pages > 1 ? Array.from({length: Math.min(pages,10)}, (_,i) =>
+      `<button class="page-btn${i+1===prodPage?' active':''}" onclick="prodPage=${i+1};loadProducts()">${i+1}</button>`
+    ).join('') : '';
+  }
+  if (reorderable) initProdDrag(tbody);
+}
+
+// Перетаскивание строк товара мышью — переставляет <tr> в DOM и сохраняет
+// новый порядок целиком одним запросом после отпускания.
+let _dragRow = null;
+function initProdDrag(tbody) {
+  tbody.querySelectorAll('tr[draggable="true"]').forEach(row => {
+    row.ondragstart = () => { _dragRow = row; row.classList.add('dragging'); };
+    row.ondragend = () => { row.classList.remove('dragging'); _dragRow = null; };
+    row.ondragover = (e) => {
+      e.preventDefault();
+      if (!_dragRow || _dragRow === row) return;
+      const rect = row.getBoundingClientRect();
+      const after = (e.clientY - rect.top) > rect.height / 2;
+      row.parentNode.insertBefore(_dragRow, after ? row.nextSibling : row);
+    };
+    row.ondrop = (e) => { e.preventDefault(); saveProdOrder(tbody); };
+  });
+}
+async function saveProdOrder(tbody) {
+  const ids = Array.from(tbody.querySelectorAll('tr[data-id]')).map(tr => +tr.dataset.id);
+  const res = await apiFetch('/api/admin/products/reorder', 'PUT', { ids });
+  if (!res || res.error) {
+    logAdminError('saveProdOrder: ' + (res && res.error || 'ошибка сервера'), 'admin_products');
+    showToast('❌ Не удалось сохранить порядок'); return;
+  }
+  showToast('✅ Порядок сохранён', 'green');
 }
 
 function searchProds() {
@@ -1441,7 +1879,7 @@ async function openProductForm(id = null) {
   document.getElementById('formTitle').textContent = id ? 'Редактировать товар' : 'Новый товар';
   initRichEditor('fDesc');
   fillContactPrimarySelect();
-  const parseIds = v => { try { return Array.isArray(v) ? v : JSON.parse(v || '[]'); } catch { return []; } };
+  const parseIds = v => { try { return Array.isArray(v) ? v : JSON.parse(v || '[]'); } catch (e) { return []; } };
   if (id) {
     const p = await apiFetch(`/api/products/${id}`);
     document.getElementById('fName').value = p.name;
@@ -1450,7 +1888,6 @@ async function openProductForm(id = null) {
     document.getElementById('fPrice').value = p.price||'';
     setImgList([p.icon, ...parseIds(p.images)].filter(Boolean));
     document.getElementById('fDesc')._richSet(p.description || '');
-    document.getElementById('fSubtype').value = p.subtype||'';
     document.getElementById('fSubtitle').value = p.subtitle||'';
     document.getElementById('fYoutube').value = p.youtube||'';
     document.getElementById('fPerf').value = p.perf||'';
@@ -1467,7 +1904,7 @@ async function openProductForm(id = null) {
     initRelPicker(document.querySelector('.rel-picker[data-field="related"]'), parseIds(p.related_ids));
     initRelPicker(document.querySelector('.rel-picker[data-field="bundle"]'), parseIds(p.bundle_ids));
   } else {
-    ['fName','fArticle','fBrand','fPrice','fIcon','fSubtype','fSubtitle','fYoutube','fPerf','fPerfUnit','fSeoTitle','fSeoDesc'].forEach(id => document.getElementById(id).value = '');
+    ['fName','fArticle','fBrand','fPrice','fIcon', 'fSubtitle','fYoutube','fPerf','fPerfUnit','fSeoTitle','fSeoDesc'].forEach(id => document.getElementById(id).value = '');
     document.getElementById('fDesc')._richSet('');
     setImgList([]);
     document.getElementById('fSpecs').value = '{}';
@@ -1490,7 +1927,7 @@ async function saveProduct() {
   const _fd = document.getElementById('fDesc');
   if (_fd._richSync) _fd._richSync();
   let specs = '{}';
-  try { JSON.parse(document.getElementById('fSpecs').value); specs = document.getElementById('fSpecs').value; } catch {}
+  try { JSON.parse(document.getElementById('fSpecs').value); specs = document.getElementById('fSpecs').value; } catch (e) {}
   const data = {
     category_id: document.getElementById('fCategory').value,
     subcategory_id: document.getElementById('fSubcategory').value || null,
@@ -1505,7 +1942,6 @@ async function saveProduct() {
     in_stock: document.getElementById('fInStock').checked ? 1 : 0,
     featured: document.getElementById('fFeatured').checked ? 1 : 0,
     specs,
-    subtype: document.getElementById('fSubtype').value.trim() || null,
     subtitle: document.getElementById('fSubtitle').value.trim() || null,
     youtube: document.getElementById('fYoutube').value.trim() || null,
     perf: document.getElementById('fPerf').value || null,
@@ -1535,18 +1971,58 @@ async function deleteProduct(id) {
 }
 
 // ===== ORDERS =====
+// Текстовые колонки при первом клике логичнее сортировать А→Я (по возрастанию),
+// а числа/даты — сначала самые новые/большие (по убыванию). Напоминание — тоже
+// по возрастанию, чтобы самые срочные (ближайшая дата) были наверху.
+const SORT_TEXT_COLS = new Set(['name', 'company', 'city', 'phone', 'status', 'reminder']);
+function SORT_DEFAULT_DIR(col) { return SORT_TEXT_COLS.has(col) ? 'asc' : 'desc'; }
+function sortOrdersBy(col, additive) {
+  const idx = ordersSort.findIndex(s => s.col === col);
+  if (additive) {
+    // Shift+клик — добавить колонку доп. ключом сортировки (или переключить её направление)
+    if (idx === -1) ordersSort.push({ col, dir: SORT_DEFAULT_DIR(col) });
+    else ordersSort[idx].dir = ordersSort[idx].dir === 'asc' ? 'desc' : 'asc';
+  } else if (ordersSort.length === 1 && idx === 0) {
+    ordersSort[0].dir = ordersSort[0].dir === 'asc' ? 'desc' : 'asc';
+  } else {
+    ordersSort = [{ col, dir: SORT_DEFAULT_DIR(col) }];
+  }
+  ordPage = 1;
+  loadOrders();
+}
+const ORDERS_SORT_SUP = ['', '¹', '²', '³', '⁴', '⁵', '⁶', '⁷', '⁸'];
+function updateOrdersSortHeaders() {
+  document.querySelectorAll('#panel-orders th.sortable').forEach(th => {
+    // запоминаем исходный текст один раз — дальше строим разметку только из него,
+    // не разбирая обратно уже вставленные иконки/цифры
+    if (!th.dataset.label) th.dataset.label = th.textContent.trim();
+    const label = th.dataset.label;
+    const i = ordersSort.findIndex(s => s.col === th.dataset.sort);
+    if (i === -1) {
+      th.innerHTML = `${label} <span class="sort-icon">⇅</span>`;
+      return;
+    }
+    const arrow = ordersSort[i].dir === 'asc' ? '▲' : '▼';
+    const num = ordersSort.length > 1 ? ORDERS_SORT_SUP[i + 1] : '';
+    th.innerHTML = `${label} <span class="sort-icon active">${arrow}${num}</span>`;
+  });
+}
 async function loadOrders() {
   const search = document.getElementById('ordSearch').value.trim();
   const status = document.getElementById('ordStatusFilter').value;
-  let url = `/api/admin/orders?page=${ordPage}&limit=30`;
+  const sortParam = ordersSort.map(s => `${s.col}:${s.dir}`).join(',');
+  let url = `/api/admin/orders?page=${ordPage}&limit=30&sort=${encodeURIComponent(sortParam)}`;
   if (search) url += `&search=${encodeURIComponent(search)}`;
   if (status) url += `&status=${status}`;
   const data = await apiFetch(url);
   document.getElementById('ordersTotal').textContent = `Всего: ${data.total} заявок`;
+  updateOrdersSortHeaders();
   const tbody = document.getElementById('ordersTbody');
   tbody.innerHTML = data.orders.map(o => `<tr>
     <td>#${o.id}</td>
     <td><strong>${esc(o.name)}</strong></td>
+    <td>${esc(o.company || '—')}</td>
+    <td>${esc(o.city || '—')}</td>
     <td>${esc(o.phone)}</td>
     <td class="order-items-list">${getItemsSummary(o.items)}</td>
     <td>${o.total > 0 ? fmtPrice(o.total) : '—'}</td>
@@ -1560,7 +2036,7 @@ async function loadOrders() {
     </td>
     <td>${fmtDate(o.created_at)}</td>
     <td class="order-note-cell">${lastNoteText(o.lastNote, o.id, o.nextReminder)}</td>
-    <td><button class="action-btn" onclick="openOrderNotes(${o.id})">✏️ Редактировать</button></td>
+    <td><button class="action-btn" onclick="openOrderNotes(${o.id})" title="Редактировать">✏️</button></td>
   </tr>`).join('');
   const pager = document.getElementById('ordersPager');
   const pages = Math.ceil(data.total / 30);
@@ -1583,8 +2059,8 @@ async function loadCustomers() {
     <td>${esc(c.email || '—')}</td>
     <td>${c.bonus_balance || 0} ₸</td>
     <td>${c.ordersCount || 0}</td>
-    <td>${fmtDate(c.created_at)}</td>
-    <td><button class="action-btn" onclick="openCustomer(${c.id})">✏️ Редактировать</button></td>
+    <td>${c.registered_at ? fmtDate(c.registered_at) : '—'}</td>
+    <td><button class="action-btn" onclick="openCustomer(${c.id})" title="Редактировать">✏️</button></td>
   </tr>`).join('') : '<tr><td colspan="7" style="padding:20px;color:var(--muted)">Клиентов пока нет</td></tr>';
   const pager = document.getElementById('customersPager');
   const pages = Math.ceil(data.total / 30);
@@ -1602,7 +2078,9 @@ async function openCustomer(id) {
   document.getElementById('cuName').value = c.name || '';
   document.getElementById('cuPhone').value = c.phone || '';
   document.getElementById('cuEmail').value = c.email || '';
-  document.getElementById('cuBonus').value = c.bonus_balance || 0;
+  document.getElementById('cuCity').value = c.city || '';
+  document.getElementById('cuCompany').value = c.company || '';
+  document.getElementById('cuBonusDisplay').textContent = (c.bonus_balance || 0).toLocaleString('ru-KZ');
   const orders = data.orders || [];
   document.getElementById('cuOrders').innerHTML = renderOrdersTable(orders, 'Заказов пока нет');
   await renderCustomerLog(id);
@@ -1626,10 +2104,30 @@ async function saveCustomer() {
     name: document.getElementById('cuName').value.trim(),
     phone: document.getElementById('cuPhone').value.trim(),
     email: document.getElementById('cuEmail').value.trim(),
-    bonusBalance: document.getElementById('cuBonus').value
+    city: document.getElementById('cuCity').value.trim(),
+    company: document.getElementById('cuCompany').value.trim()
   });
   if (res.error) { showToast('❌ ' + res.error); return; }
   showToast('✅ Сохранено', 'green');
+  await renderCustomerLog(cuId);
+  loadCustomers();
+}
+
+// ===== СПИСАНИЕ БОНУСА (только superadmin) =====
+function openDeductBonus() {
+  document.getElementById('deductBonusAvail').textContent = document.getElementById('cuBonusDisplay').textContent;
+  document.getElementById('deductBonusAmount').value = '';
+  document.getElementById('deductBonusOverlay').classList.add('open');
+}
+function closeDeductBonus() { document.getElementById('deductBonusOverlay').classList.remove('open'); }
+async function confirmDeductBonus() {
+  const amount = Number(document.getElementById('deductBonusAmount').value) || 0;
+  if (amount <= 0) { showToast('⚠️ Укажите сумму больше нуля'); return; }
+  const res = await apiFetch(`/api/admin/customers/${cuId}/deduct-bonus`, 'PUT', { amount });
+  if (res.error) { showToast('❌ ' + res.error); return; }
+  document.getElementById('cuBonusDisplay').textContent = res.bonusBalance.toLocaleString('ru-KZ');
+  closeDeductBonus();
+  showToast('✅ Бонус списан', 'green');
   await renderCustomerLog(cuId);
   loadCustomers();
 }
@@ -1734,7 +2232,7 @@ function pickerItemsOrManual(key) {
 // остальное (вписанное текстом) — обратно в текстовое поле, а не строкой товара.
 function splitItemsIntoPicker(key, itemsJson) {
   let all = [];
-  try { all = JSON.parse(itemsJson) || []; } catch {}
+  try { all = JSON.parse(itemsJson) || []; } catch (e) {}
   pickers[key] = all.filter(i => i.id).map(i => ({ ...i, qty: i.qty || 1, price: i.price || 0 }));
   const manualText = all.filter(i => !i.id).map(i => i.name).join(', ');
   document.getElementById(key + 'ManualItem').value = manualText;
@@ -1789,13 +2287,30 @@ async function openCompleteOrder(id, selectEl) {
     apiFetch(`/api/admin/customers/by-phone/${encodeURIComponent(o.phone)}`),
     apiFetch('/api/admin/settings')
   ]);
-  const bonusCfg = settings.bonus || {};
+  coBonusCfg = settings.bonus || {};
   const c = custRes.customer;
   document.getElementById('coCurrentBonus').textContent = c ? (c.bonusBalance + ' ₸') : 'клиент не зарегистрирован';
-  const suggested = bonusCfg.enabled && bonusCfg.earn_percent ? Math.round((o.total || 0) * bonusCfg.earn_percent / 100) : 0;
-  document.getElementById('coBonusAward').value = suggested;
+  updateCoBonusHint();
 
   document.getElementById('completeOrderOverlay').classList.add('open');
+}
+// Бонус за заказ считается автоматически по проценту из настроек (Вовлечённость → Бонусы).
+// Поле видят все админы (для прозрачности), но редактировать предложенную сумму может
+// только superadmin — остальным оно показано как read-only.
+let coBonusCfg = {};
+function updateCoBonusHint() {
+  const total = Number(document.getElementById('coTotal').value) || 0;
+  const input = document.getElementById('coBonusAward');
+  const hint = document.getElementById('coBonusHint');
+  if (!coBonusCfg.enabled) {
+    input.value = 0;
+    input.disabled = true;
+    hint.textContent = 'Бонусная программа выключена';
+  } else {
+    input.value = Math.round(total * (coBonusCfg.earn_percent || 0) / 100);
+    input.disabled = myRole !== 'superadmin';
+    hint.textContent = `Начисляется ${coBonusCfg.earn_percent || 0}% от суммы заказа — автоматически`;
+  }
 }
 function closeCompleteOrder() {
   if (coSelectEl) coSelectEl.value = coSelectEl.dataset.prev;
@@ -1809,7 +2324,9 @@ async function saveCompleteOrder() {
   if (res.error) { showToast('❌ ' + res.error); return; }
   if (coSelectEl) coSelectEl.dataset.prev = 'done';
   document.getElementById('completeOrderOverlay').classList.remove('open');
-  showToast('✅ Заказ выполнен' + (bonusAward > 0 ? `, начислено ${bonusAward} ₸ бонусов` : ''), 'green');
+  // res.bonusAwarded — сколько реально начислил сервер (0, если не superadmin), а не то,
+  // что было в поле формы — иначе тост врал бы «начислено», хотя сервер это отклонил.
+  showToast('✅ Заказ выполнен' + (res.bonusAwarded > 0 ? `, начислено ${res.bonusAwarded} ₸ бонусов` : ''), 'green');
   loadOrders();
   loadDashboard();
 }
@@ -1914,6 +2431,7 @@ async function addOrderNote() {
 // ===== СОЗДАНИЕ ЗАКАЗА ВРУЧНУЮ =====
 function openNewOrder() {
   ['noName','noPhone','noEmail','noCity','noCompany','noTotal','noMessage','noManualItem','noItemSearch'].forEach(id => document.getElementById(id).value = '');
+  delete document.getElementById('noPhone').dataset.phoneDigits;
   pickers.no = [];
   renderPickerItems('no');
   document.getElementById('noItemResults').innerHTML = '';
@@ -1995,7 +2513,7 @@ async function uploadZip() {
     document.getElementById('uploadResult').innerHTML = data.success
       ? `<span style="color:var(--green)">✅ ${data.message}</span>`
       : `<span style="color:#ef4444">❌ ${data.error}</span>`;
-  } catch {
+  } catch (e) {
     document.getElementById('uploadResult').innerHTML = '<span style="color:#ef4444">❌ Ошибка загрузки</span>';
   }
   btn.disabled = false; btn.textContent = 'Загрузить иконки';
@@ -2014,7 +2532,7 @@ async function uploadSingleIcon() {
     document.getElementById('singleResult').innerHTML = data.filename
       ? `<span style="color:var(--green)">✅ Загружено: <strong>${data.filename}</strong></span>`
       : `<span style="color:#ef4444">❌ ${data.error}</span>`;
-  } catch {
+  } catch (e) {
     document.getElementById('singleResult').innerHTML = '<span style="color:#ef4444">❌ Ошибка</span>';
   }
 }
@@ -2032,7 +2550,7 @@ function getItemsSummary(items) {
     const arr = JSON.parse(items);
     if (!arr.length) return '—';
     return arr.slice(0,3).map(i => `${i.name} ×${i.qty}`).join(', ') + (arr.length > 3 ? `… +${arr.length-3}` : '');
-  } catch { return esc(items||'—'); }
+  } catch (e) { return esc(items||'—'); }
 }
 
 // Таблица истории заказов клиента — общая для карточки заказа и карточки клиента.
@@ -2046,6 +2564,7 @@ function renderOrdersTable(orders, emptyText) {
       <th style="${th}">Товары</th>
       <th style="${th}">Статус</th>
       <th style="${th};text-align:right">Сумма</th>
+      <th style="${th};text-align:right">Бонусы</th>
       <th style="${th};text-align:right">Дата</th>
     </tr></thead>
     <tbody>${orders.map(o => `
@@ -2054,6 +2573,7 @@ function renderOrdersTable(orders, emptyText) {
         <td style="${td}">${getItemsSummary(o.items)}</td>
         <td style="${td}"><span class="tag ${statusTag(o.status)}">${statusLabel(o.status)}</span></td>
         <td style="${td};text-align:right;white-space:nowrap">${fmtPrice(o.total)}</td>
+        <td style="${td};text-align:right;white-space:nowrap;color:var(--accent)">${o.bonus_earned ? '+' + fmtPrice(o.bonus_earned) : '—'}</td>
         <td style="${td};text-align:right;white-space:nowrap;color:var(--muted)">${fmtDate(o.created_at)}</td>
       </tr>`).join('')}
     </tbody>
@@ -2080,6 +2600,17 @@ async function apiFetch(url, method='GET', body=null) {
   if (body) opts.body = JSON.stringify(body);
   const r = await fetch(url, opts);
   return r.json();
+}
+
+// Ошибку видно в разделе «Ошибки сайта» — сам логгер никогда не должен ронять страницу.
+function logAdminError(message, context) {
+  try {
+    fetch('/api/log-error', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: String(message || '').slice(0, 2000), context: context || 'admin', url: location.href })
+    }).catch(() => {});
+  } catch (e) {}
 }
 
 function showToast(msg, type='') {

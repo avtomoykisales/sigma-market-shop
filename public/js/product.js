@@ -42,7 +42,29 @@ async function showProduct(id) {
   }
   scrollToView('productView');
 
-  const p = await apiFetch(`/api/products/${id}`);
+  // На мобильном интернете сам запрос данных товара иногда обрывается (сбой сети —
+  // "Failed to fetch"), а не просто медленно идёт. Раньше это тихо обрывало всю
+  // функцию на середине — страница застревала на "Загрузка…" без кнопок связи и
+  // без ошибки. Теперь пробуем ещё пару раз сами, и только потом сдаёмся с кнопкой
+  // "Повторить" вместо вечного спиннера.
+  let p;
+  for (let attempt = 0; ; attempt++) {
+    try { p = await apiFetch(`/api/products/${id}`); break; }
+    catch (e) {
+      if (attempt >= 2) {
+        // Если на странице уже есть готовый серверный контент этого товара (см. выше) —
+        // ни в коем случае не затираем его сообщением об ошибке: для робота Google/
+        // Яндекса, у которого сам /api/ закрыт в robots.txt, это и так единственный
+        // источник текста страницы — сбой повторного клиентского запроса тут не беда.
+        if (state.productId === id && body.dataset.productId !== String(id)) {
+          body.innerHTML = `<div class="spinner">Не удалось загрузить товар — проверьте интернет.
+            <button type="button" class="btn-catalog" onclick="showProduct(${id})" style="margin-top:12px">Повторить</button></div>`;
+        }
+        return;
+      }
+      await new Promise(r => setTimeout(r, 600));
+    }
+  }
   if (!p || p.error) { if (typeof showNotFound === 'function') showNotFound(); return; }
   body.dataset.productId = String(id);
 
@@ -57,7 +79,7 @@ async function showProduct(id) {
     );
   }
   let specs = p.specs;
-  if (typeof specs === 'string') { try { specs = JSON.parse(specs); } catch { specs = {}; } }
+  if (typeof specs === 'string') { try { specs = JSON.parse(specs); } catch (e) { specs = {}; } }
 
   const S = ' <span class="crumb-sep">›</span> ';
   let crumb = `<a href="/catalog" onclick="showCatalog('all');return false;">Товары и услуги</a>` +
@@ -82,17 +104,27 @@ async function showProduct(id) {
        </div>` : ''}`
     : `<div class="pv-img"><span style="font-size:90px">${getCatEmoji(p.category_slug)}</span></div>`;
 
+  const pvBonus = window.bonusForPrice(p.price);
   const priceHtml = p.price_on_request
     ? `<div class="pv-price-req">Цена по запросу — итоговая стоимость зависит от комплектации</div>`
-    : p.price ? `<div class="pv-price">${formatPrice(p.price)}</div>` : '';
+    : p.price ? `<div class="pv-price">${formatPrice(p.price)}</div>${pvBonus ? `<div class="pv-bonus">+${pvBonus.toLocaleString('ru-KZ')} ₸ бонусов на счёт</div>` : ''}` : '';
 
-  const offerBtn = `<button class="btn-consult-outline" onclick="requestModal(${p.id})">Запросить коммерческое предложение</button>`;
+  const kpInstant = typeof state !== 'undefined' && state.settings && state.settings.kp && state.settings.kp.instantDownload;
+  const offerBtn = kpInstant
+    ? `<button class="btn-consult-outline" onclick="openKpModal(${p.id})">Скачать КП</button>`
+    : `<button class="btn-consult-outline" onclick="requestModal(${p.id})">Запросить коммерческое предложение</button>`;
   const buyBtn = p.price_on_request ? '' : `<button class="btn-catalog" onclick="addToCart(${p.id})">🛒 Купить</button>`;
-  const contactHtml = (typeof contactActions === 'function')
+  // contactActions живёт в /js/site.js — на медленном мобильном интернете этот файл
+  // иногда ещё не успевает выполниться к этому моменту (та же природа, что и у
+  // openModal/trackView), и кнопки связи молча не появляются до перезагрузки страницы.
+  // buildContactHtml() ниже при необходимости пробует ещё раз, когда site.js подгрузится.
+  const buildContactHtml = () => typeof contactActions === 'function'
     ? contactActions(state.settings.contacts, p.contact_primary, {
-        text: `Здравствуйте! Интересует «${p.name}». ${location.origin}${productUrl(p)}`
+        text: `Здравствуйте! Интересует «${p.name}». ${location.origin}${productUrl(p)}`,
+        productId: p.id
       })
-    : '';
+    : null;
+  const contactHtml = buildContactHtml() || '';
   const ytId = ytEmbed(p.youtube);
   // const ytBtn = p.youtube
   //   ? `<a class="pv-youtube" href="${p.youtube}" target="_blank" rel="noopener">Смотреть на YouTube <span class="yt-badge">▶</span></a>` : '';
@@ -128,7 +160,7 @@ async function showProduct(id) {
         </div>
         ${priceHtml}
         <div class="pv-actions">${offerBtn}${buyBtn}</div>
-        ${contactHtml}
+        <div id="pvContactInline">${contactHtml}</div>
         ${favBtn}
       </div>
     </div>
@@ -143,6 +175,45 @@ async function showProduct(id) {
 
     <a class="pv-back" href="/catalog/${p.category_slug}" onclick="showCatalog('${p.category_slug}');return false;">← Вернуться в каталог</a>`;
 
+  // Те же кнопки связи, но продублированные в плавающую панель снизу (только мобильные,
+  // см. CSS) — чтобы "Позвонить"/WhatsApp было видно сразу, не долистывая до текста.
+  const stickyContact = document.getElementById('pvStickyContact');
+  if (stickyContact) stickyContact.innerHTML = contactHtml;
+
+  // Если contactActions ещё не был готов, ИЛИ сами настройки (телефоны) ещё не успели
+  // прийти с сервера (тоже бывает на медленном мобильном) — дозаполняем кнопки связи
+  // без перезагрузки страницы. getSettings() при неудаче сам не запоминает провал
+  // навсегда (см. site.js) — тут просто пробуем его снова, пока не получится.
+  if (!contactHtml) {
+    let tries = 0;
+    const retry = () => {
+      if (state.productId !== p.id) return;   // ушли на другой товар — не подставляем чужое
+      const html = buildContactHtml();
+      if (html) {
+        const inlineEl = document.getElementById('pvContactInline');
+        if (inlineEl) inlineEl.innerHTML = html;
+        if (stickyContact) stickyContact.innerHTML = html;
+      } else if (++tries < 20) {
+        if (typeof window.getSettings === 'function' && !(state.settings.contacts)) {
+          window.getSettings().then(s => { state.settings = { ...state.settings, ...s }; }).catch(() => {});
+        }
+        setTimeout(retry, 250);
+      }
+    };
+    setTimeout(retry, 250);
+  }
+
+  // scrollToView в начале функции целится по высоте ещё пустого спиннера — на
+  // медленном интернете реальный (гораздо более высокий) контент товара вставляется
+  // уже после того, как страница проскроллилась, и позиция уезжает. Прокручиваем
+  // ещё раз, теперь уже по финальной вёрстке.
+  if (typeof scrollToView === 'function') scrollToView('productView');
+  // На телефоне переход часто случается прямо во время инерционной прокрутки (открыли
+  // товар, пролистав до блока "Похожие модели", и тут же тапнули по карточке) — эта
+  // инерция сама докручивает страницу уже ПОСЛЕ нашего сброса и перекрывает его.
+  // Повторяем сброс чуть позже, когда инерция точно успеет погаситься.
+  setTimeout(() => { if (state.productId === id && typeof scrollToView === 'function') scrollToView('productView'); }, 350);
+
   // Показать кнопку «Далее» только если описание реально не помещается
   requestAnimationFrame(() => {
     const d = document.getElementById('pvDesc');
@@ -152,6 +223,7 @@ async function showProduct(id) {
 
   pushRecent(p.id);   // сама уже вызывает renderRecent() — второй раз звать не нужно
   loadProductReviews(p.id);
+  window.trackView(productUrl(p), p.id);
 }
 
 // ---- отзывы на товар ----
@@ -279,7 +351,46 @@ function miniCard(p) {
   </a>`;
 }
 
+// ===== СКАЧАТЬ КП (мгновенно, по номеру телефона — включается в админке) =====
+let kpProductId = null;
+function openKpModal(id) {
+  window.trackClick('offer', id);
+  kpProductId = id;
+  document.getElementById('kpPhone').value = '';
+  document.getElementById('kpPhone').dataset.phoneDigits = '';
+  document.getElementById('kpOverlay').classList.add('open');
+}
+function closeKpModal() { document.getElementById('kpOverlay').classList.remove('open'); }
+async function kpDownload() {
+  const phone = document.getElementById('kpPhone').value.trim();
+  if (!window.isValidPhone(phone)) { showToast('⚠️ Введите корректный номер телефона'); return; }
+  const r = await fetch('/api/kp/download', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ phone, productId: kpProductId }),
+  });
+  if (!r.ok) {
+    const data = await r.json().catch(() => null);
+    showToast('❌ ' + ((data && data.error) || 'Ошибка. Попробуйте ещё раз.'));
+    return;
+  }
+  const blob = await r.blob();
+  const cd = r.headers.get('Content-Disposition') || '';
+  const m = cd.match(/filename="?([^"]+)"?/);
+  const filename = m ? decodeURIComponent(m[1]) : 'KP.pdf';
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename; document.body.appendChild(a); a.click();
+  a.remove(); URL.revokeObjectURL(url);
+  closeKpModal();
+  showToast('✅ КП скачивается', 'green');
+}
+
 function requestModal(id) {
+  window.trackClick('offer', id);
+  // Кладём товар в корзину по-настоящему (не только текстом в сообщении) — так видно,
+  // на что именно запрашивают КП. После успешной отправки заявки корзина и так
+  // очищается целиком (см. submitOrder), отдельно убирать не нужно.
+  if (typeof addToCart === 'function') addToCart(id);
   if (!document.getElementById('cartPanel').classList.contains('open')) toggleCart();
   const url = location.origin + '/product/' + id;
   document.getElementById('oMessage').value = `Прошу предоставить коммерческое предложение на товар #${id}\n${url}`;

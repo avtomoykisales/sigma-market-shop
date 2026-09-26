@@ -119,13 +119,13 @@ body.shop .hdr-search:hover { border-color: var(--green); }
 body.shop .hdr-search img { width: 18px; height: 18px; object-fit: contain; }
 body.shop .hdr-consult {
   background: var(--green); color: white; border: none; border-radius: 8px;
-  padding: 9px 18px; font-size: 14px; font-weight: 600; cursor: pointer;
-  transition: background .2s; white-space: nowrap;
+  height: 38px; padding: 0 18px; font-size: 14px; font-weight: 600; cursor: pointer;
+  display: flex; align-items: center; transition: background .2s; white-space: nowrap;
 }
 body.shop .hdr-consult:hover { background: var(--green-dark); }
 body.shop .hdr-cart {
   background: none; border: 1.5px solid var(--border); border-radius: 8px;
-  padding: 7px 14px; font-size: 15px; cursor: pointer; position: relative;
+  height: 38px; padding: 0 14px; font-size: 15px; cursor: pointer; position: relative;
   display: flex; align-items: center; gap: 6px; transition: border-color .2s;
 }
 body.shop .hdr-cart:hover { border-color: var(--green); }
@@ -451,6 +451,7 @@ body.shop .card-footer-row {
 }
 body.shop .card-price { font-size: 17px; font-weight: 800; color: var(--green); }
 body.shop .card-price-request { font-size: 13px; color: var(--text-muted); font-weight: 600; }
+body.shop .card-bonus { font-size: 12px; font-weight: 600; color: var(--accent); }
 body.shop .btn-detail {
   display: flex; align-items: center; gap: 5px;
   font-size: 13px; font-weight: 600; color: var(--green); text-decoration: none;
@@ -505,6 +506,33 @@ body.shop .contact-actions--compact .contact-row .btn-call {
 
 /* на странице товара — в один ряд с action-кнопками по ширине */
 body.shop .pv-info .contact-actions { margin: -2px 0 12px; }
+
+/* Плавающие круглые кнопки "Позвонить/WhatsApp" на карточке товара — только
+   мобильные. На телефоне сами кнопки в тексте оказываются далеко внизу (после
+   фото и описания), часть посетителей их просто не долистывает — эти кнопки
+   видны всегда, пока открыта карточка товара. Пустая (нет номеров) — не показываем. */
+body.shop .pv-sticky-contact { display: none; }
+body.shop .pv-sticky-contact:empty { display: none !important; }
+@media (max-width: 768px) {
+  body.shop .pv-sticky-contact {
+    display: block; position: fixed; right: 16px;
+    bottom: calc(16px + env(safe-area-inset-bottom)); z-index: 300;
+  }
+  body.shop .pv-sticky-contact .contact-actions,
+  body.shop .pv-sticky-contact .contact-row {
+    display: flex; flex-direction: column-reverse; gap: 12px;
+  }
+  body.shop .pv-sticky-contact .btn-wa,
+  body.shop .pv-sticky-contact .btn-call {
+    width: 56px; height: 56px; min-width: 0; flex: none; padding: 0;
+    border-radius: 50%; box-shadow: 0 4px 14px rgba(0,0,0,0.22);
+  }
+  body.shop .pv-sticky-contact .btn-wa span,
+  body.shop .pv-sticky-contact .btn-call span { display: none; }
+  body.shop .pv-sticky-contact .btn-wa svg,
+  body.shop .pv-sticky-contact .btn-call svg { width: 26px; height: 26px; }
+  body.shop .pv-sticky-contact .btn-call { background: var(--accent); color: #fff; border: none; }
+}
 
 /* маленькое окно выбора номера (когда номеров два) */
 body.shop .cpick-overlay {
@@ -664,6 +692,17 @@ body.shop .cart-bonus-row { font-size: 13px; margin-bottom: 10px; }
 body.shop .cart-bonus-row label { display: flex; align-items: center; gap: 7px; cursor: pointer; color: var(--text-muted); }
 body.shop .cart-total { font-size: 17px; font-weight: 800; margin-bottom: 14px; }
 body.shop .cart-total span { color: var(--green); }
+body.shop .cart-register-nudge {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 8px;
+  background: var(--green-light); border-radius: 8px; padding: 10px 12px;
+  font-size: 13px; color: var(--green-dark); margin-bottom: 14px;
+}
+body.shop .cart-register-nudge b { color: var(--accent); }
+body.shop .cart-register-btn {
+  background: var(--green); color: #fff; border: none; border-radius: 6px;
+  padding: 6px 14px; font-size: 13px; font-weight: 600; cursor: pointer; margin-left: auto;
+}
+body.shop .cart-register-btn:hover { background: var(--green-dark); }
 body.shop .order-form { display: flex; flex-direction: column; gap: 8px; }
 body.shop .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 body.shop .form-group { display: flex; flex-direction: column; gap: 4px; }
@@ -673,6 +712,7 @@ body.shop .form-group textarea {
   padding: 9px 12px; border: 1.5px solid var(--border);
   border-radius: 8px; font-size: 13px; outline: none; transition: border-color .2s;
 }
+body.shop .form-group textarea { min-height: 90px; resize: vertical; }
 body.shop .form-group input:focus,
 body.shop .form-group textarea:focus { border-color: var(--green); }
 body.shop textarea { resize: vertical; min-height: 56px; }
@@ -682,6 +722,12 @@ body.shop .btn-primary {
   cursor: pointer; transition: background .2s; margin-top: 4px;
 }
 body.shop .btn-primary:hover { background: var(--green-dark); }
+
+/* Окно входа по коду — поле и кнопка уже, по центру (модалка стала шире из-за
+   логотипа сверху, без этого поле растягивалось на всю ширину) */
+body.shop #accountOverlay .modal { max-width: 440px; }
+body.shop #accountOverlay .form-group { max-width: 320px; margin: 0 auto 16px; }
+body.shop #accountOverlay .btn-primary { max-width: 320px; margin-left: auto; margin-right: auto; display: block; }
 
 /* ===== PRODUCT MODAL ===== */
 body.shop .modal-overlay {
@@ -1019,6 +1065,7 @@ body.shop .pv-price-req {
   font-size: 15px; color: var(--text-muted); font-weight: 600; background: var(--bg);
   padding: 12px 16px; border-radius: 10px; margin-bottom: 16px;
 }
+body.shop .pv-bonus { font-size: 14px; font-weight: 600; color: var(--accent); margin: -10px 0 16px; }
 body.shop .pv-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 12px; }
 body.shop .pv-actions .btn-catalog, body.shop .pv-actions .btn-consult-outline { flex: 1; min-width: 200px; text-align: center; }
 body.shop .pv-youtube {
@@ -1074,7 +1121,7 @@ body.shop .pv-back {
 /* --- Иконка избранного в шапке --- */
 body.shop .hdr-fav {
   border: 1.5px solid var(--border); border-radius: 8px;
-  padding: 7px 12px; font-size: 15px; color: #e11d48;
+  height: 38px; padding: 0 12px; font-size: 15px; color: #e11d48;
   display: flex; align-items: center; gap: 6px; transition: border-color .2s;
 }
 body.shop .hdr-fav:hover { border-color: #e11d48; }
@@ -1087,10 +1134,11 @@ body.shop .hdr-fav .fav-count {
 /* --- Личный кабинет: кнопка в шапке + вкладки входа/регистрации --- */
 body.shop .hdr-account {
   border: 1.5px solid var(--border); border-radius: 8px; background: none; cursor: pointer;
-  padding: 7px 12px; font-size: 14px; color: var(--text);
+  height: 38px; padding: 0 12px; font-size: 14px; color: var(--text);
   display: flex; align-items: center; gap: 6px; transition: border-color .2s;
 }
 body.shop .hdr-account:hover { border-color: var(--green); }
+body.shop .hdr-account-icon { fill: var(--green); flex: none; }
 body.shop .acc-tabs { display: flex; gap: 6px; margin: 6px 0 20px; }
 body.shop .acc-tab-btn {
   flex: 1; padding: 10px; border: 1.5px solid var(--border); border-radius: 8px;
@@ -1547,7 +1595,16 @@ body.admin .search-input { padding: 9px 14px; border: 1.5px solid var(--border);
 body.admin .search-input:focus { border-color: var(--green); }
 body.admin .table-wrap { overflow-x: auto; }
 body.admin table { width: 100%; border-collapse: collapse; font-size: 13px; }
+body.admin tr.dragging { opacity: .4; }
+body.admin .img-cell.dragging { opacity: .4; }
+body.admin .img-cell { cursor: grab; }
+body.admin .drag-handle { user-select: none; font-size: 16px; text-align: center; }
 body.admin th { background: var(--bg); padding: 12px 16px; text-align: left; font-weight: 700; color: var(--text-muted); font-size: 12px; text-transform: uppercase; border-bottom: 1px solid var(--border); }
+body.admin th.sortable { cursor: pointer; user-select: none; white-space: nowrap; }
+body.admin th.sortable:hover { color: var(--green); }
+body.admin .sort-icon { font-size: 10px; color: var(--border); }
+body.admin th.sortable:hover .sort-icon { color: var(--green); opacity: .6; }
+body.admin .sort-icon.active { color: var(--green); font-size: 12px; font-weight: 700; }
 body.admin td { padding: 12px 16px; border-bottom: 1px solid var(--border); vertical-align: middle; }
 body.admin tr:hover td { background: #fafafa; }
 body.admin .tag { display: inline-block; padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: 700; }
@@ -1558,6 +1615,7 @@ body.admin .tag-yellow { background: #fef3c7; color: #92400e; }
 body.admin .tag-orange { background: #ffedd5; color: #9a3412; }
 body.admin .tag-red { background: #fee2e2; color: #991b1b; }
 body.admin .action-btn { padding: 5px 10px; border-radius: 6px; border: 1.5px solid var(--border); background: var(--white); font-size: 12px; margin-right: 4px; }
+body.admin .action-btn.active { background: var(--green); border-color: var(--green); color: #fff; }
 body.admin .action-btn:hover { background: var(--bg); }
 body.admin .action-btn.del:hover { border-color: #ef4444; color: #ef4444; }
 
@@ -1731,3 +1789,60 @@ body.admin .img-mkmain { left: 4px; background: rgba(255,255,255,0.9); color: va
 body.admin .img-del { right: 4px; background: rgba(17,24,39,0.8); color: #fff; }
 body.admin .img-fn { font-size: 9px; color: var(--text-muted); padding: 3px 5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 body.admin .img-add-row { display: flex; gap: 8px; align-items: center; }
+
+/* ==================== ЛИЧНЫЙ КАБИНЕТ (/account) ==================== */
+body.shop .acct-wrap { display: grid; grid-template-columns: 220px 1fr; gap: 28px; align-items: start; }
+@media (max-width: 780px) { body.shop .acct-wrap { grid-template-columns: 1fr; } }
+body.shop .acct-head { display: flex; align-items: center; gap: 16px; margin-bottom: 28px; flex-wrap: wrap; }
+body.shop .acct-avatar-wrap { position: relative; width: 72px; height: 72px; flex: none; }
+body.shop .acct-avatar-wrap img {
+  width: 72px; height: 72px; border-radius: 50%; object-fit: cover; background: var(--bg);
+  border: 1.5px solid var(--border);
+}
+body.shop .acct-avatar-upload {
+  position: absolute; bottom: -2px; right: -2px; width: 26px; height: 26px; border-radius: 50%;
+  background: var(--green); color: #fff; border: 2px solid #fff; font-size: 12px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+}
+body.shop .acct-head-info h1 { font-size: 20px; margin-bottom: 4px; }
+body.shop .acct-head-info p { color: var(--text-muted); font-size: 14px; }
+body.shop .acct-nav { display: flex; flex-direction: column; gap: 2px; border: 1.5px solid var(--border); border-radius: var(--radius); padding: 6px; }
+body.shop .acct-nav button {
+  text-align: left; padding: 10px 12px; border: none; background: none; border-radius: 8px;
+  font-size: 14px; cursor: pointer; color: var(--text);
+}
+body.shop .acct-nav button:hover { background: var(--bg); }
+body.shop .acct-nav button.active { background: var(--green-light); color: var(--green-dark); font-weight: 600; }
+body.shop .acct-panel { display: none; border: 1.5px solid var(--border); border-radius: var(--radius); padding: 20px; }
+body.shop .acct-panel.active { display: block; }
+body.shop .acct-panel h2 { font-size: 17px; margin-bottom: 16px; }
+body.shop .acct-form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px; }
+@media (max-width: 520px) { body.shop .acct-form-row { grid-template-columns: 1fr; } }
+body.shop .acct-order { border-bottom: 1px solid var(--border); padding: 12px 0; font-size: 13px; }
+body.shop .acct-order:last-child { border-bottom: none; }
+body.shop .acct-order-top { display: flex; justify-content: space-between; font-weight: 600; margin-bottom: 4px; }
+body.shop .acct-order-items { color: #374151; margin-top: 4px; }
+body.shop .acct-order-total { font-weight: 600; margin-top: 4px; }
+body.shop .acct-order-bonus { color: var(--accent); font-weight: 600; }
+body.shop .acct-tag { font-size: 12px; font-weight: 600; padding: 2px 9px; border-radius: 20px; }
+body.shop .acct-tag.new { background: #dbeafe; color: #1e40af; }
+body.shop .acct-tag.processing { background: #fef3c7; color: #92400e; }
+body.shop .acct-tag.done { background: #d1fae5; color: #065f46; }
+body.shop .acct-tag.cancelled { background: #fee2e2; color: #991b1b; }
+body.shop .acct-tag.pending { background: #fef3c7; color: #92400e; }
+body.shop .acct-tag.approved { background: #d1fae5; color: #065f46; }
+body.shop .acct-tag.rejected { background: #fee2e2; color: #991b1b; }
+body.shop .acct-fav-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 14px; }
+body.shop .acct-fav-card { border: 1.5px solid var(--border); border-radius: var(--radius); overflow: hidden; position: relative; }
+body.shop .acct-fav-card img { width: 100%; height: 110px; object-fit: contain; background: var(--bg); display: block; }
+body.shop .acct-fav-card-body { padding: 10px; }
+body.shop .acct-fav-card-body a { font-size: 13px; font-weight: 600; color: var(--text); display: block; margin-bottom: 4px; }
+body.shop .acct-fav-remove {
+  position: absolute; top: 6px; right: 6px; width: 24px; height: 24px; border-radius: 50%; border: none;
+  background: rgba(17,24,39,0.75); color: #fff; cursor: pointer; font-size: 13px; line-height: 1;
+}
+body.shop .acct-review { border-bottom: 1px solid var(--border); padding: 12px 0; font-size: 13px; }
+body.shop .acct-review:last-child { border-bottom: none; }
+body.shop .acct-review-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+body.shop .acct-review .stars { color: var(--accent); letter-spacing: 1px; }
+body.shop .acct-empty { color: var(--text-muted); font-size: 13px; padding: 6px 0; }

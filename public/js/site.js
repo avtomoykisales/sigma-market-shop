@@ -7,6 +7,13 @@
   'use strict';
   var $ = function (id) { return document.getElementById(id); };
 
+  // Доступ к localStorage безопасно оборачиваем: в некоторых мобильных браузерах
+  // (приватный режим, отключённое хранилище политиками и т.п.) window.localStorage
+  // сам оказывается null — обращение .getItem() тогда роняет весь скрипт целиком.
+  function tokenGet() { try { return localStorage.getItem('customerToken'); } catch (e) { return null; } }
+  function tokenSet(v) { try { localStorage.setItem('customerToken', v); } catch (e) {} }
+  function tokenRemove() { try { localStorage.removeItem('customerToken'); } catch (e) {} }
+
   /* ---------- ЛОГ ОШИБОК (видно в админке, раздел «Ошибки») ---------- */
   // Не должен сам ничего ломать: fetch фоном, ошибки отправки просто игнорируем.
   window.logClientError = function (message, context) {
@@ -18,18 +25,41 @@
       }).catch(function () {});
     } catch (e) {}
   };
-  // Расширения браузера (переводчики, антивирусы и т.п.) тоже кидают ошибки на
-  // странице — их не отличить от наших на 100%, но самые типичные признаки чужого
-  // скрипта отсеиваем, чтобы не засорять журнал.
+  // По просьбе Миры — ничего не скрываем, даже ошибки от чужих скриптов (расширения,
+  // встроенные браузеры и т.п.): пусть всё пишется в журнал, лучше больше видно.
   window.addEventListener('error', function (e) {
-    if (e.message === 'Script error.') return;               // ошибка стороннего скрипта без CORS — деталей всё равно нет
-    if (/^(chrome|moz|safari-web|safari)-extension:\/\//.test(e.filename || '')) return;
     window.logClientError(e.message + ' (' + (e.filename || '') + ':' + (e.lineno || '') + ')', 'window.onerror');
   });
   window.addEventListener('unhandledrejection', function (e) {
     var r = e.reason;
     window.logClientError((r && (r.message || r.toString())) || 'unhandled promise rejection', 'unhandledrejection');
   });
+
+  /* ---------- СТАТИСТИКА ПРОСМОТРОВ (видно в админке, раздел «Статистика») ---------- */
+  // Считаем именно на клиенте: после первой загрузки переходы внутри SPA идут через
+  // JS без обращения к серверу, поэтому серверный лог их бы не увидел.
+  window.trackView = function (path, refId) {
+    try {
+      fetch('/api/track-view', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: refId ? 'product_view' : 'pageview', path: path || location.pathname, refId: refId || null })
+      }).catch(function () {});
+    } catch (e) {}
+  };
+
+  // Клики по ключевым кнопкам ("Подобрать оборудование", "Запросить КП", "Позвонить",
+  // "Написать в WhatsApp") — видно в админке, раздел «Статистика». productId — если клик
+  // с карточки/страницы конкретного товара, чтобы знать, по какому товару чаще звонят/пишут.
+  window.trackClick = function (kind, productId) {
+    try {
+      fetch('/api/track-click', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ kind: kind, path: location.pathname, productId: productId || null })
+      }).catch(function () {});
+    } catch (e) {}
+  };
 
   /* ---------- РАБОЧЕЕ ВРЕМЯ ---------- */
   // Пн–Пт 09:00–18:00 по Алматы (см. /contacts.html «График работы») — время берём
@@ -112,6 +142,13 @@
     renderPhone(el);
   });
 
+  // Маска кода входа: только цифры, не больше 4.
+  document.addEventListener('input', function (e) {
+    var el = e.target;
+    if (!el || el.id !== 'accCode') return;
+    el.value = el.value.replace(/\D/g, '').slice(0, 4);
+  });
+
   /* ---------- МОБИЛЬНОЕ МЕНЮ ---------- */
   window.openDrawer = function () {
     if ($('drawer')) $('drawer').classList.add('open');
@@ -186,7 +223,7 @@
   /* ---------- API ---------- */
   window.apiFetch = async function (url, method, body) {
     var opts = { method: method || 'GET', headers: { 'Content-Type': 'application/json' } };
-    var custToken = localStorage.getItem('customerToken');
+    var custToken = tokenGet();
     if (custToken) opts.headers['x-customer-token'] = custToken;
     if (body) opts.body = JSON.stringify(body);
     var r = await fetch(url, opts);
@@ -196,28 +233,37 @@
   // /api/settings нужен и здесь (initAccount — кнопка «Войти»), и основному скрипту
   // страницы (state.settings) — оба зовутся почти одновременно при загрузке страницы.
   // Кэшируем один и тот же промис, чтобы запрос уходил на сервер только один раз.
+  // Если запрос не удался (сбой сети на мобильном) — не запоминаем провал навсегда:
+  // иначе телефон/WhatsApp/квиз и т.п. остаются пустыми до перезагрузки страницы,
+  // хотя следующая попытка вполне может пройти успешно.
   var _settingsPromise = null;
   window.getSettings = function () {
-    if (!_settingsPromise) _settingsPromise = window.apiFetch('/api/settings');
+    if (!_settingsPromise) {
+      _settingsPromise = window.apiFetch('/api/settings').catch(function (e) {
+        _settingsPromise = null;
+        throw e;
+      });
+    }
     return _settingsPromise;
   };
 
   /* ---------- ЛИЧНЫЙ КАБИНЕТ: регистрация, вход, бонусы ---------- */
   // customer = {id,name,phone,email,bonusBalance} | null. Токен — в localStorage,
   // не привязан к устройству/сессии (простая долгоживущая «корзина»-подобная модель).
-  window.custState = { token: localStorage.getItem('customerToken') || '', customer: null };
+  window.custState = { token: tokenGet() || '', customer: null };
 
+  var HDR_ACCOUNT_ICON = '<svg class="hdr-account-icon" width="21" height="21" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4.4 3.6-8 8-8s8 3.6 8 8"/></svg>';
   window.refreshAccountUI = function () {
     var btn = $('hdrAccount');
     if (!btn) return;
     var c = window.custState.customer;
-    btn.innerHTML = c
-      ? '👤 <span class="acc-name">' + c.name.split(' ')[0] + (c.bonusBalance ? ' · ' + c.bonusBalance + '₸' : '') + '</span>'
-      : '👤 <span class="acc-name">Войти</span>';
+    btn.innerHTML = HDR_ACCOUNT_ICON + (c
+      ? '<span class="acc-name">' + c.name.split(' ')[0] + (c.bonusBalance ? ' · ' + c.bonusBalance + '₸' : '') + '</span>'
+      : '<span class="acc-name">Войти</span>');
   };
 
   window.openAccountModal = function () {
-    if (window.custState.customer) { window.openAccountPanel(); return; }
+    if (window.custState.customer) { location.href = '/account'; return; }
     var ov = $('accountOverlay');
     if (!ov) return;
     $('acc-step-phone').style.display = '';
@@ -257,33 +303,34 @@
     custAuthed(res, res.isNew);
   };
   function custAuthed(res, isNew) {
-    localStorage.setItem('customerToken', res.token);
+    tokenSet(res.token);
     window.custState.token = res.token;
     window.custState.customer = res.customer;
     window.refreshAccountUI();
     window.closeAccountModal();
     window.showToast(isNew ? '✅ Добро пожаловать! Начислен бонус за регистрацию' : '✅ Вы вошли в аккаунт', 'green');
     if (typeof window.refreshCartBonus === 'function') window.refreshCartBonus();
+    if (typeof window.renderCart === 'function') window.renderCart();
+    // Избранное, накопленное в этом браузере до входа, переносим на аккаунт —
+    // дальше оно доступно из /account с любого устройства.
+    try {
+      var localFavs = JSON.parse(localStorage.getItem('favorites') || '[]');
+      if (localFavs.length) window.apiFetch('/api/me/favorites', 'POST', { ids: localFavs });
+    } catch (e) {}
+    // Вошли прямо из корзины (кнопка "Войти" в подсказке про бонусы) — остаёмся
+    // на месте, чтобы не потерять оформление заказа; иначе ведём в личный кабинет.
+    var cartPanel = document.getElementById('cartPanel');
+    var midCartFlow = cartPanel && cartPanel.classList.contains('open');
+    if (location.pathname !== '/account' && !midCartFlow) location.href = '/account';
   }
   window.custLogout = async function () {
     try { await window.apiFetch('/api/logout', 'POST'); } catch (e) {}
-    localStorage.removeItem('customerToken');
+    tokenRemove();
     window.custState = { token: '', customer: null };
     window.refreshAccountUI();
-    window.closeAccountPanel();
     window.showToast('Вы вышли из аккаунта');
+    if (location.pathname === '/account') location.href = '/';
   };
-  window.openAccountPanel = function () {
-    var ov = $('accountPanelOverlay');
-    if (!ov) return;
-    var c = window.custState.customer;
-    if (c) {
-      $('accPanelName').textContent = c.name;
-      $('accPanelBonus').textContent = c.bonusBalance || 0;
-    }
-    ov.classList.add('open');
-  };
-  window.closeAccountPanel = function () { var ov = $('accountPanelOverlay'); if (ov) ov.classList.remove('open'); };
 
   async function initAccount() {
     var btn = $('hdrAccount');
@@ -295,13 +342,22 @@
     try {
       var res = await window.apiFetch('/api/me');
       if (res.customer) { window.custState.customer = res.customer; }
-      else { localStorage.removeItem('customerToken'); window.custState.token = ''; }
+      else { tokenRemove(); window.custState.token = ''; }
     } catch (e) {}
     window.refreshAccountUI();
   }
   window.formatPrice = function (n) {
     if (!n) return '0 ₸';
     return Number(n).toLocaleString('ru-KZ', { maximumFractionDigits: 0 }) + ' ₸';
+  };
+  // Сколько бонусов получит вошедший клиент при покупке товара по этой цене —
+  // 0, если клиент не вошёл, бонусы выключены/скрыты в админке, или у товара нет цены.
+  window.bonusForPrice = function (price) {
+    var s = (typeof state !== 'undefined') ? state.settings : null;
+    var b = s && s.bonus;
+    if (!window.custState || !window.custState.customer) return 0;
+    if (!b || !b.visible || !b.enabled || !b.earn_percent || !price) return 0;
+    return Math.round(price * b.earn_percent / 100);
   };
 
   /* ---------- КОНТАКТЫ: WhatsApp + звонок ---------- */
@@ -330,19 +386,20 @@
     if (String(primary) === '2' && nums.length > 1) nums.reverse();
 
     var q = opts.text ? '?text=' + encodeURIComponent(opts.text) : '';
+    var pid = opts.productId || '';
     var wa, call;
 
     if (nums.length > 1) {
       var data = attr(JSON.stringify(nums));
-      wa = '<button type="button" class="btn-wa" data-ck="wa" data-q="' + attr(q) + '" data-nums="' + data + '" ' +
+      wa = '<button type="button" class="btn-wa" data-ck="wa" data-q="' + attr(q) + '" data-nums="' + data + '" data-pid="' + pid + '" ' +
         'onclick="event.stopPropagation();contactPick(this)" aria-label="Написать в WhatsApp">' + WA_SVG + '<span>WhatsApp</span></button>';
-      call = '<button type="button" class="btn-call" data-ck="call" data-nums="' + data + '" ' +
+      call = '<button type="button" class="btn-call" data-ck="call" data-nums="' + data + '" data-pid="' + pid + '" ' +
         'onclick="event.stopPropagation();contactPick(this)" aria-label="Позвонить">' + CALL_SVG + '<span>Позвонить</span></button>';
     } else {
       var c = nums[0], tel = '+' + c.wa;
       wa = '<a class="btn-wa" href="https://wa.me/' + c.wa + q + '" target="_blank" rel="noopener" ' +
-        'onclick="event.stopPropagation()" aria-label="Написать в WhatsApp ' + tel + '">' + WA_SVG + '<span>WhatsApp</span></a>';
-      call = '<a class="btn-call" href="tel:' + tel + '" onclick="event.stopPropagation()" aria-label="Позвонить ' + tel + '">' +
+        'onclick="event.stopPropagation();trackClick(\'whatsapp\',' + (pid || 'null') + ')" aria-label="Написать в WhatsApp ' + tel + '">' + WA_SVG + '<span>WhatsApp</span></a>';
+      call = '<a class="btn-call" href="tel:' + tel + '" onclick="event.stopPropagation();trackClick(\'call\',' + (pid || 'null') + ')" aria-label="Позвонить ' + tel + '">' +
         CALL_SVG + '<span>Позвонить</span></a>';
     }
     return '<div class="contact-actions' + (opts.compact ? ' contact-actions--compact' : '') + '">' +
@@ -353,6 +410,7 @@
   window.contactPick = function (el) {
     var kind = el.getAttribute('data-ck');
     var q = el.getAttribute('data-q') || '';
+    var pid = el.getAttribute('data-pid') || '';
     var nums;
     try { nums = JSON.parse(el.getAttribute('data-nums') || '[]'); } catch (e) { nums = []; }
     if (!nums.length) return;
@@ -366,10 +424,11 @@
       document.body.appendChild(ov);
     }
     var close = "document.getElementById('cpickOverlay').classList.remove('open')";
+    var track = "trackClick('" + (kind === 'wa' ? 'whatsapp' : 'call') + "'," + (pid || 'null') + ")";
     var rows = nums.map(function (c) {
       var href = kind === 'wa' ? 'https://wa.me/' + c.wa + q : 'tel:+' + c.wa;
       var tgt = kind === 'wa' ? ' target="_blank" rel="noopener"' : '';
-      return '<a class="cpick-num" href="' + href + '"' + tgt + ' onclick="' + close + '">' +
+      return '<a class="cpick-num" href="' + href + '"' + tgt + ' onclick="' + track + ';' + close + '">' +
         (kind === 'wa' ? WA_SVG : CALL_SVG) + '<span>' + (c.raw || ('+' + c.wa)) + '</span></a>';
     }).join('');
     ov.innerHTML = '<div class="cpick">' +

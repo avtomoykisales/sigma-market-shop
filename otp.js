@@ -46,7 +46,14 @@ async function requestCode(phone) {
   let channel = null;
 
   try {
-    if (await notify.hasWhatsApp(phone)) {
+    // У Green API есть проверка "есть ли WhatsApp у номера" — у Meta такой проверки
+    // нет, поэтому если настроен именно Meta, просто пробуем отправить: до одобрения
+    // шаблона это сработает только в течение 24ч после того, как номер сам написал
+    // тестовому номеру в WhatsApp (для проверки Мирой на своём телефоне — этого
+    // достаточно), а для чужих клиентов упадёт и тихо уйдёт на SMS — это ожидаемо
+    // и безопасно, пока шаблон login_code не одобрен.
+    const hasMeta = process.env.META_WA_TOKEN && process.env.META_WA_PHONE_ID;
+    if (hasMeta || await notify.hasWhatsApp(phone)) {
       await notify.sendWhatsAppTo(phone, text);
       channel = 'whatsapp';
     }

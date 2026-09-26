@@ -7,6 +7,32 @@
 <link rel="stylesheet" href="/style.css?v={{V}}">
 </head>
 <body class="shop">
+<script>
+// Заглушка на случай клика по карточке товара до полной загрузки /js/product.js
+// (например, на мобильном интернете при переходе из рекламы) — открывает страницу
+// товара обычным переходом вместо ошибки "openModal is not defined".
+// product.js при загрузке сам подменит эту функцию на настоящую (модальное окно).
+window.openModal = function (id) { location.href = '/product/' + id; };
+// Заглушки для статистики — если /js/site.js ещё не загрузился (та же причина, см.
+// выше) к моменту первого вызова trackView/trackClick, ничего не делаем вместо ошибки
+// "window.trackView is not a function". site.js подменит их на настоящие сам.
+window.trackView = window.trackView || function () {};
+window.trackClick = window.trackClick || function () {};
+// Заглушки для кнопки "Фильтры" в каталоге — та же причина: основной скрипт (ниже
+// в этом же файле) может ещё не успеть выполниться к моменту клика на медленном
+// интернете. Открывают/закрывают панель фильтров напрямую через DOM — элементы уже
+// на странице (тот же partial:catalog), поэтому это не хуже настоящей функции.
+window.openFilters = window.openFilters || function () {
+  var f = document.getElementById('catalogFilters'), o = document.getElementById('filtersOverlay');
+  if (f) f.classList.add('open');
+  if (o) o.classList.add('open');
+};
+window.closeFilters = window.closeFilters || function () {
+  var f = document.getElementById('catalogFilters'), o = document.getElementById('filtersOverlay');
+  if (f) f.classList.remove('open');
+  if (o) o.classList.remove('open');
+};
+</script>
 
 <!-- partial:header -->
 
@@ -87,6 +113,10 @@
       <label><input type="checkbox" id="cartUseBonus" onchange="renderCart()"> Списать бонусы (доступно <span id="cartBonusAvail">0</span> ₸)</label>
     </div>
     <div class="cart-total">Итого: <span id="cartTotal">0 ₸</span></div>
+    <div class="cart-register-nudge" id="cartRegisterNudge" style="display:none">
+      🎁 Зарегистрируйтесь — получите <b id="cartRegisterAmount">0 ₸</b> бонусами с этого заказа
+      <button type="button" class="cart-register-btn" onclick="openAccountModal()">Войти</button>
+    </div>
     <div class="order-form">
       <div class="form-row">
         <div class="form-group"><label>Имя *</label><input type="text" id="oName" placeholder="Ваше имя" required></div>
@@ -110,7 +140,8 @@ let state = {
   category: 'all',
   search: '',
   page: 1,
-  limit: 12,
+  limit: 500,   // товаров пока меньше — фактически без пагинации; должен совпадать
+                // с limit в server.js buildHydrate() — см. комментарий там
   total: 0,
   sort: 'default',
   cart: [],
@@ -119,15 +150,15 @@ let state = {
   filters: {},          // {subcat:[], brand:[], subtype:[], priceMax, perfMin, perfMax}
   facets: null
 };
-const lsGet = (k, d) => { try { var v = JSON.parse(localStorage.getItem(k)); return (v === null || v === undefined) ? d : v; } catch { return d; } };
-const lsSet = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} };
+const lsGet = (k, d) => { try { var v = JSON.parse(localStorage.getItem(k)); return (v === null || v === undefined) ? d : v; } catch (e) { return d; } };
+const lsSet = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} };
 
 // ===== URL / история =====
 let _routing = false;   // true во время разбора URL (popstate/init) — тогда не трогаем историю
 function setUrl(url) {
   if (_routing) return;
   const cur = location.pathname + location.search + location.hash;
-  if (cur !== url) { try { history.pushState(null, '', url); } catch {} }
+  if (cur !== url) { try { history.pushState(null, '', url); } catch (e) {} }
 }
 // Яндекс.Метрика: засчитать просмотр SPA-«страницы». Зовётся из setMeta (когда уже готов
 // title) и из popstate. Первый вызов пропускаем — его считает сам счётчик в ym('init').
@@ -142,7 +173,7 @@ function ymHit() {
 }
 function replaceUrl(url) {
   const cur = location.pathname + location.search + location.hash;
-  if (cur !== url) { try { history.replaceState(null, '', url); } catch {} }
+  if (cur !== url) { try { history.replaceState(null, '', url); } catch (e) {} }
 }
 // ---- ЧПУ ----
 const _TRANSLIT = { а:'a',б:'b',в:'v',г:'g',д:'d',е:'e',ё:'e',ж:'zh',з:'z',и:'i',й:'y',к:'k',л:'l',м:'m',н:'n',о:'o',п:'p',р:'r',с:'s',т:'t',у:'u',ф:'f',х:'h',ц:'c',ч:'ch',ш:'sh',щ:'sch',ъ:'',ы:'y',ь:'',э:'e',ю:'yu',я:'ya' };
@@ -200,7 +231,7 @@ let recentIds   = lsGet('recent', []);
 
 // ===== INIT =====
 async function init() {
-  try { state.settings = { ...state.settings, ...(await getSettings()) }; } catch {}
+  try { state.settings = { ...state.settings, ...(await getSettings()) }; } catch (e) {}
   await loadCategories();
   renderCart();
   renderFavBadge();
@@ -293,12 +324,20 @@ async function loadCategories() {
   let cats;
   if (window.__HYDRATE__ && window.__HYDRATE__.categories) {
     cats = window.__HYDRATE__.categories;
-    window.__HYDRATE__.categories = null;   
+    window.__HYDRATE__.categories = null;
   } else {
-    cats = await apiFetch('/api/categories');
+    // Это часть самого первого запуска приложения — если сеть на телефоне именно
+    // сейчас моргнула, не даём этому сорвать весь дальнейший init() навсегда.
+    for (let attempt = 0; ; attempt++) {
+      try { cats = await apiFetch('/api/categories'); break; }
+      catch (e) {
+        if (attempt >= 2) { cats = []; break; }
+        await new Promise(r => setTimeout(r, 600));
+      }
+    }
   }
   state.categories = cats;
-  renderCatTabs();   
+  renderCatTabs();
   loadHomeSubcats();
 }
 
@@ -358,12 +397,25 @@ function slideHomeSubcats(dir) {
 }
 
 // ===== VIEW SWITCHING =====
+// Мгновенная прокрутка (без анимации) — при переходах между разделами на длинных
+// страницах плавная анимация растягивалась на 2-3 секунды и выглядела как подвисание.
+// Намеренно НЕ используем window.scrollTo({behavior:'instant'}) — на iPhone/Safari
+// объектная форма ScrollToOptions в части версий срабатывает не как ожидается и может
+// не выполниться вовсе, из-за чего страница товара обрывалась на середине рендера
+// (не появлялись кнопки связи). Вместо этого на время отключаем плавность через CSS —
+// это работает везде одинаково, включая Safari.
+function instantScrollTo(x, y) {
+  const prev = document.documentElement.style.scrollBehavior;
+  document.documentElement.style.scrollBehavior = 'auto';
+  window.scrollTo(x, y);
+  document.documentElement.style.scrollBehavior = prev;
+}
 function scrollToView(id) {
   const el = document.getElementById(id);
   if (!el) return;
   // чтение getBoundingClientRect форсирует пересчёт лейаута после смены display
   const y = Math.max(0, el.getBoundingClientRect().top + window.scrollY - 72);
-  window.scrollTo(0, y); // плавность добавляет CSS html{scroll-behavior:smooth}
+  instantScrollTo(0, y);
 }
 
 // Разметка каждого экрана (home/catalog/product/notFound) сервер шлёт только для
@@ -428,7 +480,8 @@ async function showHome() {
   renderRecent();
   setUrl('/');
   setMeta(SEO_HOME_TITLE, SEO_HOME_DESC, '/');
-  window.scrollTo(0, 0);
+  instantScrollTo(0, 0);
+  window.trackView('/');
 }
 
 const SEO_CAT_TITLE = {
@@ -509,9 +562,13 @@ async function showCatalog(slug, subcat) {
   setActiveNav('catalog');
   updateBreadcrumb();
   document.querySelectorAll('.cat-tab').forEach(t => t.classList.toggle('active', t.dataset.slug === state.category));
-  loadProducts();
+  // scrollToView считает высоту по текущему (ещё старому) содержимому сетки товаров —
+  // ждём, пока loadProducts() реально вставит новые карточки, иначе на медленном
+  // интернете прокрутка целится не туда (см. такой же фикс в product.js/showProduct).
+  await loadProducts();
   renderRecent();
   scrollToView('catalogView');
+  window.trackView(catalogUrl());
 }
 
 async function showFavorites() {
@@ -526,12 +583,12 @@ async function showFavorites() {
   document.getElementById('crumbTrail').innerHTML = '';
   setActiveNav('favorites');
   setMeta('Избранное — SIGMA MARKET', 'Сохранённые товары в SIGMA MARKET.', '/#favorites');
-  loadFavorites();
+  await loadFavorites();
   renderRecent();
   scrollToView('catalogView');
 }
 
-function selectCategory(slug, btn) {
+async function selectCategory(slug, btn) {
   state.category = slug;
   state.page = 1;
   state.filters = {};
@@ -540,7 +597,7 @@ function selectCategory(slug, btn) {
   document.querySelectorAll('.cat-tab').forEach(t => t.classList.remove('active'));
   if (btn) btn.classList.add('active');
   updateBreadcrumb();
-  loadProducts();
+  await loadProducts();
   scrollToView('catalogView');
 }
 
@@ -632,7 +689,19 @@ async function loadProducts(opts) {
     if (f.priceMax) qs.set('priceMax', f.priceMax);
     if (f.perfMin) qs.set('perfMin', f.perfMin);
     if (f.perfMax) qs.set('perfMax', f.perfMax);
-    data = await apiFetch('/api/products?' + qs.toString());
+    // Сбой сети на мобильном ("Failed to fetch") раньше тихо обрывал всю функцию —
+    // сетка товаров застревала на спиннере навсегда. Пробуем ещё пару раз сами.
+    for (let attempt = 0; ; attempt++) {
+      try { data = await apiFetch('/api/products?' + qs.toString()); break; }
+      catch (e) {
+        if (attempt >= 2) {
+          if (!append) grid.innerHTML = `<div class="spinner">Не удалось загрузить товары — проверьте интернет.
+            <button type="button" class="btn-catalog" onclick="loadProducts()" style="margin-top:12px">Повторить</button></div>`;
+          return;
+        }
+        await new Promise(r => setTimeout(r, 600));
+      }
+    }
   }
   // Сервер отличает «подкатегории вообще нет» от «есть, но пока пусто» — в первом
   // случае это настоящий 404, а не «Ничего не найдено» с пустым каталогом.
@@ -716,12 +785,12 @@ function buildFilters() {
         ${(f.brand||[]).includes(b)?'checked':''} onchange="toggleArrFilter('brand',this.value)"> ${b === '__none__' ? 'Другой' : b}</label>`).join('') +
       `</div>`;
   }
-  if (s.subtype !== false && fc.subtypes.length) {
-    html += `<div class="filter-group"><h4>Тип</h4>` +
-      fc.subtypes.map(b => `<label class="filter-check"><input type="checkbox" value="${b}"
-        ${(f.subtype||[]).includes(b)?'checked':''} onchange="toggleArrFilter('subtype',this.value)"> ${b}</label>`).join('') +
-      `</div>`;
-  }
+  // if (s.subtype !== false && fc.subtypes.length) {
+  //   html += `<div class="filter-group"><h4>Тип</h4>` +
+  //     fc.subtypes.map(b => `<label class="filter-check"><input type="checkbox" value="${b}"
+  //       ${(f.subtype||[]).includes(b)?'checked':''} onchange="toggleArrFilter('subtype',this.value)"> ${b}</label>`).join('') +
+  //     `</div>`;
+  // }
   if (s.price !== false && fc.priceMax > fc.priceMin) {
     html += `<div class="filter-group"><h4>Цена, ₸</h4>
       <div class="filter-range">
@@ -869,9 +938,10 @@ function cardHtml(p) {
   const imgHtml = p.icon
     ? `<img src="/icons/${p.icon}" alt="${p.name}" loading="lazy" onerror="this.style.display='none'">`
     : `<span class="card-emoji">${getCatEmoji(p.category_slug)}</span>`;
+  const cardBonus = window.bonusForPrice(p.price);
   const priceHtml = p.price_on_request
     ? `<div class="card-price-request">Цена по запросу</div>`
-    : p.price ? `<div class="card-price">${formatPrice(p.price)}</div>`
+    : p.price ? `<div class="card-price">${formatPrice(p.price)}</div>${cardBonus ? `<div class="card-bonus">+${cardBonus.toLocaleString('ru-KZ')} ₸ бонусов</div>` : ''}`
     : `<div class="card-price-request">Уточните цену</div>`;
   const addBtn = p.price_on_request
     ? `<button class="btn-offer" onclick="event.stopPropagation();requestModal(${p.id})"><img src="/assets/icons/icon-offer.png" alt=""> Запросить цену</button>`
@@ -915,7 +985,7 @@ function renderPagination(total) {
   el.innerHTML = html;
 }
 
-function goPage(p) { state.page = p; loadProducts(); window.scrollTo(0,300); }
+async function goPage(p) { state.page = p; await loadProducts(); instantScrollTo(0, 300); }
 function applySort(v) { state.sort = v; state.page = 1; loadProducts(); }
 
 // ===== КАРТОЧКА ТОВАРА =====
@@ -934,7 +1004,7 @@ function addToCart(id) {
 function removeFromCart(id) { state.cart = state.cart.filter(i=>i.id!==id); saveCart(); renderCart(); }
 function changeQty(id, d) { const i = state.cart.find(i=>i.id===id); if(i){ i.qty=Math.max(1,i.qty+d); saveCart(); renderCart(); } }
 function saveCart() {
-  try { localStorage.setItem('cart', JSON.stringify(state.cart)); } catch{}
+  try { localStorage.setItem('cart', JSON.stringify(state.cart)); } catch (e) {}
   document.getElementById('cartCount').textContent = state.cart.reduce((s,i)=>s+i.qty,0);
 }
 function renderCart() {
@@ -963,6 +1033,19 @@ function renderCart() {
   const hasReq = state.cart.some(i=>i.price_on_request);
   const bonusUsed = cartBonusToUse(total);
   document.getElementById('cartTotal').textContent = formatPrice(total - bonusUsed)+(hasReq?' + по запросу':'')+(bonusUsed?` (списано ${formatPrice(bonusUsed)} бонусов)`:'');
+  refreshCartRegisterNudge(total);
+}
+// Сколько бонусов клиент получил бы с этого заказа, если бы зарегистрировался —
+// показываем гостю в корзине как стимул войти (см. cartBonusRow — то же самое,
+// но для уже вошедших, там речь о списании накопленного).
+function refreshCartRegisterNudge(total) {
+  const box = document.getElementById('cartRegisterNudge');
+  if (!box) return;
+  const loggedIn = window.custState && window.custState.customer;
+  const b = state.settings && state.settings.bonus;
+  const amount = (!loggedIn && b && b.visible && b.enabled && b.earn_percent && total) ? Math.round(total * b.earn_percent / 100) : 0;
+  box.style.display = amount > 0 ? '' : 'none';
+  if (amount > 0) document.getElementById('cartRegisterAmount').textContent = formatPrice(amount);
 }
 // Сколько бонусов реально спишем: не больше остатка клиента и не больше суммы заказа.
 function cartBonusToUse(total) {
@@ -1028,6 +1111,12 @@ function toggleFav(id) {
   lsSet('favorites', favIds);
   renderFavBadge();
   showToast(adding ? '♥ Добавлено в избранное' : 'Убрано из избранного', adding ? 'green' : '');
+  // Если клиент вошёл в аккаунт — дублируем на сервер, чтобы избранное было видно
+  // с любого устройства (см. личный кабинет /account). Не критично для UX каталога,
+  // поэтому без ожидания и без обработки ошибок.
+  if (window.custState && window.custState.customer) {
+    adding ? apiFetch('/api/me/favorites', 'POST', { productId: id }) : apiFetch('/api/me/favorites/' + id, 'DELETE');
+  }
   // обновляем сердечки на месте, без перезагрузки списка
   document.querySelectorAll(`.card-fav`).forEach(btn => {
     const m = (btn.getAttribute('onclick') || '').match(/toggleFav\((\d+)\)/);
@@ -1073,10 +1162,10 @@ async function openCompare() {
   if (compareIds.length < 2) { showToast('Выберите минимум 2 товара'); return; }
   const items = (await Promise.all(compareIds.map(id => apiFetch('/api/products/' + id).catch(() => null)))).filter(Boolean);
   const specKeys = [...new Set(items.flatMap(p => {
-    let s = p.specs; if (typeof s === 'string') { try { s = JSON.parse(s); } catch { s = {}; } }
+    let s = p.specs; if (typeof s === 'string') { try { s = JSON.parse(s); } catch (e) { s = {}; } }
     return Object.keys(s || {});
   }))];
-  const specOf = (p, k) => { let s = p.specs; if (typeof s === 'string') { try { s = JSON.parse(s); } catch { s = {}; } } return (s || {})[k] || '—'; };
+  const specOf = (p, k) => { let s = p.specs; if (typeof s === 'string') { try { s = JSON.parse(s); } catch (e) { s = {}; } } return (s || {})[k] || '—'; };
   const row = (label, cells) => `<tr><th>${label}</th>${cells.map(c => `<td>${c}</td>`).join('')}</tr>`;
   document.getElementById('compareTable').innerHTML =
     row('', items.map(p => `<button class="modal-close" style="position:static" onclick="toggleCompare(${p.id});openCompare()">✕</button>`)) +
@@ -1151,6 +1240,7 @@ function initQuizCta() {
 function openQuiz() {
   const q = state.settings.quiz || {};
   if (!q.steps || !q.steps.length) { showToast('Подбор временно недоступен'); return; }
+  window.trackClick('quiz');
   quizAns = {};
   renderQuizStep(0);
   document.getElementById('quizModal').classList.add('open');

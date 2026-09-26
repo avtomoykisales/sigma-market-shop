@@ -61,7 +61,7 @@ async function queryProducts(q) {
 
   const orderMap = {
     price_asc: 'p.price ASC', price_desc: 'p.price DESC',
-    name_asc: 'p.name ASC', default: 'p.featured DESC, p.id'
+    name_asc: 'p.name ASC', default: 'p.featured DESC, p.sort_order ASC, p.id DESC'
   };
   const orderStr = orderMap[sort] || orderMap.default;
 

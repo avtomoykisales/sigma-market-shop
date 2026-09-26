@@ -41,6 +41,14 @@ db.serialize(async () => {
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     username TEXT UNIQUE NOT NULL, password TEXT NOT NULL
   )`);
+  // Роль admin | superadmin — только superadmin может менять бонусы (закрытие/правка
+  // заявки, карточка клиента) и управлять другими администраторами. Миграция первый раз:
+  // все уже существующие администраторы получают superadmin (чтобы никого не заблокировать
+  // задним числом), а понижает их потом сама Мира вручную через панель «Администраторы».
+  try {
+    await db.runAsync(`ALTER TABLE admins ADD COLUMN role TEXT DEFAULT 'admin'`);
+    await db.runAsync(`UPDATE admins SET role = 'superadmin'`);
+  } catch (e) { /* уже есть */ }
 
   await db.runAsync(`CREATE TABLE IF NOT EXISTS subcategories (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -71,6 +79,7 @@ db.serialize(async () => {
   await addCol('orders', 'source', "TEXT DEFAULT 'site'");       // site (с сайта) | manual (создан админом)
   await addCol('orders', 'customer_id', 'INTEGER');               // зарегистрированный клиент, если оформлял вошедшим
   await addCol('orders', 'company', 'TEXT');                      // название компании клиента (заполняется в админке)
+  await addCol('products', 'sort_order', 'INTEGER DEFAULT 0');    // ручной порядок показа в каталоге (перетаскивание в админке)
 
   // ---- SEO-переопределения (пусто → генерируется автоматически) ----
   await addCol('products', 'seo_title', 'TEXT');
@@ -95,6 +104,19 @@ db.serialize(async () => {
   await db.runAsync(`CREATE INDEX IF NOT EXISTS idx_admin_log_order ON admin_log(order_id)`);
   await addCol('admin_log', 'customer_id', 'INTEGER');   // то же самое, но для карточки клиента
   await db.runAsync(`CREATE INDEX IF NOT EXISTS idx_admin_log_customer ON admin_log(customer_id)`);
+
+  // ---- Статистика сайта: просмотры страниц, поисковые запросы, просмотры товаров ----
+  // Лёгкий свой счётчик для админки (в дополнение к Яндекс.Метрике на самом сайте) —
+  // чтобы не переключаться на другой сайт ради топа поисковых запросов и товаров.
+  await db.runAsync(`CREATE TABLE IF NOT EXISTS stats_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts TEXT DEFAULT (datetime('now')),
+    type TEXT,        -- pageview | search | product_view
+    path TEXT,         -- адрес страницы (для pageview)
+    value TEXT,         -- поисковый запрос / название товара
+    ref_id INTEGER       -- id товара (для product_view)
+  )`);
+  await db.runAsync(`CREATE INDEX IF NOT EXISTS idx_stats_events_type_ts ON stats_events(type, ts)`);
 
   // ---- Ошибки на сайте (JS-ошибки у посетителей, видно в админке) ----
   await db.runAsync(`CREATE TABLE IF NOT EXISTS client_errors (
@@ -186,6 +208,45 @@ db.serialize(async () => {
     expires_at TEXT NOT NULL
   )`);
   await db.runAsync(`CREATE INDEX IF NOT EXISTS idx_otp_phone ON otp_codes(phone)`);
+
+  // ---- Скачивание КП с сайта (после подтверждения телефона по коду) ----
+  await db.runAsync(`CREATE TABLE IF NOT EXISTS kp_leads (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    product_id INTEGER NOT NULL,
+    phone TEXT NOT NULL,
+    created_at TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY (product_id) REFERENCES products(id)
+  )`);
+  await db.runAsync(`CREATE INDEX IF NOT EXISTS idx_kp_leads_created ON kp_leads(id DESC)`);
+
+  // ---- Уведомления клиенту (личный кабинет → «Мои уведомления») ----
+  await db.runAsync(`CREATE TABLE IF NOT EXISTS notifications (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    customer_id INTEGER NOT NULL,
+    message TEXT NOT NULL,
+    created_at TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY (customer_id) REFERENCES customers(id)
+  )`);
+  await db.runAsync(`CREATE INDEX IF NOT EXISTS idx_notifications_customer ON notifications(customer_id, id DESC)`);
+
+  // Дата настоящей регистрации (сам вошёл по коду) — отдельно от created_at, который
+  // проставляется и когда запись клиента создаётся автоматически при начислении бонуса
+  // за заказ (клиент сам ничего не регистрировал, это не «регистрация»).
+  await addCol('customers', 'registered_at', 'TEXT');
+
+  // ---- Личный кабинет: аватар, избранное, «мои отзывы» ----
+  await addCol('customers', 'avatar', 'TEXT');       // путь к загруженному фото профиля
+  await addCol('customers', 'company', 'TEXT');       // название компании клиента (заполняет сам в личном кабинете)
+  await addCol('customers', 'city', 'TEXT');          // город клиента (заполняется в админке)
+  await addCol('reviews', 'customer_id', 'INTEGER'); // кто оставил отзыв, если был вошедшим (для "Мои отзывы")
+  await db.runAsync(`CREATE TABLE IF NOT EXISTS customer_favorites (
+    customer_id INTEGER NOT NULL,
+    product_id INTEGER NOT NULL,
+    created_at TEXT DEFAULT (datetime('now')),
+    PRIMARY KEY (customer_id, product_id),
+    FOREIGN KEY (customer_id) REFERENCES customers(id),
+    FOREIGN KEY (product_id) REFERENCES products(id)
+  )`);
 
   // ---- Настройки сайта (редактируются в админке) ----
   await db.runAsync(`CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)`);

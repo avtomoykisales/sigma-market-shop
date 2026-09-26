@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Личный кабинет — SIGMA MARKET</title>
+<link rel="stylesheet" href="/style.css?v={{V}}">
+</head>
+<body class="shop subpage">
+
+<!-- partial:header -->
+
+<main>
+  <section class="section">
+    <div class="container">
+      <div id="acctLoading" class="acct-empty">Загрузка…</div>
+
+      <div id="acctRoot" style="display:none">
+        <div class="acct-head">
+          <div class="acct-avatar-wrap">
+            <img id="acctAvatar" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 72 72'%3E%3Ccircle cx='36' cy='36' r='36' fill='%23e5e7eb'/%3E%3Ccircle cx='36' cy='28' r='13' fill='%239ca3af'/%3E%3Cpath d='M10 66c4-16 18-24 26-24s22 8 26 24' fill='%239ca3af'/%3E%3C/svg%3E" alt="">
+            <button class="acct-avatar-upload" type="button" title="Загрузить фото" onclick="document.getElementById('acctAvatarInput').click()">📷</button>
+            <input type="file" id="acctAvatarInput" accept="image/*" style="display:none" onchange="acctUploadAvatar(this.files[0])">
+          </div>
+          <div class="acct-head-info">
+            <h1 id="acctName"></h1>
+            <p id="acctPhone"></p>
+            <p>Бонусов на счету: <b id="acctBonus" style="color:var(--accent)">0</b> ₸</p>
+          </div>
+        </div>
+
+        <div class="acct-wrap">
+          <nav class="acct-nav">
+            <button data-tab="data" onclick="acctShowTab('data')">Мои данные</button>
+            <button data-tab="orders" onclick="acctShowTab('orders')">Мои заказы</button>
+            <button data-tab="favorites" onclick="acctShowTab('favorites')">Избранное</button>
+            <button data-tab="reviews" onclick="acctShowTab('reviews')">Мои отзывы</button>
+            <button data-tab="notifications" onclick="acctShowTab('notifications')">Мои уведомления</button>
+            <button onclick="custLogout()" style="color:#991b1b;margin-top:6px">Выйти из аккаунта</button>
+          </nav>
+
+          <div>
+            <div class="acct-panel" data-tab="data">
+              <h2>Мои данные</h2>
+              <div class="acct-form-row">
+                <div class="form-group"><label>Имя *</label><input type="text" id="acctFormName"></div>
+                <div class="form-group"><label>Email</label><input type="email" id="acctFormEmail" placeholder="name@example.com"></div>
+              </div>
+              <div class="acct-form-row">
+                <div class="form-group"><label>Компания</label><input type="text" id="acctFormCompany" placeholder="Название компании"></div>
+              </div>
+              <button class="btn-primary" onclick="acctSaveProfile()">Сохранить</button>
+            </div>
+
+            <div class="acct-panel" data-tab="orders">
+              <h2>Мои заказы</h2>
+              <div id="acctOrders" class="acct-empty">Загрузка…</div>
+            </div>
+
+            <div class="acct-panel" data-tab="favorites">
+              <h2>Избранное</h2>
+              <div id="acctFavorites" class="acct-empty">Загрузка…</div>
+            </div>
+
+            <div class="acct-panel" data-tab="reviews">
+              <h2>Мои отзывы</h2>
+              <div id="acctReviews" class="acct-empty">Загрузка…</div>
+            </div>
+
+            <div class="acct-panel" data-tab="notifications">
+              <h2>Мои уведомления</h2>
+              <div id="acctNotifications" class="acct-empty">Загрузка…</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<!-- partial:footer -->
+
+<div class="toast" id="toast"></div>
+<script src="/js/site.js?v={{V}}"></script>
+<script src="/js/account.js?v={{V}}"></script>
+</body>
+</html>
