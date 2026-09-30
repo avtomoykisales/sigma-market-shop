@@ -33,6 +33,11 @@ async function showProduct(id) {
   await setView('product');
   setActiveNav('catalog');
   const body = document.getElementById('productViewBody');
+  // На медленном/нестабильном интернете партиал productView иногда не успевает
+  // вставиться в DOM к этому моменту, хотя setView() уже отработал (см. ensureView) —
+  // без этой проверки следующая строка падает с "Cannot read properties of null".
+  // Обычный переход вместо падения — там всё точно догрузится заново с нуля.
+  if (!body) { location.href = '/product/' + id; return; }
   // Сервер уже мог отрисовать этот же товар сразу в HTML (см. seo.productViewHtml) —
   // если это тот самый товар, не стираем готовый контент спиннером до ответа fetch:
   // иначе робот Google, у которого сам /api/ закрыт в robots.txt, увидит на странице
@@ -113,7 +118,7 @@ async function showProduct(id) {
   const offerBtn = kpInstant
     ? `<button class="btn-consult-outline" onclick="openKpModal(${p.id})">Скачать КП</button>`
     : `<button class="btn-consult-outline" onclick="requestModal(${p.id})">Запросить коммерческое предложение</button>`;
-  const buyBtn = p.price_on_request ? '' : `<button class="btn-catalog" onclick="addToCart(${p.id})">🛒 Купить</button>`;
+  const buyBtn = p.price_on_request ? '' : `<button class="btn-catalog" onclick="buyNow(${p.id})">🛒 Купить</button>`;
   // contactActions живёт в /js/site.js — на медленном мобильном интернете этот файл
   // иногда ещё не успевает выполниться к этому моменту (та же природа, что и у
   // openModal/trackView), и кнопки связи молча не появляются до перезагрузки страницы.
@@ -195,7 +200,7 @@ async function showProduct(id) {
         if (stickyContact) stickyContact.innerHTML = html;
       } else if (++tries < 20) {
         if (typeof window.getSettings === 'function' && !(state.settings.contacts)) {
-          window.getSettings().then(s => { state.settings = { ...state.settings, ...s }; }).catch(() => {});
+          window.getSettings().then(s => { state.settings = Object.assign({}, state.settings, s); }).catch(() => {});
         }
         setTimeout(retry, 250);
       }
@@ -284,6 +289,7 @@ async function loadProductReviews(id) {
 
 // Подсветка звёзд при наведении (до клика) — иначе непонятно, что по ним можно кликать.
 function pvHoverStars(wrap, hoverV) {
+  if (!wrap) return;
   const actual = Number(wrap.dataset.rating || 0);
   const v = hoverV || actual;
   wrap.querySelectorAll('.si-star').forEach(s => s.classList.toggle('on', Number(s.dataset.v) <= v));
@@ -291,6 +297,7 @@ function pvHoverStars(wrap, hoverV) {
 
 function pvSetStars(el) {
   const wrap = el.closest('.stars-input');
+  if (!wrap) return;
   const v = Number(el.dataset.v);
   wrap.dataset.rating = v;
   wrap.querySelectorAll('.si-star').forEach(s => s.classList.toggle('on', Number(s.dataset.v) <= v));
@@ -300,6 +307,7 @@ async function submitProductReview(productId) {
   const nameEl = document.getElementById('rvpName');
   const starsEl = document.getElementById('rvpStars');
   const textEl = document.getElementById('rvpText');
+  if (!nameEl || !starsEl || !textEl) { window.showToast('⚠️ Обновите страницу и попробуйте ещё раз'); return; }
   const name = nameEl.value.trim();
   const rating = Number(starsEl.dataset.rating || 0);
   if (!name || !rating) { window.showToast('⚠️ Укажите имя и оценку'); return; }
@@ -364,25 +372,41 @@ function closeKpModal() { document.getElementById('kpOverlay').classList.remove(
 async function kpDownload() {
   const phone = document.getElementById('kpPhone').value.trim();
   if (!window.isValidPhone(phone)) { showToast('⚠️ Введите корректный номер телефона'); return; }
-  const r = await fetch('/api/kp/download', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ phone, productId: kpProductId }),
-  });
-  if (!r.ok) {
-    const data = await r.json().catch(() => null);
-    showToast('❌ ' + ((data && data.error) || 'Ошибка. Попробуйте ещё раз.'));
-    return;
+  try {
+    const r = await fetch('/api/kp/download', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone, productId: kpProductId }),
+    });
+    if (!r.ok) {
+      const data = await r.json().catch(() => null);
+      if (r.status >= 500) window.logClientError('kp/download ' + r.status + ': ' + ((data && data.error) || ''), 'kpDownload');
+      showToast('❌ ' + ((data && data.error) || 'Ошибка. Попробуйте ещё раз.'));
+      return;
+    }
+    const blob = await r.blob();
+    const cd = r.headers.get('Content-Disposition') || '';
+    const m = cd.match(/filename="?([^"]+)"?/);
+    const filename = m ? decodeURIComponent(m[1]) : 'KP.pdf';
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename; document.body.appendChild(a); a.click();
+    a.remove(); URL.revokeObjectURL(url);
+    closeKpModal();
+    showToast('✅ КП скачивается', 'green');
+  } catch (e) {
+    window.logClientError(e && (e.message || e), 'kpDownload');
+    showToast('❌ Ошибка сети. Попробуйте ещё раз.');
   }
-  const blob = await r.blob();
-  const cd = r.headers.get('Content-Disposition') || '';
-  const m = cd.match(/filename="?([^"]+)"?/);
-  const filename = m ? decodeURIComponent(m[1]) : 'KP.pdf';
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url; a.download = filename; document.body.appendChild(a); a.click();
-  a.remove(); URL.revokeObjectURL(url);
-  closeKpModal();
-  showToast('✅ КП скачивается', 'green');
+}
+
+function buyNow(id) {
+  if (typeof addToCart === 'function') addToCart(id);
+  document.getElementById('addedCartOverlay').classList.add('open');
+}
+function closeAddedCart() { document.getElementById('addedCartOverlay').classList.remove('open'); }
+function goToCheckout() {
+  closeAddedCart();
+  if (!document.getElementById('cartPanel').classList.contains('open')) toggleCart();
 }
 
 function requestModal(id) {

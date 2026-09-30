@@ -36,6 +36,9 @@ db.serialize(async () => {
     items TEXT NOT NULL, total REAL, status TEXT DEFAULT 'new',
     created_at TEXT DEFAULT (datetime('now'))
   )`);
+  // IP отправителя — чтобы по повторным подозрительным заявкам (боты и т.п.) была видна
+  // закономерность. У уже существующих старых заявок будет пусто — это нормально.
+  try { await db.runAsync(`ALTER TABLE orders ADD COLUMN ip TEXT`); } catch (e) {}
 
   await db.runAsync(`CREATE TABLE IF NOT EXISTS admins (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

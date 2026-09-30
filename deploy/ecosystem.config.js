@@ -15,6 +15,7 @@ module.exports = {
         SITE_URL: 'https://b2btech.kz',
         SITE_NOINDEX: '0',
         YM_ID: 112428503,
+        GADS_ID: 'AW-18370364758',
         // Уведомления о заказах (WhatsApp + почта)
         // WhatsApp через официальный Meta Business API (developers.facebook.com →
         // приложение → WhatsApp → API Setup): Access Token и Phone Number ID оттуда.

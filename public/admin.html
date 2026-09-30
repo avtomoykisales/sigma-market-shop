@@ -511,8 +511,8 @@
     <h3 id="formTitle">Новый товар</h3>
     <div class="form-grid">
       <div class="fg full"><label>Название *</label><input id="fName" placeholder="Название товара"></div>
-      <div class="fg"><label>Артикул</label><input id="fArticle"></div>
-      <div class="fg"><label>Бренд</label><input id="fBrand"></div>
+      <div class="fg"><label>Артикул *</label><input id="fArticle"></div>
+      <div class="fg"><label>Бренд *</label><input id="fBrand"></div>
       <div class="fg"><label>Категория *</label><select id="fCategory" onchange="fillSubcatSelect()"></select></div>
       <div class="fg"><label>Подкатегория</label><select id="fSubcategory"><option value="">— нет —</option></select></div>
       <div class="fg"><label>Цена (тенге)</label><input id="fPrice" type="number" placeholder="0"></div>
@@ -1295,14 +1295,14 @@ async function loadSubcats() {
 }
 function toggleSubcatNode(id) {
   if (subcatCollapsed.has(id)) subcatCollapsed.delete(id); else subcatCollapsed.add(id);
-  try { localStorage.setItem('subcatCollapsed', JSON.stringify([...subcatCollapsed])); } catch (e) {}
+  try { localStorage.setItem('subcatCollapsed', JSON.stringify(Array.from(subcatCollapsed))); } catch (e) {}
   renderSubcatTree();
 }
 function subcatCollapseAll(collapse) {
   subcatCollapsed = collapse
     ? new Set(subcategories.filter(s => subcategories.some(k => k.parent_id === s.id)).map(s => s.id))
     : new Set();
-  try { localStorage.setItem('subcatCollapsed', JSON.stringify([...subcatCollapsed])); } catch (e) {}
+  try { localStorage.setItem('subcatCollapsed', JSON.stringify(Array.from(subcatCollapsed))); } catch (e) {}
   renderSubcatTree();
 }
 function renderSubcatTree() {
@@ -1336,7 +1336,7 @@ function renderSubcatTree() {
     </tr>`;
   };
 
-  const catOrder = [...new Set(subcategories.map(s => s.category_id))];
+  const catOrder = Array.from(new Set(subcategories.map(s => s.category_id)));
   let html = '';
   const walk = (s, depth, hidden) => {
     html += row(s, depth, hidden);
@@ -1646,7 +1646,7 @@ async function uploadProductImages() {
   const res = document.getElementById('imgUploadResult');
   res.textContent = 'Загрузка…'; res.style.color = 'var(--muted)';
   const fd = new FormData();
-  [...files].forEach(f => fd.append('images', f));
+  Array.from(files).forEach(f => fd.append('images', f));
   try {
     const r = await fetch('/api/admin/upload-images', { method: 'POST', headers: { 'x-admin-token': token }, body: fd });
     let d;
@@ -1764,7 +1764,7 @@ async function loadDashboard() {
     <td><strong>${esc(o.name)}</strong></td>
     <td>${esc(o.company || '—')}</td>
     <td>${esc(o.city || '—')}</td>
-    <td>${esc(o.phone)}</td>
+    <td>${esc(o.phone)}${o.ip ? `<div style="color:var(--muted);font-size:12px;margin-top:3px">${esc(o.ip)}</div>` : ''}</td>
     <td class="order-items-list">${getItemsSummary(o.items)}</td>
     <td style="max-width:220px;white-space:pre-wrap" title="${esc(o.message || '')}">${o.message ? esc(o.message.length > 80 ? o.message.slice(0, 80) + '…' : o.message) : '—'}</td>
     <td>
@@ -1886,7 +1886,7 @@ async function openProductForm(id = null) {
     document.getElementById('fArticle').value = p.article||'';
     document.getElementById('fBrand').value = p.brand||'';
     document.getElementById('fPrice').value = p.price||'';
-    setImgList([p.icon, ...parseIds(p.images)].filter(Boolean));
+    setImgList([p.icon].concat(parseIds(p.images)).filter(Boolean));
     document.getElementById('fDesc')._richSet(p.description || '');
     document.getElementById('fSubtitle').value = p.subtitle||'';
     document.getElementById('fYoutube').value = p.youtube||'';
@@ -1924,6 +1924,10 @@ function closeForm() { document.getElementById('productOverlay').classList.remov
 async function saveProduct() {
   const name = document.getElementById('fName').value.trim();
   if (!name) { showToast('Укажите название товара'); return; }
+  const article = document.getElementById('fArticle').value.trim();
+  if (!article) { showToast('Укажите артикул товара'); return; }
+  const brand = document.getElementById('fBrand').value.trim();
+  if (!brand) { showToast('Укажите бренд товара'); return; }
   const _fd = document.getElementById('fDesc');
   if (_fd._richSync) _fd._richSync();
   let specs = '{}';
@@ -1932,8 +1936,8 @@ async function saveProduct() {
     category_id: document.getElementById('fCategory').value,
     subcategory_id: document.getElementById('fSubcategory').value || null,
     name,
-    article: document.getElementById('fArticle').value.trim(),
-    brand: document.getElementById('fBrand').value.trim(),
+    article,
+    brand,
     description: document.getElementById('fDesc').value.trim(),
     price: document.getElementById('fPrice').value || 0,
     price_on_request: document.getElementById('fRequest').checked ? 1 : 0,
@@ -2023,7 +2027,7 @@ async function loadOrders() {
     <td><strong>${esc(o.name)}</strong></td>
     <td>${esc(o.company || '—')}</td>
     <td>${esc(o.city || '—')}</td>
-    <td>${esc(o.phone)}</td>
+    <td>${esc(o.phone)}${o.ip ? `<div style="color:var(--muted);font-size:12px;margin-top:3px">${esc(o.ip)}</div>` : ''}</td>
     <td class="order-items-list">${getItemsSummary(o.items)}</td>
     <td>${o.total > 0 ? fmtPrice(o.total) : '—'}</td>
     <td>
@@ -2233,7 +2237,7 @@ function pickerItemsOrManual(key) {
 function splitItemsIntoPicker(key, itemsJson) {
   let all = [];
   try { all = JSON.parse(itemsJson) || []; } catch (e) {}
-  pickers[key] = all.filter(i => i.id).map(i => ({ ...i, qty: i.qty || 1, price: i.price || 0 }));
+  pickers[key] = all.filter(i => i.id).map(i => Object.assign({}, i, { qty: i.qty || 1, price: i.price || 0 }));
   const manualText = all.filter(i => !i.id).map(i => i.name).join(', ');
   document.getElementById(key + 'ManualItem').value = manualText;
 }

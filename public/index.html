@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>SIGMA MARKET — Профессиональное оборудование</title>
+<title>Профессиональное оборудование для автомоек, СТО и клининга в Казахстане</title>
 <link rel="stylesheet" href="/style.css?v={{V}}">
 </head>
 <body class="shop">
@@ -32,6 +32,28 @@ window.closeFilters = window.closeFilters || function () {
   if (f) f.classList.remove('open');
   if (o) o.classList.remove('open');
 };
+// Та же причина ещё раз: карточки товаров в каталоге сервер рисует сразу в HTML (для
+// поисковиков и первой отрисовки) — их кнопки кликабельны, как только браузер дошёл
+// до этого места страницы, что может случиться раньше, чем догрузится /js/product.js.
+// Без этой заглушки клик по "В корзину"/"Запросить"/сердечку/"Сравнить" в эту долю
+// секунды падает с "buyNow is not defined" и т.п. Простой переход на страницу товара —
+// там всё то же самое можно будет сделать уже с полностью загруженным скриптом.
+window.buyNow = function (id) { location.href = '/product/' + id; };
+window.requestModal = function (id) { location.href = '/product/' + id; };
+window.toggleFav = function (id) { location.href = '/product/' + id; };
+window.toggleCompare = function () {};
+// Заглушки для setUrl/replaceUrl — та же причина: клик по подкатегории в каталоге
+// (SSR-карточки) или showProduct() из product.js могут вызвать их до того, как
+// выполнится основной скрипт ниже (где они определены по-настоящему). Настоящая
+// функция обновляет адресную строку через history.pushState/replaceState — если её
+// ещё нет, просто ничего не делаем: адрес останется прежним, но ошибки не будет,
+// а сама страница/переход при этом всё равно отработают.
+window.setUrl = window.setUrl || function () {};
+window.replaceUrl = window.replaceUrl || function () {};
+// Заглушка для самого state — карточка использует goPage()/state.page и т.п. до того,
+// как ниже в файле выполнится "let state = {...}". Пустой объект той же формы вместо
+// "state is not defined" — настоящий state ниже его полностью затенит (let это умеет).
+window.state = window.state || { sort: 'default', cart: [], categories: [], settings: { blocks: {}, filters: {}, compare: true, favorites: true, quiz: {} }, filters: {}, facets: null };
 </script>
 
 <!-- partial:header -->
@@ -97,6 +119,32 @@ window.closeFilters = window.closeFilters || function () {
     <div class="modal-inner">
       <button class="modal-close" onclick="closeQuiz()">✕</button>
       <div id="quizBody"></div>
+    </div>
+  </div>
+</div>
+
+<!-- КП: ввод телефона для мгновенного скачивания -->
+<div class="modal-overlay" id="kpOverlay" onclick="if(event.target===this)closeKpModal()">
+  <div class="modal">
+    <div class="modal-inner">
+      <button class="modal-close" onclick="closeKpModal()">✕</button>
+      <h3 class="modal-name" style="margin-bottom:16px">Скачать коммерческое предложение</h3>
+      <div class="form-group"><label>Телефон *</label><input type="tel" id="kpPhone" placeholder="+7 (___) ___-__-__" required></div>
+      <button class="btn-primary" onclick="kpDownload()">⬇️ Скачать КП</button>
+    </div>
+  </div>
+</div>
+
+<!-- Товар добавлен в корзину: продолжить покупки или оформить заказ -->
+<div class="modal-overlay" id="addedCartOverlay" onclick="if(event.target===this)closeAddedCart()">
+  <div class="modal">
+    <div class="modal-inner">
+      <button class="modal-close" onclick="closeAddedCart()">✕</button>
+      <h3 class="modal-name" style="margin-bottom:16px">✅ Товар добавлен в корзину</h3>
+      <div style="display:flex;gap:12px;flex-wrap:wrap">
+        <button class="btn-consult-outline" style="flex:1;min-width:160px" onclick="closeAddedCart()">Продолжить покупку</button>
+        <button class="btn-primary" style="flex:1;min-width:160px" onclick="goToCheckout()">Оформить заказ</button>
+      </div>
     </div>
   </div>
 </div>
@@ -231,7 +279,7 @@ let recentIds   = lsGet('recent', []);
 
 // ===== INIT =====
 async function init() {
-  try { state.settings = { ...state.settings, ...(await getSettings()) }; } catch (e) {}
+  try { state.settings = Object.assign({}, state.settings, (await getSettings())); } catch (e) {}
   await loadCategories();
   renderCart();
   renderFavBadge();
@@ -945,7 +993,7 @@ function cardHtml(p) {
     : `<div class="card-price-request">Уточните цену</div>`;
   const addBtn = p.price_on_request
     ? `<button class="btn-offer" onclick="event.stopPropagation();requestModal(${p.id})"><img src="/assets/icons/icon-offer.png" alt=""> Запросить цену</button>`
-    : `<button class="btn-buy" onclick="event.stopPropagation();addToCart(${p.id})"><img src="/assets/icons/icon-buy.png" alt=""> В корзину</button>`;
+    : `<button class="btn-buy" onclick="event.stopPropagation();buyNow(${p.id})">В корзину</button>`;
   const favOn = favIds.includes(p.id);
   const cmpOn = compareIds.includes(p.id);
   const favBtn = state.settings.favorites !== false
@@ -1161,10 +1209,10 @@ function clearCompare() { compareIds = []; lsSet('compare', compareIds); renderC
 async function openCompare() {
   if (compareIds.length < 2) { showToast('Выберите минимум 2 товара'); return; }
   const items = (await Promise.all(compareIds.map(id => apiFetch('/api/products/' + id).catch(() => null)))).filter(Boolean);
-  const specKeys = [...new Set(items.flatMap(p => {
+  const specKeys = Array.from(new Set(items.reduce((acc, p) => {
     let s = p.specs; if (typeof s === 'string') { try { s = JSON.parse(s); } catch (e) { s = {}; } }
-    return Object.keys(s || {});
-  }))];
+    return acc.concat(Object.keys(s || {}));
+  }, [])));
   const specOf = (p, k) => { let s = p.specs; if (typeof s === 'string') { try { s = JSON.parse(s); } catch (e) { s = {}; } } return (s || {})[k] || '—'; };
   const row = (label, cells) => `<tr><th>${label}</th>${cells.map(c => `<td>${c}</td>`).join('')}</tr>`;
   document.getElementById('compareTable').innerHTML =
@@ -1176,14 +1224,14 @@ async function openCompare() {
     specKeys.map(k => row(k, items.map(p => specOf(p, k)))).join('') +
     row('', items.map(p => p.price_on_request
       ? `<button class="btn-offer" onclick="requestModal(${p.id})">Запросить</button>`
-      : `<button class="btn-buy" onclick="addToCart(${p.id})">В корзину</button>`));
+      : `<button class="btn-buy" onclick="buyNow(${p.id})">В корзину</button>`));
   document.getElementById('compareModal').classList.add('open');
 }
 function closeCompare() { document.getElementById('compareModal').classList.remove('open'); }
 
 // ===== НЕДАВНО ПРОСМОТРЕННЫЕ =====
 function pushRecent(id) {
-  recentIds = [id, ...recentIds.filter(x => x !== id)].slice(0, 10);
+  recentIds = [id].concat(recentIds.filter(x => x !== id)).slice(0, 10);
   lsSet('recent', recentIds);
   renderRecent();
 }

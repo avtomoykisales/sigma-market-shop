@@ -89,60 +89,71 @@ function buildProductKpPdf(res, product, kpCfg) {
   res.setHeader('Content-Disposition', 'attachment; filename="' + encodeURIComponent(filename) + '"');
   doc.pipe(res);
 
-  // ---- шапка: лого слева, реквизиты компании справа ----
-  try { doc.image(LOGO, PAGE_LEFT, 40, { width: 60 }); } catch {}
-  doc.font('regular').fontSize(8).fillColor('#888');
-  const headerLines = [ORG.legalName, ORG.address, ORG.bin, ORG.vatCert, ORG.phone, ORG.site];
-  let hy = 42;
-  headerLines.forEach(line => {
-    doc.text(line, PAGE_LEFT, hy, { width: PAGE_RIGHT - PAGE_LEFT, align: 'right' });
-    hy += doc.heightOfString(line, { width: PAGE_RIGHT - PAGE_LEFT, align: 'right' }) + 2;
-  });
-  const headerBottom = Math.max(40 + 70, hy + 6);
-  doc.moveTo(PAGE_LEFT, headerBottom).lineTo(PAGE_RIGHT, headerBottom).stroke('#000');
-
-  doc.y = headerBottom + 20;
-  doc.fillColor('#000').font('regular').fontSize(11);
-  doc.text('Уважаемые господа!', PAGE_LEFT, doc.y, { width: PAGE_RIGHT - PAGE_LEFT, align: 'center' });
-  doc.moveDown(0.4);
-  doc.text('Компания «SIGMA MARKET» выражает Вам искреннюю признательность за интерес к нашей продукции и сообщает о возможности поставки в Ваш адрес:', { width: PAGE_RIGHT - PAGE_LEFT, align: 'center' });
-  doc.moveDown(0.6);
-
-  doc.font('bold').fontSize(12).text(product.name || '', PAGE_LEFT, doc.y, { width: PAGE_RIGHT - PAGE_LEFT, align: 'center' });
-  doc.moveDown(0.6);
-
-  // ---- таблица ----
-  let y = doc.y;
-  if (product.article) y = tableRow(doc, y, 'Модель', product.article);
-  if (product.brand) y = tableRow(doc, y, 'Бренд', product.brand);
-
-  let specs = product.specs;
-  if (typeof specs === 'string') { try { specs = JSON.parse(specs); } catch { specs = {}; } }
-  if (specs && Object.keys(specs).length) {
-    y = tableRow(doc, y, 'Технические характеристики', '', { spanLabel: true, boldLabel: true });
-    Object.entries(specs).forEach(([k, v]) => {
-      if (y > 740) { doc.addPage(); y = 50; }
-      y = tableRow(doc, y, k, v);
+  // Всё содержимое — в try: если что-то из данных товара приведёт к сбою уже
+  // после того как doc.pipe(res) начал отдавать байты клиенту, нужно сразу
+  // остановить сам PDF-поток. Иначе pdfkit продолжит асинхронно писать в уже
+  // закрытый (после res.end() в server.js) ответ — а это второе, уже ничем не
+  // перехватываемое исключение, которое валит весь процесс сервера целиком.
+  try {
+    // ---- шапка: лого слева, реквизиты компании справа ----
+    try { doc.image(LOGO, PAGE_LEFT, 40, { width: 60 }); } catch {}
+    doc.font('regular').fontSize(8).fillColor('#888');
+    const headerLines = [ORG.legalName, ORG.address, ORG.bin, ORG.vatCert, ORG.phone, ORG.site];
+    let hy = 42;
+    headerLines.forEach(line => {
+      doc.text(line, PAGE_LEFT, hy, { width: PAGE_RIGHT - PAGE_LEFT, align: 'right' });
+      hy += doc.heightOfString(line, { width: PAGE_RIGHT - PAGE_LEFT, align: 'right' }) + 2;
     });
+    const headerBottom = Math.max(40 + 70, hy + 6);
+    doc.moveTo(PAGE_LEFT, headerBottom).lineTo(PAGE_RIGHT, headerBottom).stroke('#000');
+
+    doc.y = headerBottom + 20;
+    doc.fillColor('#000').font('regular').fontSize(11);
+    doc.text('Уважаемые господа!', PAGE_LEFT, doc.y, { width: PAGE_RIGHT - PAGE_LEFT, align: 'center' });
+    doc.moveDown(0.4);
+    doc.text('Компания «SIGMA MARKET» выражает Вам искреннюю признательность за интерес к нашей продукции и сообщает о возможности поставки в Ваш адрес:', { width: PAGE_RIGHT - PAGE_LEFT, align: 'center' });
+    doc.moveDown(0.6);
+
+    doc.font('bold').fontSize(12).text(product.name || '', PAGE_LEFT, doc.y, { width: PAGE_RIGHT - PAGE_LEFT, align: 'center' });
+    doc.moveDown(0.6);
+
+    // ---- таблица ----
+    let y = doc.y;
+    if (product.article) y = tableRow(doc, y, 'Модель', product.article);
+    if (product.brand) y = tableRow(doc, y, 'Бренд', product.brand);
+
+    let specs = product.specs;
+    if (typeof specs === 'string') { try { specs = JSON.parse(specs); } catch { specs = {}; } }
+    if (specs && Object.keys(specs).length) {
+      y = tableRow(doc, y, 'Технические характеристики', '', { spanLabel: true, boldLabel: true });
+      Object.entries(specs).forEach(([k, v]) => {
+        if (y > 740) { doc.addPage(); y = 50; }
+        y = tableRow(doc, y, k, v);
+      });
+    }
+    y = tableRow(doc, y, 'Условия поставки', deliveryText(product.price, kpCfg));
+    const hasWarrantySpec = specs && Object.keys(specs).some(k => /гаранти/i.test(k));
+    if (!hasWarrantySpec) y = tableRow(doc, y, 'Гарантия', '12 месяцев');
+    if (y + IMG_ROW_H > 760) { doc.addPage(); y = 50; }
+    y = tableImageRow(doc, y, product.icon);
+    doc.y = y + 20;
+
+    doc.font('bold').fontSize(12).text('Стоимость', PAGE_LEFT, doc.y);
+    doc.font('regular').fontSize(11).moveDown(0.2);
+    doc.text(product.price_on_request || !product.price
+      ? 'Цена по запросу — уточняйте у менеджера'
+      : fmtPrice(product.price) + ' (с учётом НДС), цена указана до склада транспортной компании');
+    doc.moveDown(1);
+
+    doc.font('regular').fontSize(9).fillColor('#555');
+    doc.text('Документ сформирован автоматически на сайте b2btech.kz');
+
+    doc.end();
+  } catch (e) {
+    doc.unpipe(res);
+    try { doc.destroy(); } catch {}
+    throw e;
   }
-  y = tableRow(doc, y, 'Условия поставки', deliveryText(product.price, kpCfg));
-  const hasWarrantySpec = specs && Object.keys(specs).some(k => /гаранти/i.test(k));
-  if (!hasWarrantySpec) y = tableRow(doc, y, 'Гарантия', '12 месяцев');
-  if (y + IMG_ROW_H > 760) { doc.addPage(); y = 50; }
-  y = tableImageRow(doc, y, product.icon);
-  doc.y = y + 20;
-
-  doc.font('bold').fontSize(12).text('Стоимость', PAGE_LEFT, doc.y);
-  doc.font('regular').fontSize(11).moveDown(0.2);
-  doc.text(product.price_on_request || !product.price
-    ? 'Цена по запросу — уточняйте у менеджера'
-    : fmtPrice(product.price) + ' (с учётом НДС), цена указана до склада транспортной компании');
-  doc.moveDown(1);
-
-  doc.font('regular').fontSize(9).fillColor('#555');
-  doc.text('Документ сформирован автоматически на сайте b2btech.kz');
-
-  doc.end();
 }
 
 module.exports = { buildProductKpPdf };

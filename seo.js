@@ -28,11 +28,25 @@ function metrikaTag() {
     `<noscript><div><img src="https://mc.yandex.ru/watch/${METRIKA_ID}" style="position:absolute;left:-9999px" alt=""></div></noscript>`;
 }
 
+// Google Ads — тег для отслеживания конверсий по рекламным кампаниям. Пусто (GADS_ID='') —
+// счётчик не вставляется.
+const GADS_ID = (process.env.GADS_ID != null ? String(process.env.GADS_ID) : '').trim();
+function gadsTag() {
+  if (!GADS_ID) return '';
+  return `<script async src="https://www.googletagmanager.com/gtag/js?id=${GADS_ID}"></script>` +
+    `<script>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}` +
+    `gtag('js',new Date());gtag('config','${GADS_ID}');</script>`;
+}
+
 const SITE_NAME = 'SIGMA MARKET';
-const DEFAULT_TITLE = 'SIGMA MARKET — профессиональное оборудование для автомоек, СТО и клининга';
+
+const DEFAULT_TITLE =
+  'SIGMA MARKET — оборудование для автомоек, СТО и клининга в Казахстане';
+
 const DEFAULT_DESC =
-  'SIGMA MARKET — профессиональное оборудование для автомоек, СТО и автосервиса, клининга. ' +
-  'Поставка, монтаж и сервис по всему Казахстану с 2012 года.';
+  'SIGMA MARKET — продажа и поставка профессионального оборудования для автомоек, СТО и клининга. ' +
+  'Автоматические и роботизированные мойки, поломоечные и подметальные машины, оборудование для СТО. ' +
+  'Проектирование, монтаж и сервис по Казахстану с 2012 года.';
 const ORG = {
   phone: '+7 (707) 420-20-03',
   phoneRaw: '+77074202003',
@@ -154,45 +168,43 @@ function breadcrumbLd(base, items) {
 const STATIC_PAGES = {
   '/about.html': {
     crumb: 'О компании',
-    title: 'О компании SIGMA MARKET — поставки оборудования для автобизнеса с 2012 года',
-    desc: 'SIGMA MARKET — поставщик профессионального оборудования для автомоек, СТО и клининга в Казахстане. ' +
-      'С 2012 года: подбор, поставка, монтаж и сервисное обслуживание, более 500 реализованных проектов.',
+    title: 'Оборудование для автомоек, СТО и клининга в Казахстане | SIGMA MARKET',
+    desc: 'SIGMA MARKET — продажа и поставка оборудования для автомоек, СТО и клининга в Казахстане. Автоматические и роботизированные мойки, поломоечные и подметальные машины, оборудование для СТО. Проектирование, комплектация, монтаж и сервис.',
   },
+
   '/delivery.html': {
     crumb: 'Доставка и оплата',
-    title: 'Доставка и оплата оборудования — SIGMA MARKET',
-    desc: 'Условия доставки и оплаты оборудования SIGMA MARKET по Казахстану: способы оплаты, сроки, ' +
-      'самовывоз в Алматы, транспортные компании, гарантия и документы.',
+    title: 'Доставка и оплата оборудования по Казахстану | SIGMA MARKET',
+    desc: 'Доставка и оплата оборудования SIGMA MARKET по Казахстану. Самовывоз в Алматы, доставка транспортными компаниями, сроки, документы и гарантия.',
   },
+
   '/contacts.html': {
     crumb: 'Контакты',
-    title: 'Контакты SIGMA MARKET — Алматы, отдел продаж',
-    desc: 'Свяжитесь с SIGMA MARKET: ' + ORG.phone + ', ' + ORG.email + '. ' +
-      'Офис в Алматы, ' + ORG.street + '. Часы работы и форма обратной связи.',
+    title: 'Контакты SIGMA MARKET — оборудование в Алматы',
+    desc: 'Контакты SIGMA MARKET в Алматы: телефон ' + ORG.phone + ', email ' + ORG.email + '. Адрес офиса, часы работы и форма обратной связи.',
   },
+
   '/reviews.html': {
     crumb: 'Отзывы',
-    title: 'Отзывы клиентов SIGMA MARKET',
-    desc: 'Отзывы клиентов о работе с SIGMA MARKET: поставка и монтаж оборудования для автомоек, ' +
-      'СТО и клининга, качество сервиса и поддержки.',
+    title: 'Отзывы о SIGMA MARKET — оборудование для автомоек, СТО и клининга',
+    desc: 'Отзывы клиентов SIGMA MARKET о поставке, монтаже и сервисном обслуживании оборудования для автомоек, СТО и клининга в Казахстане.',
   },
 };
 
 const CAT_COPY = {
   avtomojka: {
-    title: 'Оборудование для автомойки — купить в Казахстане | SIGMA MARKET',
-    desc: 'Оборудование для автомоек: аппараты высокого давления, пеногенераторы, системы очистки и ' +
-      'оборотного водоснабжения, пылесосы, сушка. Поставка и монтаж по Казахстану.',
+    title: 'Оборудование для автомоек — купить в Казахстане | SIGMA MARKET',
+    desc: 'Оборудование для автомоек: автоматические и роботизированные мойки, аппараты высокого давления, пеногенераторы, пылесосы, системы очистки и рециркуляции воды, оборудование для сушки. Поставка и монтаж по Казахстану.',
   },
+
   sto: {
     title: 'Оборудование для СТО и автосервиса — купить в Казахстане | SIGMA MARKET',
-    desc: 'Оборудование для СТО и автосервиса: подъёмники, шиномонтаж, компрессоры, пневмоинструмент, ' +
-      'оборудование для смазки и замены жидкостей. Поставка и сервис по Казахстану.',
+    desc: 'Оборудование для СТО и автосервиса: автоподъёмники, шиномонтажные и балансировочные станки, компрессоры, пневмоинструмент, оборудование для замены масла и технических жидкостей. Поставка по Казахстану.',
   },
+
   klining: {
     title: 'Оборудование для клининга — купить в Казахстане | SIGMA MARKET',
-    desc: 'Профессиональное клининговое оборудование: поломоечные и подметальные машины, ' +
-      'профессиональные пылесосы, аппараты высокого давления. Поставка и обслуживание по Казахстану.',
+    desc: 'Профессиональное оборудование для клининга: поломоечные и подметальные машины, пылесосы, пылеводососы, экстракторы и аппараты высокого давления. Подбор, поставка и сервис по Казахстану.',
   },
 };
 
@@ -203,11 +215,16 @@ function productMeta(p) {
   return {
     title: p.seo_title
       ? clean(p.seo_title)
-      : clean(p.name + ' купить в Казахстане - ' + SITE_NAME),
+      : clean(p.name + ' купить в Казахстане | ' + SITE_NAME),
+
     description: p.seo_description
       ? clean(p.seo_description)
-      : clean('Купить ' + (p.name || p.subtitle || 'оборудование') + ' в ' + SITE_NAME +
-          ', выгодная цена, надёжная продукция, быстрая доставка по Казахстану.'),
+      : clean(
+          'Купить ' +
+          (p.name || p.subtitle || 'оборудование') +
+          ' в Казахстане. Характеристики, комплектация, цена, поставка и сервис от ' +
+          SITE_NAME + '.'
+        ),
   };
 }
 
@@ -248,8 +265,14 @@ async function productSeo(base, id, seo) {
     '@type': 'Product',
     name: seo.title,
     description: seo.description,
-    sku: p.article || String(p.id),
-    category: p.subcategory_name || p.category_name,
+    // Google Merchant Center требует id/sku без пробелов (см. справку: "Не добавляйте
+    // в значение идентификатора пробелы") — сам article на сайте (карточка, КП) остаётся
+    // как есть, пробелы убираем только в значении, которое уходит в структурированные данные.
+    sku: (p.article || String(p.id)).replace(/\s+/g, ''),
+    // category сюда сознательно не пишем: Google принимает только значение из своего
+    // официального классификатора (числовой ID или точный путь по-английски), а не
+    // произвольное название подкатегории — с ним Search Console помечает поле как
+    // недопустимое. Раз поле необязательное, лучше не указывать его, чем указывать неверно.
   };
   if (gallery.length) product.image = gallery;
   if (p.brand) product.brand = { '@type': 'Brand', name: p.brand };
@@ -286,7 +309,55 @@ async function productSeo(base, id, seo) {
       price: String(p.price),
       availability: p.in_stock ? 'https://schema.org/InStock' : 'https://schema.org/OutOfStock',
       seller: { '@type': 'Organization', name: SITE_NAME },
+      // Условия возврата — профессиональное оборудование, это не ТНП: по закону «О защите прав
+      // потребителей» товар надлежащего качества возврату/обмену не подлежит (см. текст на
+      // странице «Доставка и оплата», раздел «Условия возврата» — структурированные данные
+      // должны совпадать с тем, что реально написано на сайте). Исключение — заводской брак
+      // по заключению сервисного центра, но это гарантийное право, а не выбор покупателя,
+      // поэтому в hasMerchantReturnPolicy (она как раз про добровольный возврат) не отражается.
+      hasMerchantReturnPolicy: {
+        '@type': 'MerchantReturnPolicy',
+        applicableCountry: 'KZ',
+        returnPolicyCategory: 'https://schema.org/MerchantReturnNotPermitted',
+      },
     };
+
+    // Бесплатная доставка — два реальных порога, оба указаны на странице «Доставка и
+    // оплата» (delivery.html): по Алматы от 80 000 ₸, по всему Казахстану от суммы
+    // из настроек (по умолчанию 1 000 000 ₸). Ниже 80 000 ₸ стоимость рассчитывается
+    // индивидуально транспортной компанией — фиксированного числа нет, а Google требует
+    // конкретную ставку, поэтому для таких товаров shippingDetails не даём вовсе:
+    // лучше промолчать, чем указать заведомо неверную стоимость.
+    const almatyFreeThreshold = 80000;
+    let freeDeliveryThreshold = 1000000;
+    try {
+      const kpRow = await db.getAsync(`SELECT value FROM settings WHERE key = 'kp'`);
+      const kpCfg = kpRow && JSON.parse(kpRow.value || '{}');
+      if (kpCfg && kpCfg.freeDeliveryThreshold) freeDeliveryThreshold = Number(kpCfg.freeDeliveryThreshold);
+    } catch {}
+    if (p.price >= freeDeliveryThreshold) {
+      product.offers.shippingDetails = {
+        '@type': 'OfferShippingDetails',
+        shippingRate: { '@type': 'MonetaryAmount', value: '0', currency: 'KZT' },
+        shippingDestination: { '@type': 'DefinedRegion', addressCountry: 'KZ' },
+        deliveryTime: {
+          '@type': 'ShippingDeliveryTime',
+          handlingTime: { '@type': 'QuantitativeValue', minValue: 0, maxValue: 1, unitCode: 'DAY' },
+          transitTime: { '@type': 'QuantitativeValue', minValue: 3, maxValue: 7, unitCode: 'DAY' },
+        },
+      };
+    } else if (p.price >= almatyFreeThreshold) {
+      product.offers.shippingDetails = {
+        '@type': 'OfferShippingDetails',
+        shippingRate: { '@type': 'MonetaryAmount', value: '0', currency: 'KZT' },
+        shippingDestination: { '@type': 'DefinedRegion', addressCountry: 'KZ', addressRegion: 'Алматы' },
+        deliveryTime: {
+          '@type': 'ShippingDeliveryTime',
+          handlingTime: { '@type': 'QuantitativeValue', minValue: 0, maxValue: 1, unitCode: 'DAY' },
+          transitTime: { '@type': 'QuantitativeValue', minValue: 1, maxValue: 3, unitCode: 'DAY' },
+        },
+      };
+    }
   }
 
   const crumbs = [['Главная', '/'], ['Товары и услуги', '/catalog'],
@@ -353,6 +424,8 @@ async function categorySeo(base, slug, subSlug, seo) {
       : clip(sub.description ||
           (sub.name + ' — ' + cat.name.toLowerCase() + '. Поставка, монтаж и сервис по Казахстану от ' + SITE_NAME + '.'), 175);
     seo.canonical = base + catalogPath(slug, sub.slug);
+    if (sub.icon) seo.image = /^https?:/.test(sub.icon) ? sub.icon : base + '/icons/' + sub.icon;
+    else if (cat.icon) seo.image = /^https?:/.test(cat.icon) ? cat.icon : base + '/icons/' + cat.icon;
   } else {
     seo.title = cat.seo_title
       ? clean(cat.seo_title)
@@ -363,6 +436,7 @@ async function categorySeo(base, slug, subSlug, seo) {
           (cat.name + '. Профессиональное оборудование от ' + SITE_NAME + '. Поставка по Казахстану.'), 175));
     seo.canonical = base + catalogPath(slug);
     if (subs.length > 1) seo.robots = 'noindex, follow';
+    if (cat.icon) seo.image = /^https?:/.test(cat.icon) ? cat.icon : base + '/icons/' + cat.icon;
   }
 
   const crumbs = [['Главная', '/'], ['Товары и услуги', '/catalog'],
@@ -399,7 +473,7 @@ async function build(req, relPath, opts = {}) {
     description: DEFAULT_DESC,
     canonical: base + (relPath === '/index.html' ? '/' : req.path),
     robots: 'index, follow',
-    image: base + '/assets/icons/banner.png',
+    image: base + '/assets/icons/about-photo.jpg',
     jsonld: [orgLd(base), websiteLd(base)],
   };
 
@@ -531,7 +605,7 @@ function productCardHtml(p) {
     : `<div class="card-price-request">Уточните цену</div>`;
   const addBtn = p.price_on_request
     ? `<button class="btn-offer" onclick="event.stopPropagation();requestModal(${p.id})"><img src="/assets/icons/icon-offer.png" alt=""> Запросить цену</button>`
-    : `<button class="btn-buy" onclick="event.stopPropagation();addToCart(${p.id})"><img src="/assets/icons/icon-buy.png" alt=""> В корзину</button>`;
+    : `<button class="btn-buy" onclick="event.stopPropagation();buyNow(${p.id})">В корзину</button>`;
   const favBtn = `<button class="card-fav" title="В избранное" onclick="event.stopPropagation();toggleFav(${p.id})">♡</button>`;
   const cmpBtn = `<label class="card-compare" onclick="event.stopPropagation()"><input type="checkbox" onchange="toggleCompare(${p.id})"> Сравнить</label>`;
   const url = productPath(p);
@@ -750,10 +824,14 @@ async function injectContent(html, seo, req, hydrate) {
 /* Вставить SEO в готовый html-документ */
 function inject(html, seo) {
   const head = renderHead(seo);
-  // Яндекс.Метрика — как можно раньше, сразу после <head>
+  // Яндекс.Метрика и тег Google Ads — как можно раньше, сразу после <head>
   const ym = metrikaTag();
   if (ym && !html.includes('mc.yandex.ru/metrika')) {
     html = html.replace(/<head>/i, '<head>\n' + ym);
+  }
+  const gads = gadsTag();
+  if (gads && !html.includes('googletagmanager.com/gtag/js')) {
+    html = html.replace(/<head>/i, '<head>\n' + gads);
   }
   if (/<title>[\s\S]*?<\/title>/i.test(html)) {
     html = html.replace(/<title>[\s\S]*?<\/title>/i, `<title>${esc(seo.title)}</title>`);

@@ -12,6 +12,12 @@ const kp = require('./kp');
 const crypto = require('crypto');
 const { queryCategories, queryProducts } = require('./queries');
 
+// Страховка от падения всего сайта из-за одной необработанной ошибки в асинхронном
+// коде (например, сбой посреди генерации PDF, когда ответ уже начал отправляться) —
+// без этого Node сам завершает процесс, и сайт ложится для всех до перезапуска pm2.
+process.on('unhandledRejection', (reason) => { console.error('unhandledRejection:', reason); });
+process.on('uncaughtException', (err) => { console.error('uncaughtException:', err); });
+
 const app = express();
 const PORT = process.env.PORT || 3000;
 const PUBLIC_DIR = path.join(__dirname, 'public');
@@ -226,7 +232,7 @@ app.get('/api/subcategories', async (req, res) => {
 app.get('/api/products', async (req, res) => {
   try {
     const search = String(req.query.search || '').trim();
-    if (search && !isBot(req)) logStat('search', null, search, null);
+    if (search) logStat('search', null, search, null);
     res.json(await queryProducts(req.query));
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -341,7 +347,10 @@ app.post('/api/kp/download', async (req, res) => {
     await db.runAsync('INSERT INTO kp_leads (product_id, phone) VALUES (?, ?)', [productId, phone]);
     const s = await getSettings();
     kp.buildProductKpPdf(res, product, s.kp || {});
-  } catch (e) { res.status(500).json({ error: e.message }); }
+  } catch (e) {
+    console.error('kp/download:', e);
+    if (!res.headersSent) res.status(500).json({ error: e.message }); else res.end();
+  }
 });
 
 // ==================== ОТЗЫВЫ НА ТОВАРЫ ====================
@@ -441,9 +450,9 @@ app.post('/api/orders', async (req, res) => {
     }
 
     const result = await db.runAsync(
-      `INSERT INTO orders (name, phone, email, city, message, items, total, customer_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [name, phone, email || '', city || '', message || '', itemsStr, total, customer ? customer.id : null]
+      `INSERT INTO orders (name, phone, email, city, message, items, total, customer_id, ip)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [name, phone, email || '', city || '', message || '', itemsStr, total, customer ? customer.id : null, clientIp(req)]
     );
 
     // Начисление бонусов за заказ — процент от суммы к оплате
@@ -503,7 +512,7 @@ app.post('/api/track-view', async (req, res) => {
     const type = req.body && req.body.type === 'product_view' ? 'product_view' : 'pageview';
     const path = String((req.body && req.body.path) || '').slice(0, 500);
     const refId = type === 'product_view' ? Number(req.body && req.body.refId) || null : null;
-    if (path && !isBot(req)) logStat(type, path, null, refId);
+    if (path) logStat(type, path, null, refId);
   } catch { /* статистика не должна ронять страницу */ }
   res.json({ ok: true });
 });
@@ -515,7 +524,7 @@ app.post('/api/track-click', async (req, res) => {
     const kind = String((req.body && req.body.kind) || '');
     const path = String((req.body && req.body.path) || '').slice(0, 500);
     const productId = Number(req.body && req.body.productId) || null;
-    if (CTA_KINDS.has(kind) && !isBot(req)) logStat('cta_click', path, kind, productId);
+    if (CTA_KINDS.has(kind)) logStat('cta_click', path, kind, productId);
   } catch { /* статистика не должна ронять страницу */ }
   res.json({ ok: true });
 });
@@ -706,10 +715,8 @@ function clientIp(req) {
 }
 
 // ---- Статистика сайта (для админки — просмотры, поисковые запросы, товары) ----
-function isBot(req) {
-  return /bot|crawl|spider|slurp|bingpreview|yandex|google|facebookexternalhit|whatsapp|telegram/i
-    .test(String(req.headers['user-agent'] || ''));
-}
+// По просьбе Миры боты (включая Яндекс/Google) из статистики не исключаются —
+// пусть пишется всё подряд, без фильтрации.
 async function logStat(type, path, value, refId) {
   try {
     await db.runAsync(
