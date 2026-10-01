@@ -21,6 +21,10 @@ module.exports = {
         // приложение → WhatsApp → API Setup): Access Token и Phone Number ID оттуда.
         META_WA_TOKEN: '',
         META_WA_PHONE_ID: '',
+        // Свой секрет для поля "Подтверждение маркера" (Verify Token) в настройке
+        // Webhooks там же в кабинете — любая строка, придумана нами, никуда не
+        // отправляется заранее, просто должна совпадать в обоих местах.
+        META_WA_VERIFY_TOKEN: '97f147ca30547b002911b3fba9b7756bd10162f4e79e98e7',
         NOTIFY_PHONE: '',
         SMTP_HOST: 'smtp.gmail.com',
         SMTP_PORT: '465',

@@ -185,6 +185,46 @@ const upload = multer({
   fileFilter: (req, file, cb) => cb(null, /image\//.test(file.mimetype))
 });
 
+// ==================== WHATSAPP WEBHOOK (Meta) ====================
+// Приём входящих сообщений/статусов от WhatsApp Cloud API (developers.facebook.com →
+// приложение → WhatsApp → Configuration → Webhooks). Verify Token — свой секрет,
+// который Мира вводит в поле "Подтверждение маркера" там же (см. META_WA_VERIFY_TOKEN
+// в deploy/ecosystem.config.js), никак не связан с самим Access Token'ом для отправки.
+app.get('/webhook', (req, res) => {
+  const mode = req.query['hub.mode'];
+  const token = req.query['hub.verify_token'];
+  const challenge = req.query['hub.challenge'];
+  if (mode === 'subscribe' && token && process.env.META_WA_VERIFY_TOKEN && token === process.env.META_WA_VERIFY_TOKEN) {
+    res.status(200).send(challenge);
+  } else {
+    res.sendStatus(403);
+  }
+});
+
+app.post('/webhook', async (req, res) => {
+  res.sendStatus(200);   // подтверждаем приём сразу — Meta отключает webhook при таймаутах/ошибках
+  try {
+    const entries = (req.body && req.body.entry) || [];
+    for (const entry of entries) {
+      for (const change of (entry.changes || [])) {
+        const messages = (change.value && change.value.messages) || [];
+        for (const msg of messages) {
+          if (msg.type !== 'text') continue;
+          const from = msg.from || '';
+          const text = (msg.text && msg.text.body) || '';
+          const notifyPhone = process.env.NOTIFY_PHONE;
+          if (notifyPhone && text) {
+            notify.sendWhatsAppTo(notifyPhone, `Входящее WhatsApp от +${from}:\n${text}`)
+              .catch(e => notify.logFail('whatsapp_webhook_forward', e.message));
+          }
+        }
+      }
+    }
+  } catch (e) {
+    notify.logFail('whatsapp_webhook', e.message);
+  }
+});
+
 // ==================== CATEGORIES ====================
 app.get('/api/categories', async (req, res) => {
   try {
