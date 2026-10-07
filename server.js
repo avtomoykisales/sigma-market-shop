@@ -116,7 +116,9 @@ app.get(/.*/, async (req, res, next) => {
   }
 
   // /catalog, /catalog/{cat}, /catalog/{cat}/{sub}, /product/{id}-{slug}
-  if (p === '/catalog' || /^\/catalog\/[^/]+/.test(p) || /^\/product\/\d/.test(p)) {
+  // ("/catalog/" с одним хвостовым слэшем и без категории — отдельный случай: [^/]+
+  // требует хотя бы символ ПОСЛЕ слэша, которого тут нет, иначе отдавался 404).
+  if (p === '/catalog' || p === '/catalog/' || /^\/catalog\/[^/]+/.test(p) || /^\/product\/\d/.test(p)) {
     try {
       const seoData = await seo.build(req, '/index.html');
       let html = renderPage(fs.readFileSync(path.join(PUBLIC_DIR, 'index.html'), 'utf8'), (seoData.view || '').toLowerCase());
@@ -259,7 +261,11 @@ app.get('/api/settings', async (req, res) => {
 app.get('/api/subcategories', async (req, res) => {
   try {
     let sql = `SELECT s.*, c.slug as category_slug,
-                 (SELECT COUNT(*) FROM products p WHERE p.subcategory_id = s.id) as product_count
+                 (SELECT COUNT(DISTINCT pid) FROM (
+                    SELECT id AS pid FROM products p WHERE p.subcategory_id = s.id
+                    UNION
+                    SELECT product_id AS pid FROM product_extra_categories WHERE subcategory_id = s.id
+                  )) as product_count
                FROM subcategories s JOIN categories c ON s.category_id = c.id`;
     const params = [];
     if (req.query.category && req.query.category !== 'all') { sql += ' WHERE c.slug = ?'; params.push(req.query.category); }
@@ -282,37 +288,139 @@ app.get('/api/products', async (req, res) => {
 // Подбор оборудования (квиз)
 app.post('/api/products/quiz', async (req, res) => {
   try {
-    const { biz, load, budget } = req.body || {};
+    const { biz, type, subtype } = req.body || {};
+    const offset = Math.max(0, Number(req.body && req.body.offset) || 0);
+    const PAGE_SIZE = 8;
     const s = await getSettings();
     const quiz = s.quiz || db.DEFAULT_QUIZ || {};
-    const opt = (stepKey, id) => {
-      const step = (quiz.steps || []).find(st => st.key === stepKey);
-      return step && (step.options || []).find(o => o.id === id);
-    };
-    const bizO = opt('biz', biz), loadO = opt('load', load), budgetO = opt('budget', budget);
+    const step = (key) => (quiz.steps || []).find(st => st.key === key);
+    const bizStep = step('biz');
+    const bizO = bizStep && (bizStep.options || []).find(o => o.id === biz);
+    // "type" ветвится по "biz", "subtype" — по "type" (см. optionsByBranch в DEFAULT_QUIZ).
+    // Третий шаг есть не у всех веток второго — там, где его нет в конфиге, subtypeO не
+    // находится, и в дело идёт сам typeO (он там уже конечный, со своей subcategory).
+    const typeStep = step('type');
+    const typeOptions = (typeStep && typeStep.optionsByBranch && biz) ? (typeStep.optionsByBranch[biz] || []) : [];
+    const typeO = typeOptions.find(o => o.id === type);
+    const subtypeStep = step('subtype');
+    const subtypeOptions = (subtypeStep && subtypeStep.optionsByBranch && type) ? (subtypeStep.optionsByBranch[type] || []) : [];
+    const subtypeO = subtypeOptions.find(o => o.id === subtype);
+    const effectiveO = subtypeO || typeO;
 
-    let where = ['p.price_on_request = 0'];
+    // Раньше тут был фильтр "p.price_on_request = 0" — остался от шага с бюджетом,
+    // которому нужна была реальная цена для сравнения. Бюджет убрали (см. DEFAULT_QUIZ),
+    // а фильтр забыли — из-за него квиз показывал меньше товаров, чем есть в разделе на
+    // сайте (напр. "Мойка с подогревом": 2 в квизе вместо 3 на /catalog, т.к. один товар
+    // "по запросу"). В каталоге такие товары не прячут, просто пишут "Цена по запросу" —
+    // здесь должно быть так же.
+    let where = [];
     let params = [];
     if (bizO && bizO.category) { where.push('c.slug = ?'); params.push(bizO.category); }
-    const build = (extra) => {
-      const w = where.concat(extra.w);
-      return db.allAsync(
+
+    const subcatTreeIds = async (slug) => {
+      const idRows = await db.allAsync(
+        `WITH RECURSIVE tree(id) AS (
+           SELECT id FROM subcategories WHERE slug = ?
+           UNION ALL SELECT s.id FROM subcategories s JOIN tree t ON s.parent_id = t.id
+         ) SELECT id FROM tree`, [slug]);
+      return idRows.map(r => r.id);
+    };
+
+    let products, totalCnt, hasMore;
+
+    if (effectiveO && (effectiveO.specKey || effectiveO.nameKeyword)) {
+      // Характеристика (значения в JSON текстовые и у всех по-разному, напр. "1300 кв.
+      // м/час") и поиск по слову в названии — оба фильтруются в JS, не SQL: у характеристик
+      // нет единого формата для сравнения в запросе, а SQLite LIKE для кириллицы регистро-
+      // зависим ("Бензин" не совпадёт с '%бензин%') — JS-овский toLowerCase() с этим
+      // справляется правильно. Для specKey намеренно БЕЗ отката на более широкую выдачу:
+      // нет характеристики — товар не показываем, не выдумываем число за него (см.
+      // комментарий у "subtype" в DEFAULT_QUIZ).
+      const ids = await subcatTreeIds(effectiveO.scopeSubcategory);
+      let rows = [];
+      if (ids.length) {
+        const inList = ids.map(() => '?').join(',');
+        rows = await db.allAsync(
+          `SELECT * FROM products WHERE subcategory_id IN (${inList})`, ids);
+      }
+      const matched = rows.filter(p => {
+        if (effectiveO.nameKeyword) {
+          return String(p.name || '').toLowerCase().includes(effectiveO.nameKeyword.toLowerCase());
+        }
+        let specs = {}; try { specs = JSON.parse(p.specs || '{}'); } catch {}
+        const raw = specs[effectiveO.specKey];
+        const m = raw && String(raw).match(/[\d.]+/);
+        if (!m) return false;
+        const val = parseFloat(m[0]);
+        if (effectiveO.specMin != null && val < effectiveO.specMin) return false;
+        if (effectiveO.specMax != null && val > effectiveO.specMax) return false;
+        return true;
+      });
+      // Как в каталоге: товары со значком ("Хит продаж" и т.п.) — в начале списка.
+      const isFeatured = p => p.featured && p.featured !== '[]';
+      matched.sort((a, b) => (isFeatured(b) - isFeatured(a)) || (a.sort_order - b.sort_order) || (b.id - a.id));
+      totalCnt = matched.length;
+      const pageIds = matched.slice(offset, offset + PAGE_SIZE).map(p => p.id);
+      products = pageIds.length ? await db.allAsync(
+        `SELECT p.*, c.name as category_name, c.slug as category_slug FROM products p JOIN categories c ON p.category_id=c.id
+         WHERE p.id IN (${pageIds.map(() => '?').join(',')})`, pageIds) : [];
+      const orderIdx = new Map(pageIds.map((id, i) => [id, i]));
+      products.sort((a, b) => orderIdx.get(a.id) - orderIdx.get(b.id));
+      hasMore = offset + products.length < totalCnt;
+    } else {
+      // Подкатегория может быть вложенной (напр. "Пылеводососы" внутри "Пылесосы"), поэтому
+      // матчим по всему поддереву, как и в обычном каталоге — и заодно учитываем товары,
+      // привязанные к ней как к дополнительной категории (product_extra_categories).
+      let subW = [], subP = [];
+      if (effectiveO && effectiveO.subcategory) {
+        const ids = await subcatTreeIds(effectiveO.subcategory);
+        if (ids.length) {
+          const inList = ids.map(() => '?').join(',');
+          subW.push(`(p.subcategory_id IN (${inList}) OR p.id IN (
+            SELECT product_id FROM product_extra_categories WHERE subcategory_id IN (${inList})
+          ))`);
+          subP.push(...ids, ...ids);
+        }
+      } else if (effectiveO && effectiveO.nameKeyword) {
+        // Нет отдельной подкатегории под это (напр. "автономные/бензиновые" у АВД) —
+        // ищем по слову в названии, в пределах родительской подкатегории.
+        const ids = await subcatTreeIds(effectiveO.scopeSubcategory);
+        if (ids.length) {
+          const inList = ids.map(() => '?').join(',');
+          subW.push(`p.subcategory_id IN (${inList}) AND p.name LIKE ?`);
+          subP.push(...ids, '%' + effectiveO.nameKeyword + '%');
+        }
+      }
+
+      // Без бюджета как фильтра нечего "ослаблять" постранично — вместо этого решаем один
+      // раз, по какому набору условий вообще штатно пагинируем — по точному совпадению или
+      // по всей категории. Порог — "хотя бы 1": даже единственный точный результат честнее
+      // и полезнее, чем десятки случайных из всей категории ради круглого числа (напр. у
+      // "Промышленный пылесос" всего 1 реальный товар — лучше показать его одного, чем
+      // вперемешку с пеногенераторами). Широкая категория — только если совпадений вообще нет.
+      const whereNarrow = where.concat(subW).join(' AND ');
+      const countRow = await db.getAsync(
+        `SELECT COUNT(*) as cnt FROM products p JOIN categories c ON p.category_id=c.id WHERE ${whereNarrow}`,
+        params.concat(subP));
+      const useNarrow = countRow.cnt >= 1;
+      const finalWhere = useNarrow ? whereNarrow : where.join(' AND ');
+      const finalParams = useNarrow ? params.concat(subP) : params;
+      const totalRow = useNarrow ? countRow : await db.getAsync(
+        `SELECT COUNT(*) as cnt FROM products p JOIN categories c ON p.category_id=c.id WHERE ${finalWhere}`, finalParams);
+
+      products = await db.allAsync(
         `SELECT p.*, c.name as category_name, c.slug as category_slug
          FROM products p JOIN categories c ON p.category_id=c.id
-         WHERE ${w.join(' AND ')} ORDER BY p.featured DESC, p.price DESC LIMIT 3`,
-        params.concat(extra.p));
-    };
-    const perfW = [], perfP = [];
-    if (loadO && loadO.perfMin) { perfW.push('(p.perf IS NULL OR p.perf >= ?)'); perfP.push(loadO.perfMin); }
-    if (loadO && loadO.perfMax) { perfW.push('(p.perf IS NULL OR p.perf <= ?)'); perfP.push(loadO.perfMax); }
-    const priceW = [], priceP = [];
-    if (budgetO && budgetO.priceMin) { priceW.push('p.price >= ?'); priceP.push(budgetO.priceMin); }
-    if (budgetO && budgetO.priceMax) { priceW.push('p.price <= ?'); priceP.push(budgetO.priceMax); }
+         WHERE ${finalWhere} ORDER BY (p.featured IS NOT NULL AND p.featured != '[]') DESC, p.sort_order ASC, p.id DESC LIMIT ? OFFSET ?`,
+        finalParams.concat([PAGE_SIZE, offset]));
+      totalCnt = totalRow.cnt;
+      hasMore = offset + products.length < totalCnt;
+    }
 
-    let products = await build({ w: [...perfW, ...priceW], p: [...perfP, ...priceP] });
-    if (products.length < 2) products = await build({ w: priceW, p: priceP });   // ослабляем поток
-    if (products.length < 2) products = await build({ w: [], p: [] });           // только категория
-    res.json({ products, criteria: { biz: bizO, load: loadO, budget: budgetO } });
+    res.json({
+      products, criteria: { biz: bizO, type: typeO, subtype: subtypeO },
+      total: totalCnt, hasMore,
+    });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -332,6 +440,11 @@ app.get('/api/products/:id', async (req, res) => {
 
     // готовые SEO-мета (единый источник — seo.js); клиент их берёт при SPA-навигации
     product.seo = seo.productMeta(product);
+
+    // Категории, где товар виден дополнительно к своей основной (canonical) — см.
+    // product_extra_categories. Нужно только для формы редактирования в админке.
+    product.extra_categories = await db.allAsync(
+      'SELECT category_id, subcategory_id FROM product_extra_categories WHERE product_id = ?', [product.id]);
 
     // Галерея: главное изображение (icon) + дополнительные (images), без дублей
     let extra = [];
@@ -362,7 +475,7 @@ app.get('/api/products/:id', async (req, res) => {
         `SELECT ${briefCols} FROM products p JOIN categories c ON p.category_id=c.id
          WHERE p.category_id = ? AND p.id != ?
            ${product.price ? 'AND ((p.price BETWEEN ? AND ?) OR p.price_on_request=1)' : ''}
-         ORDER BY p.featured DESC, ABS(COALESCE(p.perf,0) - ?) ASC, p.id LIMIT 4`,
+         ORDER BY (p.featured IS NOT NULL AND p.featured != '[]') DESC, ABS(COALESCE(p.perf,0) - ?) ASC, p.id LIMIT 4`,
         product.price ? [product.category_id, product.id, lo, hi, product.perf || 0]
                       : [product.category_id, product.id, product.perf || 0]);
     }
@@ -386,7 +499,7 @@ app.post('/api/kp/download', async (req, res) => {
 
     await db.runAsync('INSERT INTO kp_leads (product_id, phone) VALUES (?, ?)', [productId, phone]);
     const s = await getSettings();
-    kp.buildProductKpPdf(res, product, s.kp || {});
+    await kp.buildProductKpPdf(res, product, s.kp || {});
   } catch (e) {
     console.error('kp/download:', e);
     if (!res.headersSent) res.status(500).json({ error: e.message }); else res.end();
@@ -833,7 +946,7 @@ const DIFF_FIELDS = {
     name: 'Название', article: 'Артикул', brand: 'Бренд',
     category_id: 'Категория (id)', subcategory_id: 'Подкатегория (id)',
     price: 'Цена', price_on_request: { label: 'Цена по запросу', bool: true },
-    in_stock: { label: 'В наличии', bool: true }, featured: { label: 'Хит продаж', bool: true },
+    in_stock: { label: 'В наличии', bool: true }, featured: 'Значок на карточке',
     subtitle: 'Подзаголовок', description: 'Описание',
     perf: 'Производительность', perf_unit: 'Ед. произв.', subtype: 'Тип',
     youtube: 'Видео', icon: 'Иконка',
@@ -1185,11 +1298,21 @@ app.get('/api/admin/products', adminAuth, async (req, res) => {
     const offset = (page - 1) * limit;
     let where = [];
     let params = [];
+    let subcategoryIds = [];
     if (search) {
       where.push('(p.name LIKE ? OR p.article LIKE ?)');
       params.push(`%${search}%`, `%${search}%`);
     }
-    if (category) { where.push('p.category_id = ?'); params.push(Number(category)); }
+    // Товар виден в категории/подкатегории либо как в своей "родной" (category_id/
+    // subcategory_id), либо как дополнительно привязанный (product_extra_categories) —
+    // в админском списке/сортировке он должен появляться в обоих случаях, иначе Мира не
+    // увидит его там, где сама же его добавила.
+    if (category) {
+      where.push(`(p.category_id = ? OR p.id IN (
+        SELECT product_id FROM product_extra_categories WHERE category_id = ?
+      ))`);
+      params.push(Number(category), Number(category));
+    }
     if (subcategory) {
       // Как на сайте: подкатегория показывает товары и из своих вложенных подкатегорий —
       // иначе порядок в админке управлял бы только частью того, что видно на странице.
@@ -1198,22 +1321,40 @@ app.get('/api/admin/products', adminAuth, async (req, res) => {
            SELECT id FROM subcategories WHERE id = ?
            UNION ALL SELECT s.id FROM subcategories s JOIN tree t ON s.parent_id = t.id
          ) SELECT id FROM tree`, [Number(subcategory)]);
-      const ids = idRows.map(r => r.id);
-      where.push('p.subcategory_id IN (' + (ids.length ? ids.map(() => '?').join(',') : 'NULL') + ')');
-      params.push(...ids);
+      subcategoryIds = idRows.map(r => r.id);
+      const inList = subcategoryIds.length ? subcategoryIds.map(() => '?').join(',') : 'NULL';
+      where.push(`(p.subcategory_id IN (${inList}) OR p.id IN (
+        SELECT product_id FROM product_extra_categories WHERE subcategory_id IN (${inList})
+      ))`);
+      params.push(...subcategoryIds, ...subcategoryIds);
     }
     const whereStr = where.length ? 'WHERE ' + where.join(' AND ') : '';
     // Порядок перетаскиванием осмыслен только внутри одной подкатегории — там же
     // отдаём сразу все товары без постраничной разбивки, чтобы drag-and-drop видел весь список.
+    // Важно: sort_order у товара один на все категории, где он показан (своя и
+    // дополнительные) — если потащить мышью товар, добавленный сюда как дополнительный,
+    // это может сдвинуть его позицию и в его родной категории тоже.
     const noPaging = !!subcategory;
     const countRow = await db.getAsync(`SELECT COUNT(*) as cnt FROM products p ${whereStr}`, params);
+    // Помечаем строки, которые попали в список не по своей "родной" категории/подкатегории,
+    // а по дополнительной привязке — чтобы в таблице можно было показать отметку об этом.
+    const selectExtra = [];
+    const selectParams = [];
+    if (category) { selectExtra.push('(p.category_id != ?) AS is_extra_category'); selectParams.push(Number(category)); }
+    else selectExtra.push('0 AS is_extra_category');
+    if (subcategory) {
+      const inList = subcategoryIds.length ? subcategoryIds.map(() => '?').join(',') : 'NULL';
+      selectExtra.push(`(p.subcategory_id NOT IN (${inList}) OR p.subcategory_id IS NULL) AS is_extra_subcategory`);
+      selectParams.push(...subcategoryIds);
+    } else selectExtra.push('0 AS is_extra_subcategory');
     const rows = await db.allAsync(
-      `SELECT p.*, c.name as category_name, sc.name as subcategory_name FROM products p
+      `SELECT p.*, c.name as category_name, sc.name as subcategory_name, ${selectExtra.join(', ')}
+       FROM products p
        JOIN categories c ON p.category_id=c.id
        LEFT JOIN subcategories sc ON p.subcategory_id=sc.id
        ${whereStr} ORDER BY p.sort_order ASC, p.id DESC
        ${noPaging ? '' : 'LIMIT ? OFFSET ?'}`,
-      noPaging ? params : [...params, Number(limit), Number(offset)]
+      noPaging ? [...selectParams, ...params] : [...selectParams, ...params, Number(limit), Number(offset)]
     );
     res.json({ total: countRow.cnt, products: rows });
   } catch (e) {
@@ -1245,6 +1386,20 @@ function partialUpdate(cols, body) {
   return { sets, params };
 }
 
+// Товар может быть дополнительно виден ещё в каких-то категориях/подкатегориях, помимо
+// своей canonical (products.category_id/subcategory_id) — без дублирования карточки.
+// Сохраняем списком "как есть" с нуля — проще и надёжнее, чем вычислять diff.
+async function saveExtraCategories(productId, list) {
+  await db.runAsync('DELETE FROM product_extra_categories WHERE product_id = ?', [productId]);
+  for (const r of (Array.isArray(list) ? list : [])) {
+    if (!r || !r.category_id) continue;
+    await db.runAsync(
+      'INSERT INTO product_extra_categories (product_id, category_id, subcategory_id) VALUES (?, ?, ?)',
+      [productId, r.category_id, r.subcategory_id || null]
+    );
+  }
+}
+
 app.post('/api/admin/products', adminAuth, async (req, res) => {
   try {
     const b = req.body;
@@ -1254,12 +1409,13 @@ app.post('/api/admin/products', adminAuth, async (req, res) => {
                              seo_title, seo_description, contact_primary)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [b.category_id, b.name, b.article || '', b.brand || '', b.description || '', b.price || 0,
-       b.price_on_request ? 1 : 0, b.icon || null, b.in_stock ? 1 : 0, b.featured ? 1 : 0, b.specs || '{}',
+       b.price_on_request ? 1 : 0, b.icon || null, b.in_stock ? 1 : 0, jsonArr(b.featured), b.specs || '{}',
        b.subtype || null, b.perf || null, b.perf_unit || 'ед./час', jsonArr(b.related_ids), jsonArr(b.bundle_ids),
        b.youtube || null, b.subtitle || null, jsonArr(b.images), b.subcategory_id || null,
        (b.seo_title || '').trim() || null, (b.seo_description || '').trim() || null,
        (b.contact_primary === '1' || b.contact_primary === '2') ? b.contact_primary : null]
     );
+    if (b.extra_categories !== undefined) await saveExtraCategories(result.lastID, b.extra_categories);
     res.json({ success: true, id: result.lastID });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -1282,7 +1438,7 @@ app.put('/api/admin/products/:id', adminAuth, async (req, res) => {
       price_on_request: v => (v ? 1 : 0),
       icon: v => v || null,
       in_stock: v => (v ? 1 : 0),
-      featured: v => (v ? 1 : 0),
+      featured: v => jsonArr(v),
       specs: v => v || '{}',
       subtype: v => v || null,
       perf: v => v || null,
@@ -1296,8 +1452,8 @@ app.put('/api/admin/products/:id', adminAuth, async (req, res) => {
       seo_description: v => (v || '').trim() || null,
       contact_primary: v => (v === '1' || v === '2') ? v : null,
     }, b);
-    if (!sets.length) return res.json({ success: true });
-    await db.runAsync(`UPDATE products SET ${sets.join(', ')} WHERE id = ?`, [...params, req.params.id]);
+    if (sets.length) await db.runAsync(`UPDATE products SET ${sets.join(', ')} WHERE id = ?`, [...params, req.params.id]);
+    if (b.extra_categories !== undefined) await saveExtraCategories(req.params.id, b.extra_categories);
     res.json({ success: true });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -1348,7 +1504,11 @@ app.get('/api/admin/categories', adminAuth, async (req, res) => {
   try {
     res.json(await db.allAsync(
       `SELECT c.*,
-              (SELECT COUNT(*) FROM products p WHERE p.category_id = c.id) as product_count,
+              (SELECT COUNT(DISTINCT pid) FROM (
+                 SELECT id AS pid FROM products WHERE category_id = c.id
+                 UNION
+                 SELECT product_id AS pid FROM product_extra_categories WHERE category_id = c.id
+               )) as product_count,
               (SELECT COUNT(*) FROM subcategories s WHERE s.category_id = c.id) as subcat_count
        FROM categories c ORDER BY c.id`));
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -1403,7 +1563,11 @@ app.get('/api/admin/subcategories', adminAuth, async (req, res) => {
     res.json(await db.allAsync(
       `SELECT s.*, c.name as category_name, c.slug as category_slug,
               par.name AS parent_name,
-              (SELECT COUNT(*) FROM products p WHERE p.subcategory_id = s.id) as product_count
+              (SELECT COUNT(DISTINCT pid) FROM (
+                 SELECT id AS pid FROM products p WHERE p.subcategory_id = s.id
+                 UNION
+                 SELECT product_id AS pid FROM product_extra_categories WHERE subcategory_id = s.id
+               )) as product_count
        FROM subcategories s JOIN categories c ON s.category_id = c.id
        LEFT JOIN subcategories par ON s.parent_id = par.id
        ORDER BY s.category_id, s.sort, s.name`));
@@ -1467,6 +1631,7 @@ app.get('/api/admin/products-lite', adminAuth, async (req, res) => {
 app.delete('/api/admin/products/:id', adminAuth, async (req, res) => {
   try {
     await db.runAsync('DELETE FROM products WHERE id=?', [req.params.id]);
+    await db.runAsync('DELETE FROM product_extra_categories WHERE product_id=?', [req.params.id]);
     res.json({ success: true });
   } catch (e) {
     res.status(500).json({ error: e.message });

@@ -50,6 +50,11 @@ window.toggleCompare = function () {};
 // а сама страница/переход при этом всё равно отработают.
 window.setUrl = window.setUrl || function () {};
 window.replaceUrl = window.replaceUrl || function () {};
+// Заглушка для heroStep — стрелки баннера на главной тоже рисуются сразу в HTML
+// (partial:hero), а саму функцию назначает initHeroSlider() внутри site.js, которая
+// может ещё не успеть выполниться на медленном интернете. Ничего не делаем вместо
+// ошибки "heroStep is not defined" — настоящая функция подменит эту заглушку сама.
+window.heroStep = window.heroStep || function () {};
 // Заглушка для самого state — карточка использует goPage()/state.page и т.п. до того,
 // как ниже в файле выполнится "let state = {...}". Пустой объект той же формы вместо
 // "state is not defined" — настоящий state ниже его полностью затенит (let это умеет).
@@ -225,6 +230,22 @@ function replaceUrl(url) {
 }
 // ---- ЧПУ ----
 const _TRANSLIT = { а:'a',б:'b',в:'v',г:'g',д:'d',е:'e',ё:'e',ж:'zh',з:'z',и:'i',й:'y',к:'k',л:'l',м:'m',н:'n',о:'o',п:'p',р:'r',с:'s',т:'t',у:'u',ф:'f',х:'h',ц:'c',ч:'ch',ш:'sh',щ:'sch',ъ:'',ы:'y',ь:'',э:'e',ю:'yu',я:'ya' };
+// Значки на карточке товара — товар может нести сразу несколько (напр. и "Хит продаж",
+// и "Выгодная цена"), хранятся в p.featured JSON-массивом ключей, тем же способом, что
+// related_ids/bundle_ids/images (см. тот же список в seo.js — там SSR-дубликат карточки,
+// и в админке в чекбоксах fFeatured).
+const BADGES = {
+  hit: '⭐ Хит продаж',
+  best: '🏆 Лучшая покупка',
+  recommend: '👍 Рекомендуем',
+  deal: '💰 Выгодная цена',
+};
+function featuredBadgesHtml(p) {
+  let keys = [];
+  try { keys = Array.isArray(p.featured) ? p.featured : JSON.parse(p.featured || '[]'); } catch (e) {}
+  if (!keys.length) return '';
+  return `<div class="card-badges">${keys.map(k => BADGES[k] ? `<span class="badge-hit badge-c-${k}">${BADGES[k]}</span>` : '').join('')}</div>`;
+}
 function slugName(s) {
   return String(s || '').toLowerCase()
     .replace(/[а-яё]/g, c => (_TRANSLIT[c] != null ? _TRANSLIT[c] : c))
@@ -351,7 +372,6 @@ function handleRoute() {
     if (location.hash === '#catalog') { showCatalog('all'); return; }
     if (location.hash === '#favorites') { showFavorites(); return; }
     if (location.hash === '#quiz') { openQuiz(); return; }
-    if (location.hash === '#consult') { scrollToConsult(); return; }
     if (location.hash === '#cart') {
       if (!document.getElementById('cartPanel').classList.contains('open')) toggleCart();
       return;
@@ -533,14 +553,15 @@ async function showHome() {
 }
 
 const SEO_CAT_TITLE = {
-  avtomojka: 'Оборудование для автомойки — купить в Казахстане | SIGMA MARKET',
-  sto: 'Оборудование для СТО и автосервиса — купить в Казахстане | SIGMA MARKET',
-  klining: 'Оборудование для клининга — купить в Казахстане | SIGMA MARKET',
+  avtomojka: 'Оборудование для автомойки купить в Казахстане | SIGMA MARKET',
+  sto: 'Оборудование для СТО и автосервиса купить в Казахстане | SIGMA MARKET',
+  klining: 'Оборудование для клининга купить в Казахстане | SIGMA MARKET',
 };
+
 const SEO_CAT_DESC = {
-  avtomojka: 'Оборудование для автомоек: аппараты высокого давления, пеногенераторы, системы очистки и оборотного водоснабжения, пылесосы, сушка. Поставка и монтаж по Казахстану.',
-  sto: 'Оборудование для СТО и автосервиса: подъёмники, шиномонтаж, компрессоры, пневмоинструмент, оборудование для смазки и замены жидкостей. Поставка и сервис по Казахстану.',
-  klining: 'Профессиональное клининговое оборудование: поломоечные и подметальные машины, профессиональные пылесосы, аппараты высокого давления. Поставка и обслуживание по Казахстану.',
+  avtomojka: 'Профессиональное оборудование для автомоек: автоматические и роботизированные мойки, АВД, пылесосы и системы очистки воды. Поставка, монтаж и сервис по Казахстану.',
+  sto: 'Профессиональное оборудование для СТО и автосервиса: подъёмники, компрессоры, шиномонтажное и пневматическое оборудование. Поставка, монтаж и сервис по Казахстану.',
+  klining: 'Профессиональное клининговое оборудование: поломоечные и подметальные машины, пылесосы и аппараты высокого давления. Поставка и сервис по Казахстану.',
 };
 function applyCatalogMeta() {
   const sub = state.filters.subcat || [];
@@ -550,8 +571,8 @@ function applyCatalogMeta() {
       setMeta('Поиск: ' + state.search + ' — SIGMA MARKET',
         'Результаты поиска по каталогу SIGMA MARKET.', '/catalog', 'noindex, follow');
     } else {
-      setMeta('Каталог оборудования — SIGMA MARKET',
-        'Каталог профессионального оборудования SIGMA MARKET: для автомоек, СТО и клининга. Поставка и монтаж по Казахстану.',
+      setMeta('Оборудование для автомоек, СТО и клининга в Казахстане | SIGMA MARKET',
+        'Профессиональное оборудование для автомоек, СТО и клининга в Казахстане. Подбор, поставка, монтаж, пусконаладка и сервис | SIGMA MARKET.',
         '/catalog');
     }
     return;
@@ -572,7 +593,7 @@ function applyCatalogMeta() {
         : seoClip(subName + ' — ' + cat.name + '. Поставка, монтаж и сервис по Казахстану от SIGMA MARKET.', 175))
     : (cat.seo_description ? seoRaw(cat.seo_description)
         : (SEO_CAT_DESC[cat.slug]
-        || seoClip(cat.name + '. Профессиональное оборудование от SIGMA MARKET. Поставка по Казахстану.', 175)));
+        || seoClip(cat.name + '. Профессиональное оборудование для автомоек, СТО и клининга в Казахстане от SIGMA MARKET. Поставка по Казахстану.', 175)));
   // Несколько подкатегорий сразу — комбинация фильтров: не индексируем, canonical на категорию
   const multiSub = sub.length > 1;
   setMeta(title, desc, multiSub ? '/catalog/' + cat.slug : catalogUrl(), multiSub ? 'noindex, follow' : undefined);
@@ -1000,10 +1021,11 @@ function cardHtml(p) {
     ? `<button class="card-fav${favOn?' on':''}" title="В избранное" onclick="event.stopPropagation();toggleFav(${p.id})">${favOn?'♥':'♡'}</button>` : '';
   const cmpBtn = state.settings.compare !== false
     ? `<label class="card-compare" onclick="event.stopPropagation()"><input type="checkbox" ${cmpOn?'checked':''} onchange="toggleCompare(${p.id})"> Сравнить</label>` : '';
+  const badgesHtml = featuredBadgesHtml(p);
 
-  return `<div class="product-card${p.featured?' featured':''}" onclick="openModal(${p.id})">
+  return `<div class="product-card${badgesHtml?' featured':''}" onclick="openModal(${p.id})">
     <div class="card-img-wrap">
-      ${p.featured ? '<span class="badge-hit">⭐ Хит продаж</span>' : ''}
+      ${badgesHtml}
       ${favBtn}
       ${imgHtml}
     </div>
@@ -1137,6 +1159,7 @@ async function submitOrder() {
       useBonus: cartBonusToUse(total)
     });
     if (res.success) {
+      if (window.gtag) gtag('event', 'conversion', { send_to: 'AW-18370364758/qC2TCOi2vIsdENaK1rdE' });
       showToast('✅ Заявка отправлена! ' + window.contactSoonText(),'green');
       state.cart=[]; saveCart();
       const cb = document.getElementById('cartUseBonus'); if (cb) cb.checked = false;
@@ -1294,41 +1317,81 @@ function openQuiz() {
   document.getElementById('quizModal').classList.add('open');
 }
 function closeQuiz() { document.getElementById('quizModal').classList.remove('open'); }
+// Шаг может ветвиться по ответу на предыдущий (branchBy/optionsByBranch) — свой набор
+// вариантов на каждый выбор бизнеса, вместо одного общего списка (step.options).
+function quizStepOptions(step) {
+  if (step.options) return step.options;
+  if (step.optionsByBranch) return step.optionsByBranch[quizAns[step.branchBy]] || [];
+  return [];
+}
 function renderQuizStep(i) {
   const q = state.settings.quiz;
   const step = q.steps[i];
   const total = q.steps.length;
+  const options = quizStepOptions(step);
   document.getElementById('quizBody').innerHTML = `
     <div class="quiz-progress">${q.steps.map((s, n) => `<span class="${n <= i ? 'on' : ''}"></span>`).join('')}</div>
     <div class="quiz-step-label">Шаг ${i + 1} из ${total}</div>
     <h3 class="modal-name">${step.label}</h3>
     <div class="quiz-options">
-      ${step.options.map(o => `<button class="quiz-opt" onclick="quizPick('${step.key}','${o.id}',${i})">${o.label}</button>`).join('')}
+      ${options.map(o => `<button class="quiz-opt" onclick="quizPick('${step.key}','${o.id}',${i})">${o.label}</button>`).join('')}
     </div>
     ${i > 0 ? `<button class="quiz-back" onclick="renderQuizStep(${i - 1})">← Назад</button>` : ''}`;
 }
 function quizPick(key, id, i) {
   quizAns[key] = id;
   const q = state.settings.quiz;
-  if (i + 1 < q.steps.length) renderQuizStep(i + 1);
-  else quizSubmit();
+  // Не у каждого ответа есть следующий шаг (напр. у "Пылеводосос" выбор уже закончен,
+  // а у "Аппараты высокого давления" есть ещё уточнение) — ищем ближайший шаг дальше,
+  // у которого реально есть варианты для уже выбранного пути, иначе сразу к результатам.
+  for (let j = i + 1; j < q.steps.length; j++) {
+    if (quizStepOptions(q.steps[j]).length) { renderQuizStep(j); return; }
+  }
+  quizSubmit();
 }
-async function quizSubmit() {
-  document.getElementById('quizBody').innerHTML = '<div class="spinner"><div class="spin"></div>&nbsp; Подбираем…</div>';
-  const res = await apiFetch('/api/products/quiz', 'POST', quizAns);
-  const list = res.products || [];
+// Результаты квиза — с пагинацией ("Ещё") и возможностью отметить "Сравнить" прямо
+// в списке подбора, как на обычных карточках каталога (см. toggleCompare/compareIds).
+let quizResults = [];
+let quizHasMore = false;
+let quizTotal = 0;
+function quizResultCardHtml(p) {
+  const cmpOn = compareIds.includes(p.id);
+  return `<div class="quiz-result-card" onclick="closeQuiz()">
+    ${miniCard(p)}
+    <label class="card-compare" onclick="event.stopPropagation()"><input type="checkbox" ${cmpOn?'checked':''} onchange="toggleCompare(${p.id})"> Сравнить</label>
+  </div>`;
+}
+function renderQuizResults() {
+  const left = quizTotal - quizResults.length;
   document.getElementById('quizBody').innerHTML = `
-    <h3 class="modal-name">${list.length ? 'Рекомендуем для вас' : 'Не нашли точного совпадения'}</h3>
-    <p class="quiz-step-label">${list.length ? 'Подобрано по вашим ответам. Уточните детали у менеджера.' : 'Оставьте заявку — подберём вручную.'}</p>
-    <div class="mini-row">${list.map(miniCard).join('')}</div>
+    <h3 class="modal-name">${quizResults.length ? 'Рекомендуем для вас' : 'Не нашли точного совпадения'}</h3>
+    <p class="quiz-step-label">${quizResults.length ? 'Подобрано по вашим ответам. Уточните детали у менеджера.' : 'Оставьте заявку — подберём вручную.'}</p>
+    <div class="mini-row" id="quizResultsGrid">${quizResults.map(quizResultCardHtml).join('')}</div>
     <div class="quiz-result-actions">
-      <button class="btn-catalog" onclick="closeQuiz();scrollToConsult()">Получить консультацию</button>
+      ${quizHasMore ? `<button class="btn-catalog" id="quizMoreBtn" onclick="quizLoadMore()">Показать ещё${left > 0 ? ' (' + Math.min(left, 8) + ')' : ''}</button>` : ''}
       <button class="quiz-back" onclick="quizAns={};renderQuizStep(0)">Пройти заново</button>
     </div>`;
 }
+async function quizSubmit() {
+  document.getElementById('quizBody').innerHTML = '<div class="spinner"><div class="spin"></div>&nbsp; Подбираем…</div>';
+  const res = await apiFetch('/api/products/quiz', 'POST', Object.assign({}, quizAns, { offset: 0 }));
+  quizResults = res.products || [];
+  quizHasMore = !!res.hasMore;
+  quizTotal = res.total || quizResults.length;
+  renderQuizResults();
+}
+async function quizLoadMore() {
+  const btn = document.getElementById('quizMoreBtn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Загрузка…'; }
+  const res = await apiFetch('/api/products/quiz', 'POST', Object.assign({}, quizAns, { offset: quizResults.length }));
+  quizResults = quizResults.concat(res.products || []);
+  quizHasMore = !!res.hasMore;
+  quizTotal = res.total || quizTotal;
+  renderQuizResults();
+}
 
 // ===== UTILS =====
-// toggleDrawer/closeDrawer, toggleSearch, scrollToConsult, submitConsult,
+// toggleDrawer/closeDrawer, toggleSearch,
 // showToast, apiFetch, formatPrice — в /js/site.js (общие для всех страниц)
 function getCatEmoji(slug) {
   return {avtomoyki:'🚗',sto:'🔧',klining:'🧹',voda:'💧',aksessuary:'⚙️',promyshlennoe:'🏭'}[slug]||'📦';

@@ -439,35 +439,6 @@
     ov.classList.add('open');
   };
 
-  /* ---------- ФОРМА КОНСУЛЬТАЦИИ ---------- */
-  window.scrollToConsult = function () {
-    var s = $('consultSection');
-    if (s) s.scrollIntoView({ behavior: 'smooth' });
-    else window.location.href = '/#consult';
-  };
-  window.submitConsult = async function () {
-    var nameEl = $('cName'), phoneEl = $('cPhone');
-    if (!nameEl || !phoneEl) return;
-    if (!nameEl.reportValidity() || !phoneEl.reportValidity()) return;
-    var name = nameEl.value.trim();
-    var phone = phoneEl.value.trim();
-    if (!window.isValidPhone(phone)) { window.showToast('⚠️ Введите корректный номер телефона'); return; }
-    try {
-      var res = await window.apiFetch('/api/orders', 'POST', {
-        name: name,
-        phone: phone,
-        email: ($('cEmail') && $('cEmail').value.trim()) || '',
-        city: ($('cCity') && $('cCity').value.trim()) || '',
-        message: 'Запрос консультации — ' + document.title,
-        items: '[]'
-      });
-      if (res && res.success) {
-        window.showToast('✅ Заявка принята! ' + window.contactSoonText(), 'green');
-        ['cName', 'cPhone', 'cCity', 'cEmail'].forEach(function (id) { if ($(id)) $(id).value = ''; });
-      }
-    } catch (e) { window.logClientError(e && (e.message || e), 'submitConsult'); window.showToast('❌ Ошибка. Попробуйте ещё раз.'); }
-  };
-
   /* ---------- ГЕРОЙ-СЛАЙДЕР ---------- */
   // Кнопка слайда: если открыт SPA каталога (index) — переключаем вид без перезагрузки,
   // иначе даём ссылке отработать обычным переходом на "/?category=...".

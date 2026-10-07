@@ -148,6 +148,14 @@
           <tbody id="statsRecentTbody"></tbody>
         </table></div>
       </div>
+      <div class="card" style="padding:28px;max-width:820px;margin-top:20px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+          <h3>Заявки на КП (подтверждённые телефоны)</h3>
+          <button class="action-btn" onclick="loadKpLeads()">↺ Обновить</button>
+        </div>
+        <p style="color:var(--muted);font-size:13px;margin-bottom:14px">Клиенты, которые ввели и подтвердили номер, чтобы скачать КП — даже если заявку потом не оставили.</p>
+        <div id="kpLeadsList" style="color:var(--muted);font-size:13px">Загрузка…</div>
+      </div>
     </div>
 
     <!-- PRODUCTS -->
@@ -374,15 +382,6 @@
 
       <div class="card" style="padding:28px;max-width:820px;margin-top:20px">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-          <h3>Заявки на КП (подтверждённые телефоны)</h3>
-          <button class="action-btn" onclick="loadKpLeads()">↺ Обновить</button>
-        </div>
-        <p style="color:var(--muted);font-size:13px;margin-bottom:14px">Клиенты, которые ввели и подтвердили номер, чтобы скачать КП — даже если заявку потом не оставили.</p>
-        <div id="kpLeadsList" style="color:var(--muted);font-size:13px">Загрузка…</div>
-      </div>
-
-      <div class="card" style="padding:28px;max-width:820px;margin-top:20px">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
           <h3>Квиз-подбор оборудования</h3>
           <button class="action-btn" onclick="resetQuiz()">↺ Сбросить к стандартному</button>
         </div>
@@ -393,7 +392,9 @@
           <label>Шаги и варианты (JSON)</label>
           <textarea id="quiz-steps" style="font-family:monospace;font-size:12px;min-height:280px"></textarea>
           <p style="color:var(--muted);font-size:12px;margin-top:6px">
-            Каждый вариант ответа: <code>category</code> — slug категории; <code>perfMin</code>/<code>perfMax</code> — диапазон производительности; <code>priceMin</code>/<code>priceMax</code> — бюджет, ₸. По ответам сайт подбирает 2–3 товара.
+            Каждый вариант ответа: <code>category</code> — slug категории; <code>subcategory</code> — slug подкатегории; <code>priceMin</code>/<code>priceMax</code> — бюджет, ₸.
+            Шаг может ветвиться по предыдущему ответу вместо общего списка <code>options</code> — тогда у него <code>branchBy</code> (ключ предыдущего шага) и <code>optionsByBranch</code> (объект: id ответа предыдущего шага → свой список вариантов).
+            По ответам сайт подбирает 2–3 товара.
           </p>
         </div>
         <div class="form-actions" style="justify-content:flex-start;margin-top:8px">
@@ -515,6 +516,14 @@
       <div class="fg"><label>Бренд *</label><input id="fBrand"></div>
       <div class="fg"><label>Категория *</label><select id="fCategory" onchange="fillSubcatSelect()"></select></div>
       <div class="fg"><label>Подкатегория</label><select id="fSubcategory"><option value="">— нет —</option></select></div>
+      <div class="fg full"><label>Дополнительные категории <span style="font-weight:400;text-transform:none;color:var(--muted)">— товар будет виден и там тоже, без создания дубликата</span></label>
+        <div id="extraCatList" style="display:flex;flex-direction:column;gap:6px;margin-bottom:8px"></div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <select id="fExtraCategory" style="flex:1" onchange="fillExtraSubcatSelect()"></select>
+          <select id="fExtraSubcategory" style="flex:1"><option value="">— нет —</option></select>
+          <button type="button" class="action-btn" onclick="addExtraCategory()">＋ Добавить</button>
+        </div>
+      </div>
       <div class="fg"><label>Цена (тенге)</label><input id="fPrice" type="number" placeholder="0"></div>
       <div class="fg full"><label>Изображения товара <span style="font-weight:400;text-transform:none;color:var(--muted)">— первое = главное</span></label>
         <div class="img-manager" id="imgManager">
@@ -559,9 +568,14 @@
         <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
           <input type="checkbox" id="fRequest"> Цена по запросу
         </label>
-        <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
-          <input type="checkbox" id="fFeatured"> Хит продаж ⭐
-        </label>
+        <div class="fg" style="margin-top:2px"><label>Значки на карточке <span style="font-weight:400;text-transform:none;color:var(--muted)">— можно несколько сразу</span></label>
+          <div id="fFeatured" style="display:flex;flex-wrap:wrap;gap:12px;margin-top:6px">
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:400"><input type="checkbox" value="hit"> ⭐ Хит продаж</label>
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:400"><input type="checkbox" value="best"> 🏆 Лучшая покупка</label>
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:400"><input type="checkbox" value="recommend"> 👍 Рекомендуем</label>
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:400"><input type="checkbox" value="deal"> 💰 Выгодная цена</label>
+          </div>
+        </div>
         <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
           <input type="checkbox" id="fInStock" checked> В наличии
         </label>
@@ -791,6 +805,21 @@
 let token = localStorage.getItem('adminToken') || '';
 let categories = [];
 let subcategories = [];
+// Тот же список значков, что в чекбоксах формы товара (fFeatured) и на самих карточках
+// (public/index.html, seo.js) — здесь только иконка, для компактной ячейки в таблице.
+const BADGE_LABELS = { hit: '⭐', best: '🏆', recommend: '👍', deal: '💰' };
+// Те же цвета, что у значков на самих карточках (public/style.css: badge-c-*) — чтобы
+// в таблице товаров было сразу видно, какой именно значок, а не только что он есть.
+const BADGE_TAG_CLASS = { hit: 'tag-yellow', best: 'tag-green', recommend: 'tag-blue', deal: 'tag-red' };
+// fFeatured — не один select, а несколько чекбоксов (товар может быть сразу и "Хит
+// продаж", и "Выгодная цена") — геттер/сеттер работают со списком отмеченных value.
+function getFeaturedValue() {
+  return Array.from(document.querySelectorAll('#fFeatured input:checked')).map(el => el.value);
+}
+function setFeaturedValue(arr) {
+  const set = new Set(arr || []);
+  document.querySelectorAll('#fFeatured input').forEach(el => { el.checked = set.has(el.value); });
+}
 let editId = null;
 let subcatEditId = null;
 let prodPage = 1;
@@ -972,7 +1001,9 @@ if (token) {
 function fillCatSelect() {
   document.getElementById('fCategory').innerHTML = categories.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
   document.getElementById('scCategory').innerHTML = categories.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+  document.getElementById('fExtraCategory').innerHTML = categories.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
   fillSubcatSelect();
+  fillExtraSubcatSelect();
 }
 function fillSubcatSelect(selectedId) {
   const catId = +document.getElementById('fCategory').value;
@@ -980,6 +1011,44 @@ function fillSubcatSelect(selectedId) {
   const sel = document.getElementById('fSubcategory');
   sel.innerHTML = `<option value="">— нет —</option>` + list.map(s => `<option value="${s.id}">${esc(s.name)}</option>`).join('');
   if (selectedId) sel.value = selectedId;
+}
+
+// ===== ДОПОЛНИТЕЛЬНЫЕ КАТЕГОРИИ ТОВАРА =====
+// Товар остаётся с одной "канонической" категорией (URL, хлебные крошки — fCategory/
+// fSubcategory выше), но может быть ещё виден в других — без дублирования самой карточки
+// (см. product_extra_categories в server.js/queries.js).
+function fillExtraSubcatSelect() {
+  const catId = +document.getElementById('fExtraCategory').value;
+  const list = subcategories.filter(s => s.category_id === catId);
+  document.getElementById('fExtraSubcategory').innerHTML = `<option value="">— нет —</option>` +
+    list.map(s => `<option value="${s.id}">${esc(s.name)}</option>`).join('');
+}
+let extraCatList = [];
+function addExtraCategory() {
+  const category_id = +document.getElementById('fExtraCategory').value;
+  const subcategory_id = +document.getElementById('fExtraSubcategory').value || null;
+  if (!category_id) return;
+  if (extraCatList.some(x => x.category_id === category_id && x.subcategory_id === subcategory_id)) {
+    showToast('Уже добавлено');
+    return;
+  }
+  extraCatList.push({ category_id, subcategory_id });
+  renderExtraCatList();
+}
+function removeExtraCategory(i) { extraCatList.splice(i, 1); renderExtraCatList(); }
+function renderExtraCatList() {
+  const wrap = document.getElementById('extraCatList');
+  if (!extraCatList.length) { wrap.innerHTML = ''; return; }
+  wrap.innerHTML = extraCatList.map((x, i) => {
+    const cat = categories.find(c => c.id === x.category_id);
+    const sub = x.subcategory_id ? subcategories.find(s => s.id === x.subcategory_id) : null;
+    const label = (cat ? esc(cat.name) : '?') + (sub ? ' / ' + esc(sub.name) : '');
+    return `<div style="display:flex;align-items:center;gap:8px;background:var(--bg);padding:6px 10px;border-radius:6px;font-size:13px">
+      <span style="flex:1">${label}</span>
+      <button type="button" onclick="removeExtraCategory(${i})"
+        style="width:22px;height:22px;border:none;border-radius:50%;background:rgba(17,24,39,0.8);color:#fff;font-size:12px;cursor:pointer;line-height:1;display:flex;align-items:center;justify-content:center;flex-shrink:0">✕</button>
+    </div>`;
+  }).join('');
 }
 async function reloadSubcats() {
   try { subcategories = await apiFetch('/api/admin/subcategories'); } catch (e) { subcategories = []; }
@@ -1809,11 +1878,13 @@ async function loadProducts() {
       ${p.article ? `<br><span style="font-size:11px;color:var(--muted)">Арт: ${esc(p.article)}</span>` : ''}
     </td>
     <td>${esc(p.brand||'')}</td>
-    <td>${p.subcategory_name ? `<span class="tag tag-muted">${esc(p.subcategory_name)}</span>` : ''}</td>
-    <td><span class="tag tag-blue">${esc(p.category_name)}</span></td>
+    <td>${p.subcategory_name ? `<span class="tag tag-muted">${esc(p.subcategory_name)}</span>` : ''}
+      ${p.is_extra_subcategory ? `<span class="tag" title="Добавлен в эту подкатегорию как дополнительную — основная указана справа">+доп.</span>` : ''}</td>
+    <td><span class="tag tag-blue">${esc(p.category_name)}</span>
+      ${p.is_extra_category ? `<span class="tag" title="Добавлен в эту категорию как дополнительную">+доп.</span>` : ''}</td>
     <td>${p.price_on_request ? '<span class="tag tag-muted">По запросу</span>' : fmtPrice(p.price)}</td>
     <td><span class="tag ${p.in_stock ? 'tag-green' : 'tag-red'}">${p.in_stock ? 'В наличии' : 'Нет'}</span>
-        ${p.featured ? ' <span class="tag tag-yellow">⭐</span>' : ''}</td>
+        ${(() => { let f = []; try { f = JSON.parse(p.featured || '[]'); } catch (e) {} return f.map(k => BADGE_LABELS[k] ? ` <span class="tag ${BADGE_TAG_CLASS[k] || 'tag-yellow'}">${BADGE_LABELS[k]}</span>` : '').join(''); })()}</td>
     <td>
       <button class="action-btn" onclick="openProductForm(${p.id})">✏️ Ред.</button>
       <button class="action-btn del" onclick="deleteProduct(${p.id})">🗑</button>
@@ -1896,25 +1967,29 @@ async function openProductForm(id = null) {
     document.getElementById('fSeoTitle').value = p.seo_title||'';
     document.getElementById('fSeoDesc').value = p.seo_description||'';
     document.getElementById('fRequest').checked = !!p.price_on_request;
-    document.getElementById('fFeatured').checked = !!p.featured;
+    setFeaturedValue(parseIds(p.featured));
     document.getElementById('fInStock').checked = !!p.in_stock;
     document.getElementById('fCategory').value = p.category_id;
     document.getElementById('fContactPrimary').value = (p.contact_primary === '1' || p.contact_primary === '2') ? p.contact_primary : '';
     fillSubcatSelect(p.subcategory_id || '');
     initRelPicker(document.querySelector('.rel-picker[data-field="related"]'), parseIds(p.related_ids));
     initRelPicker(document.querySelector('.rel-picker[data-field="bundle"]'), parseIds(p.bundle_ids));
+    extraCatList = (p.extra_categories || []).map(x => ({ category_id: x.category_id, subcategory_id: x.subcategory_id || null }));
+    renderExtraCatList();
   } else {
     ['fName','fArticle','fBrand','fPrice','fIcon', 'fSubtitle','fYoutube','fPerf','fPerfUnit','fSeoTitle','fSeoDesc'].forEach(id => document.getElementById(id).value = '');
     document.getElementById('fDesc')._richSet('');
     setImgList([]);
     document.getElementById('fSpecs').value = '{}';
     document.getElementById('fRequest').checked = false;
-    document.getElementById('fFeatured').checked = false;
+    setFeaturedValue([]);
     document.getElementById('fInStock').checked = true;
     document.getElementById('fContactPrimary').value = '';
     fillSubcatSelect('');
     initRelPicker(document.querySelector('.rel-picker[data-field="related"]'), []);
     initRelPicker(document.querySelector('.rel-picker[data-field="bundle"]'), []);
+    extraCatList = [];
+    renderExtraCatList();
   }
   document.getElementById('productOverlay').classList.add('open');
 }
@@ -1944,7 +2019,7 @@ async function saveProduct() {
     icon: imgList[0] || null,
     images: imgList.slice(1),
     in_stock: document.getElementById('fInStock').checked ? 1 : 0,
-    featured: document.getElementById('fFeatured').checked ? 1 : 0,
+    featured: getFeaturedValue(),
     specs,
     subtitle: document.getElementById('fSubtitle').value.trim() || null,
     youtube: document.getElementById('fYoutube').value.trim() || null,
@@ -1954,7 +2029,8 @@ async function saveProduct() {
     bundle_ids: relPickerValue('bundle'),
     seo_title: document.getElementById('fSeoTitle').value.trim() || null,
     seo_description: document.getElementById('fSeoDesc').value.trim() || null,
-    contact_primary: document.getElementById('fContactPrimary').value || null
+    contact_primary: document.getElementById('fContactPrimary').value || null,
+    extra_categories: extraCatList
   };
   if (editId) {
     await apiFetch(`/api/admin/products/${editId}`, 'PUT', data);

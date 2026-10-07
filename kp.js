@@ -8,10 +8,14 @@
 const PDFDocument = require('pdfkit');
 const path = require('path');
 const fs = require('fs');
+const sharp = require('sharp');
+const Jimp = require('jimp');
 
 const FONT_REGULAR = path.join(__dirname, 'fonts/PTSans-Regular.ttf');
 const FONT_BOLD = path.join(__dirname, 'fonts/PTSans-Bold.ttf');
 const LOGO = path.join(__dirname, 'public/assets/icons/logo.png');
+const SIGNATURE = path.join(__dirname, 'public/assets/icons/kp-signature.png');
+const STAMP = path.join(__dirname, 'public/assets/icons/kp-stamp.png');
 
 const ORG = {
   legalName: 'ТОО «SIGMA MARKET»',
@@ -27,10 +31,12 @@ function fmtPrice(n) {
 }
 
 // kpCfg = { freeDeliveryThreshold } из настроек (админка → Вовлечённость → КП)
+function freeDeliveryThreshold(kpCfg) {
+  return Number(kpCfg && kpCfg.freeDeliveryThreshold) || 1000000;
+}
 function deliveryText(price, kpCfg) {
-  const threshold = Number(kpCfg && kpCfg.freeDeliveryThreshold) || 1000000;
-  if (price && price >= threshold) return 'Бесплатная доставка в пределах РК';
-  return 'Уточняйте у менеджера';
+  if (price && price >= freeDeliveryThreshold(kpCfg)) return 'Бесплатная доставка в пределах РК';
+  return 'Стоимость доставки зависит от транспортной компании';
 }
 
 const PAGE_LEFT = 50, PAGE_RIGHT = 545;
@@ -38,9 +44,21 @@ const COL1_W = 190; // ширина колонки-подписи в табли�
 const ICONS_DIR = path.join(__dirname, 'public/icons');
 const IMG_ROW_H = 160;
 
+// Загруженные фото встречаются в разных форматах, иногда даже с неверным расширением
+// (напр. webp под видом .jpg) или в форматах без поддержки в PDFKit (.bmp и т.п.) — он
+// умеет вставлять только настоящие JPEG/PNG. Поэтому всегда пере-кодируем в PNG на лету,
+// не полагаясь на расширение файла. sharp — быстрый основной путь (jpeg/png/webp/gif/
+// tiff/avif), но не умеет читать .bmp вовсе — для него и прочих редких случаев резервный
+// вариант через jimp (медленнее, зато понимает и bmp).
+async function toPngBuffer(filePath) {
+  try { return await sharp(filePath).png().toBuffer(); } catch {}
+  const img = await Jimp.read(filePath);
+  return img.getBufferAsync(Jimp.MIME_PNG);
+}
+
 // Строка таблицы с фото товара вместо текста в правой колонке — как «Образ» в старом
 // шаблоне Word. Если файла иконки нет на диске, строку просто не рисуем (без ошибки).
-function tableImageRow(doc, y, iconFilename) {
+async function tableImageRow(doc, y, iconFilename) {
   if (!iconFilename) return y;
   const filePath = path.join(ICONS_DIR, iconFilename);
   if (!fs.existsSync(filePath)) return y;
@@ -49,7 +67,8 @@ function tableImageRow(doc, y, iconFilename) {
   doc.moveTo(PAGE_LEFT + COL1_W, y).lineTo(PAGE_LEFT + COL1_W, y + rowH).stroke('#cccccc');
   doc.font('regular').fontSize(10).fillColor('#000').text('Образец', PAGE_LEFT + 8, y + 5, { width: COL1_W - 12 });
   try {
-    doc.image(filePath, PAGE_LEFT + COL1_W + 8, y + 8, {
+    const buffer = await toPngBuffer(filePath);
+    doc.image(buffer, PAGE_LEFT + COL1_W + 8, y + 8, {
       fit: [PAGE_RIGHT - PAGE_LEFT - COL1_W - 16, rowH - 16], align: 'center', valign: 'center',
     });
   } catch {}
@@ -78,7 +97,7 @@ function tableRow(doc, y, label, value, opts) {
   return y + rowH;
 }
 
-function buildProductKpPdf(res, product, kpCfg) {
+async function buildProductKpPdf(res, product, kpCfg) {
   const doc = new PDFDocument({ margin: 50, size: 'A4' });
   doc.registerFont('regular', FONT_REGULAR);
   doc.registerFont('bold', FONT_BOLD);
@@ -132,21 +151,36 @@ function buildProductKpPdf(res, product, kpCfg) {
       });
     }
     y = tableRow(doc, y, 'Условия поставки', deliveryText(product.price, kpCfg));
-    const hasWarrantySpec = specs && Object.keys(specs).some(k => /гаранти/i.test(k));
-    if (!hasWarrantySpec) y = tableRow(doc, y, 'Гарантия', '12 месяцев');
+    // Гарантию пишем только если она реально указана в характеристиках товара (тогда
+    // она уже попала в таблицу выше вместе со всеми specs) — не выдумываем "12 месяцев"
+    // для товаров, где срок гарантии в карточке не заполнен.
     if (y + IMG_ROW_H > 760) { doc.addPage(); y = 50; }
-    y = tableImageRow(doc, y, product.icon);
+    y = await tableImageRow(doc, y, product.icon);
     doc.y = y + 20;
+
+    // "Стоимость" + подпись с печатью не должны разрываться между страницами — проверяем
+    // место под весь блок целиком заранее (а не перед каждым кусочком по отдельности),
+    // иначе получается как было: цена остаётся внизу одной страницы, а подпись
+    // с печатью одиноко висят на следующей.
+    if (doc.y + 220 > 790) doc.addPage();
 
     doc.font('bold').fontSize(12).text('Стоимость', PAGE_LEFT, doc.y);
     doc.font('regular').fontSize(11).moveDown(0.2);
     doc.text(product.price_on_request || !product.price
       ? 'Цена по запросу — уточняйте у менеджера'
       : fmtPrice(product.price) + ' (с учётом НДС), цена указана до склада транспортной компании');
-    doc.moveDown(1);
+    doc.moveDown(0.4);
+    doc.fontSize(10).fillColor('#555').text('Данное предложение действительно в течение 10 календарных дней.');
+    doc.moveDown(1.3);
+
+    // ---- подпись и печать ---- (печать внахлёст поверх подписи, как на бумаге)
+    const signY = doc.y;
+    try { doc.image(SIGNATURE, PAGE_LEFT + 20, signY, { width: 120 }); } catch {}
+    try { doc.image(STAMP, PAGE_LEFT + 110, signY - 5, { width: 100 }); } catch {}
+    doc.y = signY + 108;
 
     doc.font('regular').fontSize(9).fillColor('#555');
-    doc.text('Документ сформирован автоматически на сайте b2btech.kz');
+    doc.text('Документ сформирован автоматически на сайте b2btech.kz, наличие и актуальность предложения уточняйте у менеджера.');
 
     doc.end();
   } catch (e) {

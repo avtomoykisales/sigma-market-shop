@@ -116,9 +116,9 @@ async function showProduct(id) {
 
   const kpInstant = typeof state !== 'undefined' && state.settings && state.settings.kp && state.settings.kp.instantDownload;
   const offerBtn = kpInstant
-    ? `<button class="btn-consult-outline" onclick="openKpModal(${p.id})">Скачать КП</button>`
+    ? `<button class="btn-consult-outline" onclick="openKpModal(${p.id})">Скачать коммерческое предложение</button>`
     : `<button class="btn-consult-outline" onclick="requestModal(${p.id})">Запросить коммерческое предложение</button>`;
-  const buyBtn = p.price_on_request ? '' : `<button class="btn-catalog" onclick="buyNow(${p.id})">🛒 Купить</button>`;
+  const buyBtn = p.price_on_request ? '' : `<button class="btn-catalog" onclick="buyNow(${p.id})">Оставить заявку</button>`;
   // contactActions живёт в /js/site.js — на медленном мобильном интернете этот файл
   // иногда ещё не успевает выполниться к этому моменту (та же природа, что и у
   // openModal/trackView), и кнопки связи молча не появляются до перезагрузки страницы.
@@ -152,7 +152,7 @@ async function showProduct(id) {
         <h1 class="pv-name">${p.name}</h1>
         ${p.subtitle ? `<div class="pv-subtitle">${p.subtitle}</div>` : (p.subtype ? `<div class="pv-subtitle">${p.subtype}</div>` : '')}
         ${p.description ? `<div class="pv-desc-wrap">
-          <p class="pv-desc pv-clamp" id="pvDesc">${p.description}</p>
+          <div class="pv-desc pv-clamp" id="pvDesc">${p.description}</div>
           <button type="button" class="pv-desc-more" id="pvDescMore" onclick="togglePvDesc()" hidden>Далее ▾</button>
         </div>` : ''}
         <div class="pv-meta">
@@ -352,8 +352,9 @@ function miniCard(p) {
     ? `<img src="/icons/${p.icon}" alt="${p.name}" loading="lazy" onerror="this.style.display='none'">`
     : `<span>${getCatEmoji(p.category_slug)}</span>`;
   const price = p.price_on_request ? 'По запросу' : (p.price ? formatPrice(p.price) : '—');
+  const badgesHtml = window.featuredBadgesHtml ? window.featuredBadgesHtml(p) : '';
   return `<a class="mini-card" href="${productUrl(p)}" onclick="showProduct(${p.id});return false;">
-    <div class="mini-img">${img}</div>
+    <div class="mini-img">${badgesHtml}${img}</div>
     <div class="mini-name">${p.name}</div>
     <div class="mini-price">${price}</div>
   </a>`;

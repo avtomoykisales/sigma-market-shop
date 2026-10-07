@@ -40,6 +40,22 @@ function gadsTag() {
 
 const SITE_NAME = 'SIGMA MARKET';
 
+// Значки на карточке товара — тот же список и тот же формат (p.featured JSON-массивом
+// ключей — товар может нести сразу несколько), что в public/index.html (cardHtml, клиент)
+// и в чекбоксах fFeatured в админке; здесь — для серверной SSR-карточки (productCardHtml).
+const BADGES = {
+  hit: '⭐ Хит продаж',
+  best: '🏆 Лучшая покупка',
+  recommend: '👍 Рекомендуем',
+  deal: '💰 Выгодная цена',
+};
+function featuredBadgesHtml(p) {
+  let keys = [];
+  try { keys = Array.isArray(p.featured) ? p.featured : JSON.parse(p.featured || '[]'); } catch (e) {}
+  if (!keys.length) return '';
+  return `<div class="card-badges">${keys.map(k => BADGES[k] ? `<span class="badge-hit badge-c-${k}">${BADGES[k]}</span>` : '').join('')}</div>`;
+}
+
 const DEFAULT_TITLE =
   'SIGMA MARKET — оборудование для автомоек, СТО и клининга в Казахстане';
 
@@ -174,20 +190,20 @@ const STATIC_PAGES = {
 
   '/delivery.html': {
     crumb: 'Доставка и оплата',
-    title: 'Доставка и оплата оборудования по Казахстану | SIGMA MARKET',
-    desc: 'Доставка и оплата оборудования SIGMA MARKET по Казахстану. Самовывоз в Алматы, доставка транспортными компаниями, сроки, документы и гарантия.',
+    title: 'Доставка и оплата оборудования для автомоек, СТО и клининга | SIGMA MARKET',
+    desc: 'Условия доставки и оплаты оборудования для автомоек, СТО и клининга. Поставка профессионального оборудования по Казахстану, способы оплаты и гарантия',
   },
 
   '/contacts.html': {
     crumb: 'Контакты',
-    title: 'Контакты SIGMA MARKET — оборудование в Алматы',
-    desc: 'Контакты SIGMA MARKET в Алматы: телефон ' + ORG.phone + ', email ' + ORG.email + '. Адрес офиса, часы работы и форма обратной связи.',
+    title: 'Контакты SIGMA MARKET в Алматы | Автомойки, СТО и клининг',
+    desc: 'Контакты SIGMA MARKET в Алматы: оборудование для автомоек, СТО и клининга. Телефон ' + ORG.phone + ', email ' + ORG.email + '. Адрес и часы работы.',
   },
 
-  '/reviews.html': {
+ '/reviews.html': {
     crumb: 'Отзывы',
-    title: 'Отзывы о SIGMA MARKET — оборудование для автомоек, СТО и клининга',
-    desc: 'Отзывы клиентов SIGMA MARKET о поставке, монтаже и сервисном обслуживании оборудования для автомоек, СТО и клининга в Казахстане.',
+    title: 'Отзывы клиентов о SIGMA MARKET | Поставка, монтаж и сервис',
+    desc: 'Отзывы клиентов SIGMA MARKET о поставке, монтаже и сервисном обслуживании оборудования для автомоек, СТО и клининга по Казахстану.',
   },
 };
 
@@ -358,6 +374,11 @@ async function productSeo(base, id, seo) {
         },
       };
     }
+    // "Цена по запросу" — offers намеренно не добавляем: указать его без price Google не
+    // принимает (price там обязателен, сам проверял через Rich Results Test), а выдумывать
+    // цену нельзя. Из-за этого GSC будет жаловаться на отсутствие offers/review/
+    // aggregateRating у этих товаров — это ожидаемо и закрывается только настоящими
+    // отзывами покупателей (aggregateRating/review), другого честного пути нет.
   }
 
   const crumbs = [['Главная', '/'], ['Товары и услуги', '/catalog'],
@@ -404,12 +425,17 @@ async function categorySeo(base, slug, subSlug, seo) {
       seo.view = 'notFound';
       return seo;
     }
-    // подкатегория без товаров в поддереве — не индексируем
+    // подкатегория без товаров в поддереве — не индексируем (учитываем и товары,
+    // у которых эта подкатегория — дополнительная, см. product_extra_categories)
     const n = await db.getAsync(
       `WITH RECURSIVE tree(id) AS (
          SELECT id FROM subcategories WHERE id = ?
          UNION ALL SELECT s.id FROM subcategories s JOIN tree t ON s.parent_id = t.id
-       ) SELECT COUNT(*) AS c FROM products WHERE subcategory_id IN (SELECT id FROM tree)`, [sub.id]);
+       ) SELECT COUNT(DISTINCT pid) AS c FROM (
+         SELECT id AS pid FROM products WHERE subcategory_id IN (SELECT id FROM tree)
+         UNION
+         SELECT product_id AS pid FROM product_extra_categories WHERE subcategory_id IN (SELECT id FROM tree)
+       )`, [sub.id]);
     if (!n || !n.c) seo.robots = 'noindex, follow';
   }
 
@@ -484,7 +510,7 @@ async function build(req, relPath, opts = {}) {
   let mc = pathname.match(/^\/catalog(?:\/([^/]+)(?:\/([^/]+))?)?\/?$/);
   if (mc) {
     if (!mc[1]) {   // /catalog — весь каталог
-      seo.title = 'Каталог оборудования — ' + SITE_NAME;
+      seo.title = 'Оборудование для автомоек, СТО и клининга в Казахстане | ' + SITE_NAME;
       seo.h1 = 'Товары и услуги';
       seo.canonical = base + '/catalog';
       seo.jsonld.push(breadcrumbLd(base, [['Главная', '/'], ['Товары и услуги', '/catalog']]));
@@ -609,9 +635,10 @@ function productCardHtml(p) {
   const favBtn = `<button class="card-fav" title="В избранное" onclick="event.stopPropagation();toggleFav(${p.id})">♡</button>`;
   const cmpBtn = `<label class="card-compare" onclick="event.stopPropagation()"><input type="checkbox" onchange="toggleCompare(${p.id})"> Сравнить</label>`;
   const url = productPath(p);
-  return `<div class="product-card${p.featured ? ' featured' : ''}" onclick="openModal(${p.id})">
+  const badgesHtml = featuredBadgesHtml(p);
+  return `<div class="product-card${badgesHtml ? ' featured' : ''}" onclick="openModal(${p.id})">
     <div class="card-img-wrap">
-      ${p.featured ? '<span class="badge-hit">⭐ Хит продаж</span>' : ''}
+      ${badgesHtml}
       ${favBtn}
       ${imgHtml}
     </div>
@@ -701,7 +728,7 @@ function productViewHtml(p, reviews) {
       <div class="pv-info">
         <h1 class="pv-name">${esc(p.name)}</h1>
         ${p.subtitle ? `<div class="pv-subtitle">${esc(p.subtitle)}</div>` : (p.subtype ? `<div class="pv-subtitle">${esc(p.subtype)}</div>` : '')}
-        ${p.description ? `<div class="pv-desc-wrap"><p class="pv-desc">${p.description}</p></div>` : ''}
+        ${p.description ? `<div class="pv-desc-wrap"><div class="pv-desc">${p.description}</div></div>` : ''}
         <div class="pv-meta">
           ${p.brand ? `<span>${esc(p.brand)}</span>` : ''}
           ${p.article ? `<span>Артикул: ${esc(p.article)}</span>` : ''}
@@ -890,7 +917,11 @@ async function sitemap(req) {
 
   const subRows = await db.allAsync(
     `SELECT s.id, s.slug, s.parent_id, c.slug AS cat,
-            (SELECT COUNT(*) FROM products p WHERE p.subcategory_id = s.id) AS own
+            (SELECT COUNT(DISTINCT pid) FROM (
+               SELECT id AS pid FROM products p WHERE p.subcategory_id = s.id
+               UNION
+               SELECT product_id AS pid FROM product_extra_categories WHERE subcategory_id = s.id
+             )) AS own
      FROM subcategories s JOIN categories c ON s.category_id = c.id
      ORDER BY c.id, s.sort, s.name`);
   const _sm = new Map(subRows.map((r) => [r.id, r]));

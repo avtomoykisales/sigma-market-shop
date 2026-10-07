@@ -29,6 +29,39 @@ db.serialize(async () => {
     FOREIGN KEY (category_id) REFERENCES categories(id)
   )`);
 
+  // Товар может быть виден не только в своей основной категории/подкатегории (category_id/
+  // subcategory_id в products — она же определяет URL и хлебные крошки, т.е. "каноническая"),
+  // но и дополнительно ещё в одной-нескольких — без дублирования самой карточки товара
+  // (другой подход плодил бы дубли контента и путал индексацию в Google).
+  await db.runAsync(`CREATE TABLE IF NOT EXISTS product_extra_categories (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    product_id INTEGER NOT NULL,
+    category_id INTEGER NOT NULL,
+    subcategory_id INTEGER,
+    FOREIGN KEY (product_id) REFERENCES products(id),
+    FOREIGN KEY (category_id) REFERENCES categories(id),
+    FOREIGN KEY (subcategory_id) REFERENCES subcategories(id)
+  )`);
+
+  // products.featured был просто галочкой "Хит продаж" (0/1) — теперь это НАБОР значков
+  // на карточке (товар может быть и "Хит продаж", и "Выгодная цена" одновременно, см.
+  // BADGES в server.js/seo.js/index.html), хранится как JSON-массив ключей текстом, тем
+  // же способом, что related_ids/bundle_ids/images (см. jsonArr() в server.js). SQLite не
+  // проверяет типы строго, так что переводим в одно действие из ЛЮБОЙ более старой схемы:
+  // integer 0/1 (самая первая версия) или одиночный текстовый ключ без массива (версия
+  // между — только у меня локально во время разработки, на проде её не было).
+  try {
+    const rows = await db.allAsync(`SELECT id, featured FROM products`);
+    for (const r of rows) {
+      let next = null;
+      if (typeof r.featured === 'number') next = r.featured ? '["hit"]' : '[]';
+      else if (typeof r.featured === 'string' && !r.featured.trimStart().startsWith('[')) {
+        next = r.featured ? JSON.stringify([r.featured]) : '[]';
+      }
+      if (next !== null) await db.runAsync(`UPDATE products SET featured = ? WHERE id = ?`, [next, r.id]);
+    }
+  } catch (e) {}
+
   await db.runAsync(`CREATE TABLE IF NOT EXISTS orders (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL, phone TEXT NOT NULL,
@@ -254,27 +287,77 @@ db.serialize(async () => {
   // ---- Настройки сайта (редактируются в админке) ----
   await db.runAsync(`CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)`);
 
+  // Шаг "type" ветвится по ответу на "biz" (optionsByBranch вместо options) — у каждого
+  // бизнеса свой набор техники, и общий вопрос "поток/объём" (старая версия) сравнивал
+  // несравнимые единицы измерения производительности (л/ч, м³/ч, машин/час и т.д.) —
+  // отсюда и неточные подборки. Теперь вопрос №2 сразу бьёт по реальной подкатегории.
   const DEFAULT_QUIZ = {
     enabled: true,
-    title: 'Подбор оборудования за 3 шага',
-    subtitle: 'Ответьте на три вопроса — покажем 2–3 подходящие модели',
+    title: 'Подбор оборудования',
+    subtitle: 'Ответьте на несколько вопросов — покажем подходящие модели',
     steps: [
       { key: 'biz', label: 'Тип бизнеса', options: [
         { id: 'wash',  label: 'Автомойка',           category: 'avtomojka' },
-        { id: 'sto',   label: 'СТО / автосервис',     category: 'sto' },
+        { id: 'sto',   label: 'СТО / Шиномонтаж',     category: 'sto' },
         { id: 'clean', label: 'Клининговая компания', category: 'klining' }
       ]},
-      { key: 'load', label: 'Поток / объём работы', options: [
-        { id: 's', label: 'Небольшой',            perfMax: 15 },
-        { id: 'm', label: 'Средний',              perfMin: 10, perfMax: 45 },
-        { id: 'l', label: 'Большой / интенсивный', perfMin: 40 }
-      ]},
-      { key: 'budget', label: 'Бюджет', options: [
-        { id: 'b1', label: 'до 5 млн ₸',      priceMax: 5000000 },
-        { id: 'b2', label: '5–20 млн ₸',      priceMin: 5000000, priceMax: 20000000 },
-        { id: 'b3', label: 'от 20 млн ₸',     priceMin: 20000000 },
-        { id: 'b0', label: 'Пока не определился' }
-      ]}
+      // Пылесосы уже конечный выбор — сразу subcategory, без третьего шага. А "Аппараты
+      // высокого давления", "Автоматические мойки", "Поломоечная"/"Подметальная машина" —
+      // ещё не конечный: у них есть третий шаг (см. "subtype" ниже), поэтому тут без
+      // subcategory, его подставит выбор на третьем шаге. Бюджет убрали отдельным шагом —
+      // вместо фильтра по деньгам показываем сразу список на выбор (см. /api/products/quiz).
+      { key: 'type', label: 'Какое оборудование интересует?', branchBy: 'biz', optionsByBranch: {
+        wash: [
+          { id: 'pylesos_vac',  label: 'Пылеводосос',                          subcategory: 'professionalnye-pylevodososy' },
+          { id: 'pylesos_extr', label: 'Пылесос для влажной уборки (экстрактор)', subcategory: 'professionalnye-pylesosy-ekstraktory' },
+          { id: 'pylesos_steam',label: 'Парогенератор',                        subcategory: 'professionalnye-parogeneratory' },
+          { id: 'pylesos_prom', label: 'Промышленный пылесос',                 subcategory: 'promyshlennye-pylesosy' },
+          { id: 'avd',     label: 'Аппараты высокого давления' },
+          { id: 'auto',    label: 'Автоматические мойки' },
+          { id: 'ochistka',label: 'Очистные сооружения',         subcategory: 'ochistnye-sooruzheniya-dlya-avtomoyki' },
+          { id: 'extra',   label: 'Доп. оборудование для комплекса', subcategory: 'dopolnitelnoe-oborudovanie-dlya-avtomoechnyh-kom' }
+        ],
+        sto: [
+          { id: 'shina',   label: 'Шиномонтажное оборудование',     subcategory: 'shinomontazhnoe-oborudovanie' },
+          { id: 'balans',  label: 'Балансировочные станки',          subcategory: 'balansirovochnye-stanki-dlya-shinomontazha' },
+          { id: 'podemnik',label: 'Автоподъёмники',                  subcategory: 'avtopodemniki-dlya-sto-i-avtoservisa' },
+          { id: 'press',   label: 'Гидравлические прессы',           subcategory: 'pressy-gidravlicheskie-dlya-sto-i-avtoservisa' },
+          { id: 'compr',   label: 'Компрессоры',                     subcategory: 'kompressory-porshnevye-vozdushnye' },
+          { id: 'pnevmo',  label: 'Пневматическое оборудование',     subcategory: 'pnevmaticheskoe-oborudovanie' },
+          { id: 'maslo',   label: 'Оборудование для замены масла',   subcategory: 'oborudovanie-dlya-zameny-masla-samoa' }
+        ],
+        clean: [
+          { id: 'polomoyka', label: 'Поломоечная машина' },
+          { id: 'podmet',    label: 'Подметальная машина' }
+        ]
+      }},
+      // Третий шаг — только для тех ответов второго шага, где он реально нужен (см.
+      // quizStepOptions на клиенте и ту же логику на сервере — остальные ветки сразу
+      // уходят в результаты). "Автономные" ищем по слову "бензин" в названии (отдельной
+      // подкатегории под это на сайте нет) — nameKeyword. "По площади" — по характеристике
+      // "Производительность по площади" у товара (specKey), а не по подкатегории: если
+      // характеристика не заполнена, товар просто не покажется в выдаче (не выдумываем).
+      { key: 'subtype', label: 'Уточните вариант', branchBy: 'type', optionsByBranch: {
+        avd: [
+          { id: 'avd_cold', label: 'Без подогрева',          subcategory: 'moyka-holodnoy-vodoy' },
+          { id: 'avd_hot',  label: 'С подогревом',           subcategory: 'moyka-goryachey-vodoy' },
+          { id: 'avd_auto', label: 'Автономные (бензиновые)', scopeSubcategory: 'apparaty-vysokogo-davleniya-avd', nameKeyword: 'бензин' }
+        ],
+        auto: [
+          { id: 'auto_legk', label: 'Для легковых авто',  subcategory: 'avtomaticheskie-moyki-dlya-mashin-robotizirovann' },
+          { id: 'auto_gruz', label: 'Для грузовых авто',  subcategory: 'avtomaticheskie-moyki-dlya-gruzovyh-avtomobiley' }
+        ],
+        polomoyka: [
+          { id: 'area_s', label: 'Площадь до 1500 м²',        scopeSubcategory: 'polomoechnye-mashiny', specKey: 'Производительность по площади', specMax: 1500 },
+          { id: 'area_m', label: 'Площадь 1500–2500 м²',      scopeSubcategory: 'polomoechnye-mashiny', specKey: 'Производительность по площади', specMin: 1500, specMax: 2500 },
+          { id: 'area_l', label: 'Площадь более 2500 м²',     scopeSubcategory: 'polomoechnye-mashiny', specKey: 'Производительность по площади', specMin: 2500 }
+        ],
+        podmet: [
+          { id: 'area_s', label: 'Площадь до 1500 м²',        scopeSubcategory: 'podmetalnye-mashiny', specKey: 'Производительность по площади', specMax: 1500 },
+          { id: 'area_m', label: 'Площадь 1500–2500 м²',      scopeSubcategory: 'podmetalnye-mashiny', specKey: 'Производительность по площади', specMin: 1500, specMax: 2500 },
+          { id: 'area_l', label: 'Площадь более 2500 м²',     scopeSubcategory: 'podmetalnye-mashiny', specKey: 'Производительность по площади', specMin: 2500 }
+        ]
+      }}
     ]
   };
 

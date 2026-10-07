@@ -8,7 +8,11 @@ const db = require('./database');
 
 async function queryCategories() {
   return db.allAsync(
-    `SELECT c.*, (SELECT COUNT(*) FROM products p WHERE p.category_id = c.id) AS product_count
+    `SELECT c.*, (SELECT COUNT(DISTINCT pid) FROM (
+       SELECT id AS pid FROM products WHERE category_id = c.id
+       UNION
+       SELECT product_id AS pid FROM product_extra_categories WHERE category_id = c.id
+     )) AS product_count
      FROM categories c ORDER BY c.id`);
 }
 
@@ -20,7 +24,16 @@ async function queryProducts(q) {
   let where = [];
   let params = [];
 
-  if (category && category !== 'all') { where.push('c.slug = ?'); params.push(category); }
+  // Категория/подкатегория товара в products — каноническая (она же в URL и хлебных
+  // крошках), но товар может быть ещё и в product_extra_categories — "тоже виден в этой
+  // категории" без дублирования самой карточки. Везде ниже матчим primary ИЛИ extra.
+  if (category && category !== 'all') {
+    where.push(`(c.slug = ? OR p.id IN (
+      SELECT pec.product_id FROM product_extra_categories pec
+      JOIN categories ec ON pec.category_id = ec.id WHERE ec.slug = ?
+    ))`);
+    params.push(category, category);
+  }
   let subcategoryNotFound = false;
   if (subcategory) {
     const subs = subcategory.split(',').filter(Boolean);
@@ -30,8 +43,13 @@ async function queryProducts(q) {
          UNION ALL SELECT s.id FROM subcategories s JOIN tree t ON s.parent_id = t.id
        ) SELECT id FROM tree`, subs) : [];
     const ids = idRows.map(r => r.id);
-    if (ids.length) { where.push('p.subcategory_id IN (' + ids.map(() => '?').join(',') + ')'); params.push(...ids); }
-    else {
+    if (ids.length) {
+      const inList = ids.map(() => '?').join(',');
+      where.push(`(p.subcategory_id IN (${inList}) OR p.id IN (
+        SELECT product_id FROM product_extra_categories WHERE subcategory_id IN (${inList})
+      ))`);
+      params.push(...ids, ...ids);
+    } else {
       where.push('1=0');
       if (subs.length === 1) subcategoryNotFound = true;
     }
@@ -42,7 +60,7 @@ async function queryProducts(q) {
     where.push('(p.name LIKE ? OR p.name LIKE ? OR p.name LIKE ? OR p.article LIKE ? OR p.brand LIKE ? OR p.brand LIKE ?)');
     params.push(`%${search}%`, `%${cap}%`, `%${low}%`, `%${search}%`, `%${search}%`, `%${cap}%`);
   }
-  if (featured === '1') where.push('p.featured = 1');
+  if (featured === '1') where.push("p.featured IS NOT NULL AND p.featured != '[]'");
   if (brand) {
     const bList = brand.split(',');
     const bReal = bList.filter(b => b !== '__none__');
@@ -61,7 +79,7 @@ async function queryProducts(q) {
 
   const orderMap = {
     price_asc: 'p.price ASC', price_desc: 'p.price DESC',
-    name_asc: 'p.name ASC', default: 'p.featured DESC, p.sort_order ASC, p.id DESC'
+    name_asc: 'p.name ASC', default: "(p.featured IS NOT NULL AND p.featured != '[]') DESC, p.sort_order ASC, p.id DESC"
   };
   const orderStr = orderMap[sort] || orderMap.default;
 
@@ -81,8 +99,13 @@ async function queryProducts(q) {
 
   let facetsData = null;
   if (facets === '1') {
-    const catWhere = category && category !== 'all' ? 'AND c.slug = ?' : '';
-    const fParams = category && category !== 'all' ? [category] : [];
+    const catWhere = category && category !== 'all'
+      ? `AND (c.slug = ? OR p.id IN (
+          SELECT pec.product_id FROM product_extra_categories pec
+          JOIN categories ec ON pec.category_id = ec.id WHERE ec.slug = ?
+        ))`
+      : '';
+    const fParams = category && category !== 'all' ? [category, category] : [];
     const brands = await db.allAsync(
       `SELECT DISTINCT p.brand FROM products p JOIN categories c ON p.category_id=c.id
        WHERE p.brand != '' ${catWhere} ORDER BY p.brand`, fParams);
@@ -96,15 +119,23 @@ async function queryProducts(q) {
       `SELECT MIN(NULLIF(p.price,0)) as pmin, MAX(p.price) as pmax,
               MIN(p.perf) as perfmin, MAX(p.perf) as perfmax
        FROM products p JOIN categories c ON p.category_id=c.id WHERE 1=1 ${catWhere}`, fParams);
+    // Здесь c.slug — категория самой подкатегории (к какому разделу она относится), а не
+    // товаров — product_extra_categories тут ни при чём, поэтому своя простая проверка.
+    const subcatCatWhere = category && category !== 'all' ? 'AND c.slug = ?' : '';
+    const subcatFParams = category && category !== 'all' ? [category] : [];
     const subcatRows = await db.allAsync(
       `SELECT s.id, s.name, s.slug, s.icon, s.description, s.seo_title, s.seo_description, s.sort, s.parent_id,
               par.slug AS parent_slug,
-              (SELECT COUNT(*) FROM products x WHERE x.subcategory_id = s.id) AS own_cnt
+              (SELECT COUNT(DISTINCT pid) FROM (
+                 SELECT id AS pid FROM products x WHERE x.subcategory_id = s.id
+                 UNION
+                 SELECT product_id AS pid FROM product_extra_categories WHERE subcategory_id = s.id
+               )) AS own_cnt
        FROM subcategories s
        JOIN categories c ON s.category_id = c.id
        LEFT JOIN subcategories par ON s.parent_id = par.id
-       WHERE 1=1 ${catWhere}
-       ORDER BY s.sort, s.name`, fParams);
+       WHERE 1=1 ${subcatCatWhere}
+       ORDER BY s.sort, s.name`, subcatFParams);
     const _byId = new Map(subcatRows.map(r => [r.id, r]));
     subcatRows.forEach(r => { r.cnt = r.own_cnt; });
     subcatRows.forEach(r => {
