@@ -128,18 +128,6 @@ window.state = window.state || { sort: 'default', cart: [], categories: [], sett
   </div>
 </div>
 
-<!-- КП: ввод телефона для мгновенного скачивания -->
-<div class="modal-overlay" id="kpOverlay" onclick="if(event.target===this)closeKpModal()">
-  <div class="modal">
-    <div class="modal-inner">
-      <button class="modal-close" onclick="closeKpModal()">✕</button>
-      <h3 class="modal-name" style="margin-bottom:16px">Скачать коммерческое предложение</h3>
-      <div class="form-group"><label>Телефон *</label><input type="tel" id="kpPhone" placeholder="+7 (___) ___-__-__" required></div>
-      <button class="btn-primary" onclick="kpDownload()">⬇️ Скачать КП</button>
-    </div>
-  </div>
-</div>
-
 <!-- Товар добавлен в корзину: продолжить покупки или оформить заказ -->
 <div class="modal-overlay" id="addedCartOverlay" onclick="if(event.target===this)closeAddedCart()">
   <div class="modal">
@@ -172,10 +160,16 @@ window.state = window.state || { sort: 'default', cart: [], categories: [], sett
     </div>
     <div class="order-form">
       <div class="form-row">
-        <div class="form-group"><label>Имя *</label><input type="text" id="oName" placeholder="Ваше имя" required></div>
-        <div class="form-group"><label>Телефон *</label><input type="tel" id="oPhone" placeholder="+7 (___) ___-__-__" required></div>
+        <div class="form-group"><label for="oName">Имя *</label><input type="text" id="oName" name="name" autocomplete="name" placeholder="Ваше имя" required></div>
+        <div class="form-group"><label for="oPhone">Телефон *</label><input type="tel" id="oPhone" name="tel" autocomplete="tel" placeholder="+7 (___) ___-__-__" required></div>
       </div>
-      <div class="form-group"><label>Комментарий</label><textarea id="oMessage" placeholder="Вопрос или пожелания…"></textarea></div>
+      <div class="form-group"><label for="oMessage">Комментарий</label><textarea id="oMessage" placeholder="Вопрос или пожелания…"></textarea></div>
+      <!-- Ловушка для ботов: реальный человек это поле не видит и не заполняет —
+           спрятано сдвигом за пределы экрана, а не display:none (его простые боты
+           умеют распознавать и пропускать), см. проверку в /api/orders. -->
+      <div style="position:absolute;left:-9999px" aria-hidden="true">
+        <input type="text" id="oWebsite" name="website" tabindex="-1" autocomplete="off">
+      </div>
       <button class="btn-primary" onclick="submitOrder()">✅ Отправить заявку</button>
     </div>
   </div>
@@ -1143,6 +1137,7 @@ function toggleCart() {
   o.classList.toggle('open', open);
 }
 async function submitOrder() {
+  if (!state.cart.length) { showToast('⚠️ Добавьте товар в корзину'); return; }
   const nameEl = document.getElementById('oName'), phoneEl = document.getElementById('oPhone');
   if (!nameEl.reportValidity() || !phoneEl.reportValidity()) return;
   const name = nameEl.value.trim();
@@ -1156,10 +1151,16 @@ async function submitOrder() {
       name, phone,
       message: document.getElementById('oMessage').value.trim(),
       items: JSON.stringify(state.cart.map(i=>({id:i.id,name:i.name,qty:i.qty,price:i.price||0}))),
-      useBonus: cartBonusToUse(total)
+      useBonus: cartBonusToUse(total),
+      website: document.getElementById('oWebsite').value
     });
     if (res.success) {
+      // window.gtag может отсутствовать (заблокирован adblock'ом, не успел загрузиться,
+      // не настроен GADS_ID на сервере) — тогда конверсия в Google Ads молча не уйдёт.
+      // Логируем это отдельной, понятной записью, а не тишиной — чтобы было видно в
+      // «Ошибки на сайте» в админке, если отслеживание конверсий массово не срабатывает.
       if (window.gtag) gtag('event', 'conversion', { send_to: 'AW-18370364758/qC2TCOi2vIsdENaK1rdE' });
+      else if (window.logClientError) window.logClientError('Конверсия Google Ads не отправлена: gtag не загружен', 'conversion-missing');
       showToast('✅ Заявка отправлена! ' + window.contactSoonText(),'green');
       state.cart=[]; saveCart();
       const cb = document.getElementById('cartUseBonus'); if (cb) cb.checked = false;

@@ -367,6 +367,8 @@ function openKpModal(id) {
   kpProductId = id;
   document.getElementById('kpPhone').value = '';
   document.getElementById('kpPhone').dataset.phoneDigits = '';
+  const websiteEl = document.getElementById('kpWebsite');
+  if (websiteEl) websiteEl.value = '';
   document.getElementById('kpOverlay').classList.add('open');
 }
 function closeKpModal() { document.getElementById('kpOverlay').classList.remove('open'); }
@@ -374,9 +376,10 @@ async function kpDownload() {
   const phone = document.getElementById('kpPhone').value.trim();
   if (!window.isValidPhone(phone)) { showToast('⚠️ Введите корректный номер телефона'); return; }
   try {
+    const websiteEl = document.getElementById('kpWebsite');
     const r = await fetch('/api/kp/download', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ phone, productId: kpProductId }),
+      body: JSON.stringify({ phone, productId: kpProductId, website: websiteEl ? websiteEl.value : '' }),
     });
     if (!r.ok) {
       const data = await r.json().catch(() => null);

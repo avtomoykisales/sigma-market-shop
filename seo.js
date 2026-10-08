@@ -6,6 +6,7 @@
    Плюс генерация robots.txt и sitemap.xml.
    ============================================================ */
 const db = require('./database');
+const { queryProducts } = require('./queries');
 
 // Пред-запусковый режим: весь сайт закрыт от индексации (robots.txt + <meta robots>
 // + заголовок X-Robots-Tag в server.js). Включается SITE_NOINDEX=1. Снять в день запуска.
@@ -177,6 +178,24 @@ function breadcrumbLd(base, items) {
       position: i + 1,
       name,
       item: base + path,
+    })),
+  };
+}
+
+// Список товаров на странице каталога/категории — для Google это "Carousel"
+// (https://developers.google.com/search/docs/appearance/structured-data/carousel):
+// перечисляем только url каждого товара, без дублирования цены/наличия — это уже
+// подробно описано в Product/Offer на самой странице товара (см. productSeo). Если
+// продублировать Offer тут же, цена может разойтись между двумя страницами при
+// следующем изменении — это хуже, чем её не указывать второй раз.
+function itemListLd(base, products) {
+  return {
+    '@context': 'https://schema.org',
+    '@type': 'ItemList',
+    itemListElement: products.map((p, i) => ({
+      '@type': 'ListItem',
+      position: i + 1,
+      url: base + productPath(p),
     })),
   };
 }
@@ -472,6 +491,17 @@ async function categorySeo(base, slug, subSlug, seo) {
     crumbs.push([sub.name, catalogPath(slug, sub.slug)]);
   }
   seo.jsonld.push(breadcrumbLd(base, crumbs));
+
+  // ItemList — список товаров раздела для Google (см. itemListLd). Не нужен на
+  // странице, которую и так просим не индексировать (пустая/составная подкатегория) —
+  // незачем звать лишний запрос ради данных, которые Google всё равно не возьмёт.
+  if (seo.robots !== 'noindex, follow') {
+    const listing = await queryProducts({
+      category: slug, subcategory: sub ? sub.slug : '', page: 1, limit: 100, sort: 'default',
+    });
+    if (listing.products.length) seo.jsonld.push(itemListLd(base, listing.products));
+  }
+
   return seo;
 }
 

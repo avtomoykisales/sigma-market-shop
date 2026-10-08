@@ -491,6 +491,10 @@ app.get('/api/products/:id', async (req, res) => {
 // Без кода подтверждения — SMS/WhatsApp стоят денег за каждое сообщение, а тут просто лид.
 app.post('/api/kp/download', async (req, res) => {
   try {
+    // Та же ловушка, что и в форме заказа — см. #kpWebsite в header.html.
+    if (req.body && req.body.website) {
+      return res.status(400).json({ error: 'Некорректный номер телефона' });
+    }
     const phone = String((req.body && req.body.phone) || '').replace(/\D/g, '');
     if (!/^[78]\d{10}$/.test(phone)) return res.status(400).json({ error: 'Некорректный номер телефона' });
     const productId = Number(req.body && req.body.productId);
@@ -573,6 +577,15 @@ app.post('/api/reviews', async (req, res) => {
 app.post('/api/orders', async (req, res) => {
   try {
     const { name, phone, email, city, message, items } = req.body;
+    // Антибот: скрытое поле "website" реальный человек не видит и не заполняет — его
+    // трогают только боты, читающие форму по коду страницы (см. #oWebsite в index.html).
+    // Ответ намеренно такой же, как у обычной валидации — чтобы по тексту ошибки нельзя
+    // было понять, что сработала именно ловушка.
+    // Проверку "слишком быстро заполнили" убрали — автозаполнение браузера подставляет
+    // имя/телефон мгновенно, и живого клиента с автозаполнением она бы тоже отклоняла.
+    if (req.body.website) {
+      return res.status(400).json({ error: 'Заполните обязательные поля' });
+    }
     if (!name || !phone || !items) {
       return res.status(400).json({ error: 'Заполните обязательные поля' });
     }
@@ -582,10 +595,14 @@ app.post('/api/orders', async (req, res) => {
 
     let itemsStr = typeof items === 'string' ? items : JSON.stringify(items);
     let total = 0;
-    try {
-      const parsed = JSON.parse(itemsStr);
-      total = parsed.reduce((sum, item) => sum + (item.price || 0) * (item.qty || 1), 0);
-    } catch {}
+    let parsedItems = [];
+    try { parsedItems = JSON.parse(itemsStr); } catch {}
+    // "items" строкой "[]" (пустая корзина) проходит мимо "!items" выше — она ведь
+    // непустая строка. Проверяем именно количество товаров, не сам факт наличия поля.
+    if (!Array.isArray(parsedItems) || !parsedItems.length) {
+      return res.status(400).json({ error: 'Добавьте товар в корзину' });
+    }
+    total = parsedItems.reduce((sum, item) => sum + (item.price || 0) * (item.qty || 1), 0);
 
     // Бонусы: если оформляет вошедший клиент, спишем запрошенную сумму
     // (не больше остатка и не больше суммы заказа) и запомним, кто оформил.

@@ -121,13 +121,13 @@
       <img src="/assets/icons/logo-brand.jpg" alt="SIGMA MARKET" style="display:block;width:120px;height:120px;margin:0 auto 14px;border-radius:12px">
       <h3 style="margin-bottom:14px;text-align:center">Вход в личный кабинет</h3>
       <div id="acc-step-phone">
-        <div class="form-group"><label>Телефон *</label><input type="tel" id="accPhone" placeholder="+7 (___) ___-__-__"></div>
+        <div class="form-group"><label for="accPhone">Телефон *</label><input type="tel" id="accPhone" name="tel" autocomplete="tel" placeholder="+7 (___) ___-__-__"></div>
         <button class="btn-primary" onclick="custRequestCode()">Получить код</button>
       </div>
       <div id="acc-step-code" style="display:none">
         <p id="accCodeSentTo" style="color:var(--text-muted);font-size:13px;margin-bottom:14px;text-align:center"></p>
-        <div class="form-group"><label>Код из 4 цифр *</label><input type="text" inputmode="numeric" pattern="[0-9]*" id="accCode"></div>
-        <div class="form-group" id="accNameField" style="display:none"><label>Ваше имя * <span style="font-weight:400">— видим вас первый раз</span></label><input type="text" id="accName"></div>
+        <div class="form-group"><label for="accCode">Код из 4 цифр *</label><input type="text" inputmode="numeric" pattern="[0-9]*" id="accCode" autocomplete="one-time-code"></div>
+        <div class="form-group" id="accNameField" style="display:none"><label for="accName">Ваше имя * <span style="font-weight:400">— видим вас первый раз</span></label><input type="text" id="accName" name="name" autocomplete="name"></div>
         <button class="btn-primary" onclick="custVerifyCode()">Подтвердить</button>
         <button type="button" class="acc-resend" id="accResendBtn" onclick="custRequestCode(true)">Отправить код ещё раз</button>
       </div>
@@ -142,7 +142,11 @@
       <button class="modal-close" onclick="closeKpModal()">✕</button>
       <h3 style="margin-bottom:14px;text-align:center">Скачать КП</h3>
       <p style="color:var(--text-muted);font-size:13px;margin-bottom:14px;text-align:center">Укажите телефон — файл скачается сразу</p>
-      <div class="form-group"><label>Телефон *</label><input type="tel" id="kpPhone" placeholder="+7 (___) ___-__-__"></div>
+      <div class="form-group"><label for="kpPhone">Телефон *</label><input type="tel" id="kpPhone" name="tel" autocomplete="tel" placeholder="+7 (___) ___-__-__"></div>
+      <!-- Ловушка для ботов, как в форме заказа — реальный человек поле не видит. -->
+      <div style="position:absolute;left:-9999px" aria-hidden="true">
+        <input type="text" id="kpWebsite" name="website" tabindex="-1" autocomplete="off">
+      </div>
       <button class="btn-primary" onclick="kpDownload()">Скачать КП</button>
     </div>
   </div>

@@ -908,6 +908,19 @@ function initRichEditor(taId) {
   };
   body.addEventListener('input', sync);
   body.addEventListener('blur', sync);
+  // Вставка из Word тащит за собой мегабайты служебной MSO-разметки (<!--[if gte mso 9]>
+  // и т.п.) внутри самого HTML — визуально незаметно, но раздувает страницу и мешает
+  // Google вытащить оттуда читаемый текст. Берём только обычный текст из буфера и сами
+  // разбиваем на абзацы — форматирование (жирный, списки) потом добавляется кнопками.
+  body.addEventListener('paste', e => {
+    e.preventDefault();
+    const text = (e.clipboardData || window.clipboardData).getData('text/plain');
+    const html = text.split(/\r?\n{2,}/).map(block =>
+      '<p>' + block.split(/\r?\n/).map(esc).join('<br>') + '</p>'
+    ).join('');
+    document.execCommand('insertHTML', false, html);
+    sync();
+  });
   ta.addEventListener('input', () => { if (ta.style.display !== 'none') body.innerHTML = ta.value; });
   wrap.querySelectorAll('.rich-tb button').forEach(b => b.addEventListener('mousedown', e => {
     e.preventDefault();
