@@ -125,6 +125,34 @@ db.serialize(async () => {
   await addCol('subcategories', 'seo_title', 'TEXT');
   await addCol('subcategories', 'seo_description', 'TEXT');
 
+  // FAQ-блок раздела (вопросы-ответы на странице категории/подкатегории + разметка
+  // FAQPage для Google) — JSON-массив пар [вопрос, ответ], редактируется в админке.
+  await addCol('categories', 'faq', "TEXT DEFAULT '[]'");
+  await addCol('subcategories', 'faq', "TEXT DEFAULT '[]'");
+
+  // Включение в фид Google Merchant Center (см. merchantFeed() в seo.js) — реально решает
+  // только products.in_feed, фид смотрит только на него. Галочка у категории/подкатегории —
+  // не постоянное ограничение, а разовое массовое действие: переключили — сразу
+  // проставляется то же значение всем товарам внутри (см. PUT /api/admin/categories/:id и
+  // /api/admin/subcategories/:id в server.js); дальше товары донастраиваются по отдельности.
+  await addCol('categories', 'in_feed', 'INTEGER DEFAULT 1');
+  await addCol('subcategories', 'in_feed', 'INTEGER DEFAULT 1');
+  await addCol('products', 'in_feed', 'INTEGER DEFAULT 1');
+
+  // ---- Статьи (экспертный контент: ответы на вопросы покупателей, разборы и сравнения
+  // оборудования) — для SEO и ИИ-поисковиков (ChatGPT/Perplexity и т.п.), которым нужен
+  // не каталог, а связный текст, отвечающий на конкретный вопрос. Публикуется в админке.
+  await db.runAsync(`CREATE TABLE IF NOT EXISTS articles (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL, slug TEXT NOT NULL UNIQUE,
+    excerpt TEXT, content TEXT, cover TEXT,
+    seo_title TEXT, seo_description TEXT,
+    published INTEGER DEFAULT 1,
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now'))
+  )`);
+  await db.runAsync(`CREATE INDEX IF NOT EXISTS idx_articles_slug ON articles(slug)`);
+
   // ---- Журнал действий администраторов ----
   await db.runAsync(`CREATE TABLE IF NOT EXISTS admin_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -152,6 +180,18 @@ db.serialize(async () => {
     value TEXT,         -- поисковый запрос / название товара
     ref_id INTEGER       -- id товара (для product_view)
   )`);
+  // IP — чтобы в «Когда и что смотрели» в админке было видно, один и тот же
+  // посетитель повторяет заходы на одну страницу (похоже на проблему с рекламой/
+  // ботами) или это разные люди.
+  try { await db.runAsync(`ALTER TABLE stats_events ADD COLUMN ip TEXT`); } catch (e) {}
+  // User-Agent — честные боты (Google/Яндекс/простые скрипты) сами о себе пишут в UA,
+  // это видно сразу. Настоящий скликивающий бот обычно маскируется под телефон, так что
+  // это не защита от фрода, а просто ещё один факт для глаз в том же отчёте.
+  try { await db.runAsync(`ALTER TABLE stats_events ADD COLUMN ua TEXT`); } catch (e) {}
+  // Источник визита: referrer (откуда пришли — Google, Яндекс, сам сайт и т.п.) и
+  // исходная строка запроса (там же, где gclid/utm-метки рекламы, если переход с рекламы).
+  try { await db.runAsync(`ALTER TABLE stats_events ADD COLUMN ref TEXT`); } catch (e) {}
+  try { await db.runAsync(`ALTER TABLE stats_events ADD COLUMN entry_query TEXT`); } catch (e) {}
   await db.runAsync(`CREATE INDEX IF NOT EXISTS idx_stats_events_type_ts ON stats_events(type, ts)`);
 
   // ---- Ошибки на сайте (JS-ошибки у посетителей, видно в админке) ----
@@ -275,6 +315,7 @@ db.serialize(async () => {
   await addCol('customers', 'company', 'TEXT');       // название компании клиента (заполняет сам в личном кабинете)
   await addCol('customers', 'city', 'TEXT');          // город клиента (заполняется в админке)
   await addCol('reviews', 'customer_id', 'INTEGER'); // кто оставил отзыв, если был вошедшим (для "Мои отзывы")
+  await addCol('reviews', 'reply', 'TEXT'); // официальный ответ администрации, показывается под отзывом на сайте
   await db.runAsync(`CREATE TABLE IF NOT EXISTS customer_favorites (
     customer_id INTEGER NOT NULL,
     product_id INTEGER NOT NULL,
@@ -301,17 +342,15 @@ db.serialize(async () => {
         { id: 'sto',   label: 'СТО / Шиномонтаж',     category: 'sto' },
         { id: 'clean', label: 'Клининговая компания', category: 'klining' }
       ]},
-      // Пылесосы уже конечный выбор — сразу subcategory, без третьего шага. А "Аппараты
-      // высокого давления", "Автоматические мойки", "Поломоечная"/"Подметальная машина" —
+      // "Очистные сооружения"/"Доп. оборудование" (wash) и варианты СТО — уже конечный
+      // выбор, сразу subcategory, без третьего шага. А "Пылесосы", "Аппараты высокого
+      // давления", "Автоматические мойки", "Поломоечная"/"Подметальная машина" —
       // ещё не конечный: у них есть третий шаг (см. "subtype" ниже), поэтому тут без
       // subcategory, его подставит выбор на третьем шаге. Бюджет убрали отдельным шагом —
       // вместо фильтра по деньгам показываем сразу список на выбор (см. /api/products/quiz).
       { key: 'type', label: 'Какое оборудование интересует?', branchBy: 'biz', optionsByBranch: {
         wash: [
-          { id: 'pylesos_vac',  label: 'Пылеводосос',                          subcategory: 'professionalnye-pylevodososy' },
-          { id: 'pylesos_extr', label: 'Пылесос для влажной уборки (экстрактор)', subcategory: 'professionalnye-pylesosy-ekstraktory' },
-          { id: 'pylesos_steam',label: 'Парогенератор',                        subcategory: 'professionalnye-parogeneratory' },
-          { id: 'pylesos_prom', label: 'Промышленный пылесос',                 subcategory: 'promyshlennye-pylesosy' },
+          { id: 'pylesos', label: 'Пылесосы' },
           { id: 'avd',     label: 'Аппараты высокого давления' },
           { id: 'auto',    label: 'Автоматические мойки' },
           { id: 'ochistka',label: 'Очистные сооружения',         subcategory: 'ochistnye-sooruzheniya-dlya-avtomoyki' },
@@ -327,6 +366,7 @@ db.serialize(async () => {
           { id: 'maslo',   label: 'Оборудование для замены масла',   subcategory: 'oborudovanie-dlya-zameny-masla-samoa' }
         ],
         clean: [
+          { id: 'pylesos_klining', label: 'Пылесосы' },
           { id: 'polomoyka', label: 'Поломоечная машина' },
           { id: 'podmet',    label: 'Подметальная машина' }
         ]
@@ -338,6 +378,23 @@ db.serialize(async () => {
       // "Производительность по площади" у товара (specKey), а не по подкатегории: если
       // характеристика не заполнена, товар просто не покажется в выдаче (не выдумываем).
       { key: 'subtype', label: 'Уточните вариант', branchBy: 'type', optionsByBranch: {
+        pylesos: [
+          { id: 'pylesos_vac',  label: 'Пылеводосос',                          subcategory: 'professionalnye-pylevodososy' },
+          { id: 'pylesos_extr', label: 'Пылесос для влажной уборки (экстрактор)', subcategory: 'professionalnye-pylesosy-ekstraktory' },
+          { id: 'pylesos_steam',label: 'Парогенератор',                        subcategory: 'professionalnye-parogeneratory' },
+          { id: 'pylesos_prom', label: 'Промышленный пылесос',                 subcategory: 'promyshlennye-pylesosy' }
+        ],
+        // У "Клининга" для пылесосов — СВОИ подкатегории в каталоге (не те же самые, что
+        // у "Автомойки" выше, хоть названия и совпадают) — отдельный slug на сайте для
+        // каждой из них, поэтому отдельная ветка, а не общая с "pylesos". Если бы использовали
+        // те же slug'и — товары не находились бы вовсе (категория у них в базе другая) и
+        // квиз откатывался бы к показу всего подряд из категории "Клининг".
+        pylesos_klining: [
+          { id: 'pylesos_vac',  label: 'Пылеводосос',                          subcategory: 'professional-nye-pylevodososy' },
+          { id: 'pylesos_extr', label: 'Пылесос для влажной уборки (экстрактор)', subcategory: 'professional-nye-moyuschie-pylesosy-ekstraktory' },
+          { id: 'pylesos_steam',label: 'Парогенератор',                        subcategory: 'professional-nye-parogeneratory' },
+          { id: 'pylesos_prom', label: 'Промышленный пылесос',                 subcategory: 'promyshlennye-pylesosy' }
+        ],
         avd: [
           { id: 'avd_cold', label: 'Без подогрева',          subcategory: 'moyka-holodnoy-vodoy' },
           { id: 'avd_hot',  label: 'С подогревом',           subcategory: 'moyka-goryachey-vodoy' },

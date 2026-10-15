@@ -50,7 +50,7 @@ function getPartial(name) {
 }
 // Экраны SPA (index.html) — на старте страницы шлём только тот, что реально нужен
 // для текущего маршрута; остальные подгружает клиент по требованию (JS, ensureView).
-const SPA_VIEWS = new Set(['home', 'catalog', 'product', 'notfound']);
+const SPA_VIEWS = new Set(['home', 'catalog', 'product', 'notfound', 'articles', 'article']);
 // Версия для ?v=... в ссылках на site.js/product.js/style.css — считается по дате
 // изменения самих файлов, а не руками (раньше не раз забывали её поднять, и браузер
 // после правок тихо отдавал старую версию из 30-дневного кэша). Меняется сама и сразу
@@ -76,7 +76,7 @@ function renderPage(html, activeView) {
 // index.html; для отдельных статических страниц (about.html и т.п.) гидрация не нужна.
 async function buildHydrate(seoData, req) {
   if (!seoData || !seoData.view) return null;
-  const hydrate = { categories: await queryCategories() };
+  const hydrate = { categories: await queryCategories(), settings: await buildPublicSettings() };
   if (seoData.view === 'catalog' && !seoData.notFound) {
     const p = decodeURIComponent(req.path);
     const mc = p.match(/^\/catalog(?:\/([^/]+)(?:\/([^/]+))?)?\/?$/);
@@ -100,6 +100,13 @@ app.get('/sitemap.xml', async (req, res) => {
   try { res.type('application/xml').send(await seo.sitemap(req)); }
   catch (e) { res.status(500).type('text/plain').send('sitemap error'); }
 });
+// Фид товаров для Google Merchant Center — ссылку на этот адрес один раз указываете
+// в самом Merchant Center (способ добавления фида: "По расписанию"/"Google Таблицы" не
+// нужны, там есть вариант "Загрузить" с прямой ссылкой на файл).
+app.get('/merchant-feed.xml', async (req, res) => {
+  try { res.type('application/xml').send(await seo.merchantFeed(req)); }
+  catch (e) { res.status(500).type('text/plain').send('merchant feed error'); }
+});
 
 // ЧПУ каталога/товаров + 301 со старого ?category=/?product=
 app.get(/.*/, async (req, res, next) => {
@@ -118,7 +125,8 @@ app.get(/.*/, async (req, res, next) => {
   // /catalog, /catalog/{cat}, /catalog/{cat}/{sub}, /product/{id}-{slug}
   // ("/catalog/" с одним хвостовым слэшем и без категории — отдельный случай: [^/]+
   // требует хотя бы символ ПОСЛЕ слэша, которого тут нет, иначе отдавался 404).
-  if (p === '/catalog' || p === '/catalog/' || /^\/catalog\/[^/]+/.test(p) || /^\/product\/\d/.test(p)) {
+  if (p === '/catalog' || p === '/catalog/' || /^\/catalog\/[^/]+/.test(p) || /^\/product\/\d/.test(p) ||
+      p === '/articles' || p === '/articles/' || /^\/articles\/[^/]+/.test(p)) {
     try {
       const seoData = await seo.build(req, '/index.html');
       let html = renderPage(fs.readFileSync(path.join(PUBLIC_DIR, 'index.html'), 'utf8'), (seoData.view || '').toLowerCase());
@@ -187,6 +195,82 @@ const upload = multer({
   fileFilter: (req, file, cb) => cb(null, /image\//.test(file.mimetype))
 });
 
+// Фото часто приходят с телефона/от поставщика в исходном разрешении (тысячи px,
+// до нескольких МБ) — а на сайте показываются шириной 180-520px. Сжимаем сразу при
+// загрузке: уменьшаем до разумного максимума и пережимаем с тем же форматом/именем
+// файла (чтобы ничего не ломалось у уже сохранённых ссылок на него в товарах).
+// SVG/GIF не трогаем — SVG уже компактный вектор, GIF может быть анимированным.
+// BMP/TIFF — несжатые форматы (BMP на 2-3 МБ не редкость даже для небольшой фотки) —
+// пережимаем в JPEG, оставляя то же имя файла (см. комментарий про PNG-как-.jpg ниже).
+//
+// Миниатюра (thumbPath) — отдельный файл "имя-thumb.ext" рядом с основным. В каталоге/
+// квизе/похожих товарах карточка показывает фото шириной 180-250px — отдавать туда
+// версию с максимумом 1200px (нужным для страницы товара, где фото открыто крупно)
+// бессмысленно, браузер всё равно сжимает её на лету, но трафик уже потрачен.
+function thumbPath(filePath) {
+  const ext = path.extname(filePath);
+  return filePath.slice(0, -ext.length) + '-thumb' + ext;
+}
+async function makeThumb(sharp, buffer, ext, filePath) {
+  try {
+    let t = sharp(buffer).resize({ width: 500, height: 500, fit: 'inside', withoutEnlargement: true });
+    const tbuf = ext === '.png' ? await t.png({ compressionLevel: 9 }).toBuffer()
+      : ext === '.webp' ? await t.webp({ quality: 80 }).toBuffer()
+      : await t.jpeg({ quality: 80, mozjpeg: true }).toBuffer();
+    fs.writeFileSync(thumbPath(filePath), tbuf);
+  } catch (e) { /* миниатюра — бонус, без неё код выше просто покажет полный файл */ }
+}
+async function compressUploadedImage(filePath) {
+  const ext = path.extname(filePath).toLowerCase();
+  if (!['.jpg', '.jpeg', '.png', '.webp', '.bmp', '.tiff', '.tif'].includes(ext)) return;
+  try {
+    const sharp = require('sharp');
+    const before = fs.statSync(filePath).size;
+    let img;
+    if (ext === '.bmp') {
+      // В отличие от TIFF, BMP sharp/libvips читать не умеет вовсе — распаковываем
+      // через bmp-js и уже готовые пиксели отдаём в sharp как raw-буфер. У bmp-js
+      // свой нестандартный порядок байт на пиксель: [A(всегда 0), B, G, R] — вместо
+      // привычного RGBA, поэтому переставляем сами (и ставим альфу в 255 — у BMP
+      // прозрачности не бывает, а 0 от bmp-js означает просто "не используется").
+      try {
+        const decoded = require('bmp-js').decode(fs.readFileSync(filePath));
+        const raw = decoded.data;
+        const rgba = Buffer.alloc(raw.length);
+        for (let i = 0; i < raw.length; i += 4) {
+          rgba[i] = raw[i + 3]; rgba[i + 1] = raw[i + 2]; rgba[i + 2] = raw[i + 1]; rgba[i + 3] = 255;
+        }
+        img = sharp(rgba, { raw: { width: decoded.width, height: decoded.height, channels: 4 } });
+      } catch (bmpErr) {
+        // bmp-js понимает только простейший несжатый BMP — на RLE-сжатии и прочих
+        // вариантах падает с "Invalid BMP File". Как и с PNG под видом .jpg — расширение
+        // не гарантия формата: пробуем прочитать как обычную картинку (sharp сам
+        // определит реальный формат по содержимому, не по имени файла).
+        img = sharp(filePath).rotate();
+      }
+    } else {
+      img = sharp(filePath).rotate(); // .rotate() без аргументов — авто-поворот по EXIF, и сам EXIF дальше не тащим
+    }
+    const meta = await img.metadata();
+    if ((meta.width || 0) > 1200 || (meta.height || 0) > 1200) {
+      img = img.resize({ width: 1200, height: 1200, fit: 'inside', withoutEnlargement: true });
+    }
+    // Расширение файла не всегда совпадает с реальным форматом (попадаются PNG с
+    // прозрачностью, сохранённые как .jpg) — ориентируемся на meta.hasAlpha, а не на
+    // расширение: у JPEG (в отличие от PNG/WebP) нет альфа-канала, и если сжимать в
+    // jpeg "как есть", прозрачный фон молча становится чёрным. Разворачиваем на белый —
+    // такой же, как у карточек на сайте.
+    const willBeJpeg = ext !== '.png' && ext !== '.webp';
+    if (meta.hasAlpha && willBeJpeg) img = img.flatten({ background: '#ffffff' });
+    const buffer = ext === '.png' ? await img.png({ compressionLevel: 9 }).toBuffer()
+      : ext === '.webp' ? await img.webp({ quality: 82 }).toBuffer()
+      : await img.jpeg({ quality: 82, mozjpeg: true }).toBuffer();
+    // пережатая версия больше оригинала (бывает у уже маленьких картинок) — не перезаписываем
+    if (buffer.length < before) fs.writeFileSync(filePath, buffer);
+    await makeThumb(sharp, buffer, ext, filePath);
+  } catch (e) { /* сжатие — бонус, не должно ломать саму загрузку файла */ }
+}
+
 // ==================== WHATSAPP WEBHOOK (Meta) ====================
 // Приём входящих сообщений/статусов от WhatsApp Cloud API (developers.facebook.com →
 // приложение → WhatsApp → Configuration → Webhooks). Verify Token — свой секрет,
@@ -246,15 +330,21 @@ async function getSettings() {
   }
   return out;
 }
+// Та же форма, что отдаёт /api/settings — вынесено отдельно, чтобы buildHydrate()
+// могла положить это же в window.__HYDRATE__ (см. ниже) и клиент не делал лишний
+// round-trip за настройками при первом заходе (из-за этого на главной «прыгал» блок
+// квиза — CLS: место под него не зарезервировано, пока не придёт /api/settings).
+async function buildPublicSettings() {
+  const s = await getSettings();
+  return {
+    blocks: s.blocks || {}, filters: s.filters || {},
+    compare: s.compare !== false, favorites: s.favorites !== false,
+    quiz: s.quiz || {}, contacts: s.contacts || {}, bonus: s.bonus || {}, kp: s.kp || {}
+  };
+}
 app.get('/api/settings', async (req, res) => {
-  try {
-    const s = await getSettings();
-    res.json({
-      blocks: s.blocks || {}, filters: s.filters || {},
-      compare: s.compare !== false, favorites: s.favorites !== false,
-      quiz: s.quiz || {}, contacts: s.contacts || {}, bonus: s.bonus || {}, kp: s.kp || {}
-    });
-  } catch (e) { res.status(500).json({ error: e.message }); }
+  try { res.json(await buildPublicSettings()); }
+  catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // ==================== SUBCATEGORIES (public) ====================
@@ -278,7 +368,7 @@ app.get('/api/subcategories', async (req, res) => {
 app.get('/api/products', async (req, res) => {
   try {
     const search = String(req.query.search || '').trim();
-    if (search) logStat('search', null, search, null);
+    if (search) logStat('search', null, search, null, clientIp(req), req.headers['user-agent']);
     res.json(await queryProducts(req.query));
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -315,7 +405,18 @@ app.post('/api/products/quiz', async (req, res) => {
     // здесь должно быть так же.
     let where = [];
     let params = [];
-    if (bizO && bizO.category) { where.push('c.slug = ?'); params.push(bizO.category); }
+    // Та же "мягкая" проверка категории, что и в обычном каталоге (см. queries.js) — через
+    // ИЛИ с дополнительной привязкой (product_extra_categories). Без неё товар, у которого
+    // "родная" категория — Автомойка, а в Клининг он виден только как доп. привязка (как
+    // раз случай "Пылесосы" под Клинингом — они физически заведены под Автомойкой), не
+    // находился: строгое "c.slug = 'klining'" проверяет только родную категорию товара.
+    if (bizO && bizO.category) {
+      where.push(`(c.slug = ? OR p.id IN (
+        SELECT pec.product_id FROM product_extra_categories pec
+        JOIN categories ec ON pec.category_id = ec.id WHERE ec.slug = ?
+      ))`);
+      params.push(bizO.category, bizO.category);
+    }
 
     const subcatTreeIds = async (slug) => {
       const idRows = await db.allAsync(
@@ -485,6 +586,27 @@ app.get('/api/products/:id', async (req, res) => {
   }
 });
 
+// ==================== СТАТЬИ (публичные) ====================
+app.get('/api/articles', async (req, res) => {
+  try {
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const limit = Math.min(60, Math.max(1, parseInt(req.query.limit) || 20));
+    const total = (await db.getAsync('SELECT COUNT(*) as n FROM articles WHERE published = 1')).n;
+    const rows = await db.allAsync(
+      'SELECT id, title, slug, excerpt, cover, created_at FROM articles WHERE published = 1 ORDER BY id DESC LIMIT ? OFFSET ?',
+      [limit, (page - 1) * limit]);
+    res.json({ rows, total, page, limit });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.get('/api/articles/:slug', async (req, res) => {
+  try {
+    const a = await db.getAsync('SELECT * FROM articles WHERE slug = ? AND published = 1', [req.params.slug]);
+    if (!a) return res.status(404).json({ error: 'Статья не найдена' });
+    a.seo = seo.articleMeta(a);
+    res.json(a);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // ==================== СКАЧИВАНИЕ КП (мгновенно, по номеру телефона) ====================
 // Включается в админке → Вовлечённость → КП («Мгновенное скачивание»). Пока выключено —
 // кнопка на сайте работает как раньше, через обычную заявку (requestModal), сюда не попадает.
@@ -514,7 +636,7 @@ app.post('/api/kp/download', async (req, res) => {
 app.get('/api/products/:id/reviews', async (req, res) => {
   try {
     const rows = await db.allAsync(
-      `SELECT id, name, rating, text, created_at FROM reviews
+      `SELECT id, name, rating, text, reply, created_at FROM reviews
        WHERE product_id = ? AND status = 'approved' ORDER BY id DESC`,
       [req.params.id]
     );
@@ -548,7 +670,7 @@ app.post('/api/products/:id/reviews', async (req, res) => {
 app.get('/api/reviews', async (req, res) => {
   try {
     const rows = await db.allAsync(
-      `SELECT id, name, company, rating, text, created_at FROM reviews
+      `SELECT id, name, company, rating, text, reply, created_at FROM reviews
        WHERE product_id IS NULL AND status = 'approved' ORDER BY id DESC LIMIT 60`
     );
     res.json({ rows });
@@ -602,6 +724,13 @@ app.post('/api/orders', async (req, res) => {
     if (!Array.isArray(parsedItems) || !parsedItems.length) {
       return res.status(400).json({ error: 'Добавьте товар в корзину' });
     }
+    // На сайте кол-во в корзине ограничено 20 (см. changeQty в index.html) — тот же
+    // предел тут, на случай прямого запроса в обход интерфейса. Без него количество
+    // можно было отправить любым, вплоть до абсурдных заказов на десятки миллионов ₸
+    // от одного клика — это не настоящий опт, а либо ошибка, либо мусорная заявка;
+    // для реального опта есть разговор с менеджером, не самостоятельное оформление.
+    parsedItems.forEach(item => { item.qty = Math.min(20, Math.max(1, Number(item.qty) || 1)); });
+    itemsStr = JSON.stringify(parsedItems);
     total = parsedItems.reduce((sum, item) => sum + (item.price || 0) * (item.qty || 1), 0);
 
     // Бонусы: если оформляет вошедший клиент, спишем запрошенную сумму
@@ -682,7 +811,9 @@ app.post('/api/track-view', async (req, res) => {
     const type = req.body && req.body.type === 'product_view' ? 'product_view' : 'pageview';
     const path = String((req.body && req.body.path) || '').slice(0, 500);
     const refId = type === 'product_view' ? Number(req.body && req.body.refId) || null : null;
-    if (path) logStat(type, path, null, refId);
+    const ref = String((req.body && req.body.ref) || '').slice(0, 500);
+    const entryQuery = String((req.body && req.body.entryQuery) || '').slice(0, 500);
+    if (path) logStat(type, path, null, refId, clientIp(req), req.headers['user-agent'], ref, entryQuery);
   } catch { /* статистика не должна ронять страницу */ }
   res.json({ ok: true });
 });
@@ -694,7 +825,7 @@ app.post('/api/track-click', async (req, res) => {
     const kind = String((req.body && req.body.kind) || '');
     const path = String((req.body && req.body.path) || '').slice(0, 500);
     const productId = Number(req.body && req.body.productId) || null;
-    if (CTA_KINDS.has(kind)) logStat('cta_click', path, kind, productId);
+    if (CTA_KINDS.has(kind)) logStat('cta_click', path, kind, productId, clientIp(req), req.headers['user-agent']);
   } catch { /* статистика не должна ронять страницу */ }
   res.json({ ok: true });
 });
@@ -838,7 +969,7 @@ app.delete('/api/me/favorites/:productId', customerAuth, async (req, res) => {
 
 app.get('/api/me/reviews', customerAuth, async (req, res) => {
   const rows = await db.allAsync(
-    `SELECT r.id, r.rating, r.text, r.status, r.created_at, r.product_id, p.name AS product_name
+    `SELECT r.id, r.rating, r.text, r.reply, r.status, r.created_at, r.product_id, p.name AS product_name
      FROM reviews r LEFT JOIN products p ON p.id = r.product_id
      WHERE r.customer_id = ? ORDER BY r.id DESC LIMIT 50`,
     [req.customer.id]
@@ -887,11 +1018,12 @@ function clientIp(req) {
 // ---- Статистика сайта (для админки — просмотры, поисковые запросы, товары) ----
 // По просьбе Миры боты (включая Яндекс/Google) из статистики не исключаются —
 // пусть пишется всё подряд, без фильтрации.
-async function logStat(type, path, value, refId) {
+async function logStat(type, path, value, refId, ip, ua, ref, entryQuery) {
   try {
     await db.runAsync(
-      `INSERT INTO stats_events (type, path, value, ref_id) VALUES (?,?,?,?)`,
-      [type, path || null, value || null, refId || null]
+      `INSERT INTO stats_events (type, path, value, ref_id, ip, ua, ref, entry_query) VALUES (?,?,?,?,?,?,?,?)`,
+      [type, path || null, value || null, refId || null, ip || null, (ua || '').slice(0, 300) || null,
+       (ref || '').slice(0, 500) || null, (entryQuery || '').slice(0, 500) || null]
     );
     await db.runAsync(`DELETE FROM stats_events WHERE id <= (SELECT MAX(id) - 200000 FROM stats_events)`);
   } catch { /* статистика не должна ломать основной запрос */ }
@@ -935,13 +1067,15 @@ function adminActionLabel(req) {
     [/\/categories\/\d+$/,     { PUT: ['update', 'Изменена категория'], DELETE: ['delete', 'Удалена категория'] }],
     [/\/subcategories$/,       { POST: ['create', 'Добавлена подкатегория'] }],
     [/\/subcategories\/\d+$/,  { PUT: ['update', 'Изменена подкатегория'], DELETE: ['delete', 'Удалена подкатегория'] }],
+    [/\/articles$/,            { POST: ['create', 'Добавлена статья'] }],
+    [/\/articles\/\d+$/,       { PUT: ['update', 'Изменена статья'], DELETE: ['delete', 'Удалена статья'] }],
     [/\/orders\/\d+\/status$/, { PUT: ['update', `Статус заявки #${id}: ${(req.body && req.body.status) || ''}`] }],
     [/\/orders\/\d+\/complete$/, { PUT: ['update', 'Заказ выполнен'] }],
     [/\/orders\/\d+\/notes$/,  { POST: ['create', 'Добавлено примечание к заявке'] }],
     [/\/orders\/\d+$/,         { PUT: ['update', 'Изменена заявка'] }],
     [/\/customers\/\d+$/,      { PUT: ['update', 'Изменён клиент'] }],
     [/\/customers\/\d+\/deduct-bonus$/, { PUT: ['update', 'Списан бонус клиенту'] }],
-    [/\/reviews\/\d+$/,        { PUT: ['update', `Отзыв #${id}: ${(req.body && req.body.status) || ''}`], DELETE: ['delete', `Удалён отзыв #${id}`] }],
+    [/\/reviews\/\d+$/,        { PUT: ['update', (req.body && req.body.status) ? `Отзыв #${id}: ${req.body.status}` : `Изменён отзыв #${id}`], DELETE: ['delete', `Удалён отзыв #${id}`] }],
     [/\/settings\/reset-quiz$/,{ POST: ['update', 'Сброс квиза к стандартному'] }],
     [/\/settings$/,            { PUT: ['update', 'Изменены настройки сайта'] }],
     [/\/upload-/,              { POST: ['update', 'Загрузка файлов'] }],
@@ -972,15 +1106,19 @@ const DIFF_FIELDS = {
   },
   categories: { name: 'Название', slug: 'Slug', description: 'Описание', icon: 'Иконка', seo_title: 'SEO-заголовок', seo_description: 'SEO-описание' },
   subcategories: { category_id: 'Категория (id)', name: 'Название', slug: 'Slug', description: 'Описание', sort: 'Порядок', icon: 'Иконка', seo_title: 'SEO-заголовок', seo_description: 'SEO-описание' },
+  articles: { title: 'Заголовок', slug: 'Slug', excerpt: 'Краткое описание', content: 'Текст', cover: 'Обложка', seo_title: 'SEO-заголовок', seo_description: 'SEO-описание', published: { label: 'Опубликовано', bool: true } },
   orders: { name: 'Имя', phone: 'Телефон', email: 'Email', city: 'Город', company: 'Компания', message: 'Комментарий', total: 'Сумма' },
   customers: { name: 'Имя', phone: 'Телефон', email: 'Email', city: 'Город', company: 'Компания', bonus_balance: { label: 'Бонусы', bodyKey: 'bonusBalance' } },
+  reviews: { status: 'Статус', product_id: 'Товар (id)', name: 'Имя', phone: 'Телефон', company: 'Компания', rating: 'Оценка', text: 'Текст', reply: 'Ответ', created_at: 'Дата' },
 };
 function diffEntity(u) {
   if (/\/products\/\d+$/.test(u)) return 'products';
   if (/\/categories\/\d+$/.test(u)) return 'categories';
   if (/\/subcategories\/\d+$/.test(u)) return 'subcategories';
+  if (/\/articles\/\d+$/.test(u)) return 'articles';
   if (/\/orders\/\d+$/.test(u)) return 'orders';
   if (/\/customers\/\d+$/.test(u)) return 'customers';
+  if (/\/reviews\/\d+$/.test(u)) return 'reviews';
   return null;
 }
 async function snapshotBefore(req) {
@@ -1152,44 +1290,139 @@ app.delete('/api/admin/admins/:id', adminAuth, requireSuperadmin, async (req, re
 app.get('/api/admin/stats', adminAuth, async (req, res) => {
   try {
     const isToday = req.query.days === '0';
-    const days = isToday ? 0 : Math.min(365, Math.max(1, Number(req.query.days) || 30));
-    const since = isToday ? `datetime('now','start of day')` : `datetime('now','-${days} days')`;
+    const isYesterday = req.query.days === '-1';
+    const days = isToday || isYesterday ? 0 : Math.min(365, Math.max(1, Number(req.query.days) || 30));
+    const since = isYesterday ? `datetime('now','-1 days','start of day')`
+      : isToday ? `datetime('now','start of day')` : `datetime('now','-${days} days')`;
+    // Верхняя граница нужна только у «Вчера» — иначе за «вчера» попадали бы и
+    // сегодняшние события (since у остальных периодов не ограничен сверху, там and всегда true).
+    const until = isYesterday ? `datetime('now','start of day')` : `datetime('now','+1000 years')`;
 
     const totalViews = (await db.getAsync(
-      `SELECT COUNT(*) AS c FROM stats_events WHERE type IN ('pageview','product_view') AND ts >= ${since}`
+      `SELECT COUNT(*) AS c FROM stats_events WHERE type IN ('pageview','product_view') AND ts >= ${since} AND ts < ${until}`
     )).c;
 
     const byDay = await db.allAsync(
       `SELECT substr(ts,1,10) AS date, COUNT(*) AS count
-       FROM stats_events WHERE type IN ('pageview','product_view') AND ts >= ${since}
+       FROM stats_events WHERE type IN ('pageview','product_view') AND ts >= ${since} AND ts < ${until}
        GROUP BY date ORDER BY date`
     );
 
     const topSearches = await db.allAsync(
       `SELECT value, COUNT(*) AS count FROM stats_events
-       WHERE type = 'search' AND ts >= ${since} AND value IS NOT NULL AND value != ''
+       WHERE type = 'search' AND ts >= ${since} AND ts < ${until} AND value IS NOT NULL AND value != ''
        GROUP BY LOWER(value) ORDER BY count DESC LIMIT 30`
     );
 
     const topProducts = await db.allAsync(
       `SELECT s.ref_id, COUNT(*) AS count, p.name, p.icon
        FROM stats_events s LEFT JOIN products p ON p.id = s.ref_id
-       WHERE s.type = 'product_view' AND s.ts >= ${since} AND s.ref_id IS NOT NULL
+       WHERE s.type = 'product_view' AND s.ts >= ${since} AND s.ts < ${until} AND s.ref_id IS NOT NULL
        GROUP BY s.ref_id ORDER BY count DESC LIMIT 30`
     );
 
-    // Подробный список «когда и что смотрели» — последние события, самые свежие сверху
+    // Подробный список «когда и что смотрели» — последние события, самые свежие сверху.
+    // Таблица в админке показывает только последние 1000 — это нормально для списка (никто
+    // не листает тысячи строк руками), но счётчик повторов IP (ниже) считаем ОТДЕЛЬНЫМ
+    // запросом по ВСЕМУ периоду — иначе "×N" врёт, если у IP было больше заходов, чем
+    // влезло в эти 1000 строк (просто обрезаются как более старые).
+    const ipFilter = (req.query.ip || '').trim();
     const recentViews = await db.allAsync(
-      `SELECT s.ts, s.type, s.path, s.ref_id, p.name AS product_name
+      `SELECT s.ts, s.type, s.path, s.ref_id, s.ip, s.ua, s.ref, s.entry_query, p.name AS product_name
        FROM stats_events s LEFT JOIN products p ON p.id = s.ref_id
-       WHERE s.type IN ('pageview','product_view') AND s.ts >= ${since}
-       ORDER BY s.id DESC LIMIT 200`
+       WHERE s.type IN ('pageview','product_view') AND s.ts >= ${since} AND s.ts < ${until}
+       ${ipFilter ? 'AND s.ip = ?' : ''}
+       ORDER BY s.id DESC LIMIT 1000`,
+      ipFilter ? [ipFilter] : []
     );
+    const ipCountRows = await db.allAsync(
+      `SELECT ip, COUNT(*) as cnt FROM stats_events
+       WHERE type IN ('pageview','product_view') AND ts >= ${since} AND ts < ${until} AND ip IS NOT NULL AND ip != ''
+       GROUP BY ip`
+    );
+    const ipCountsFull = {};
+    ipCountRows.forEach(r => { ipCountsFull[r.ip] = r.cnt; });
+    // Источник визита — по исходной ссылке (gclid/utm в строке запроса = точно реклама)
+    // и по тому, с какого сайта пришли (referrer). Если ни то, ни другое не указывает на
+    // конкретный источник — считаем прямым заходом (по ссылке в закладках/мессенджере
+    // или человек напечатал адрес сам: тогда referrer у браузера пустой).
+    function trafficSource(ref, entryQuery) {
+      const q = String(entryQuery || '');
+      const r = String(ref || '');
+      if (/[?&](gclid|gad_source|gad_campaignid)=/i.test(q)) {
+        // Поиск или КМС (баннерная сеть) — Google Ads сам не передаёт это в адресе,
+        // только если в кампании настроен «суффикс конечного URL» вида network={network}
+        // (или nw={network}) — тогда там будет код сети: g/s — поиск, d — КМС, ytv — YouTube.
+        const nwM = q.match(/[?&](?:network|nw)=([^&]+)/i);
+        const NETWORKS = { g: 'Поиск', s: 'Партнёр поиска', d: 'КМС (баннеры)', ytv: 'YouTube' };
+        const nw = nwM && NETWORKS[decodeURIComponent(nwM[1]).toLowerCase()];
+        return nw ? `Google Ads (реклама) — ${nw}` : 'Google Ads (реклама)';
+      }
+      if (/[?&](yclid|ysclid)=/i.test(q)) return 'Яндекс.Директ (реклама)';
+      if (/[?&]utm_source=/i.test(q)) {
+        const m = q.match(/[?&]utm_source=([^&]+)/i);
+        return 'Метка utm: ' + decodeURIComponent((m && m[1]) || '');
+      }
+      if (!r) return '';
+      if (/google\./i.test(r)) return 'Google (поиск)';
+      if (/yandex\./i.test(r)) return 'Яндекс (поиск)';
+      if (/2gis\./i.test(r)) return '2ГИС';
+      if (/instagram\.com/i.test(r)) return 'Instagram';
+      if (/facebook\.com/i.test(r)) return 'Facebook';
+      if (/vk\.com/i.test(r)) return 'ВКонтакте';
+      if (/t\.me|telegram/i.test(r)) return 'Telegram';
+      if (/whatsapp/i.test(r)) return 'WhatsApp';
+      if (/b2btech\.kz/i.test(r)) return 'Другая страница сайта';
+      try { return new URL(r).hostname; } catch { return 'Переход по ссылке'; }
+    }
+    recentViews.forEach(r => { r.traffic_source = trafficSource(r.ref, r.entry_query); });
+    // Честные боты сами представляются в User-Agent — так помечаем их в отчёте. Это не
+    // ловит настоящий кликфрод (он маскируется под обычный телефон/браузер специально),
+    // только очевидных краулеров/скриптов. Порядок проверок важен — более конкретные
+    // названия (напр. YandexBot) идут раньше общего "bot".
+    const BOT_PATTERNS = [
+      // Та же история, что с Яндексом: кроме Googlebot у Google ещё AdsBot-Google,
+      // Mediapartners-Google, APIs-Google, FeedFetcher-Google, Google-InspectionTool,
+      // Storebot-Google и т.д. — ловим по самому слову "google".
+      [/google/i, 'Google-бот'],
+      [/bingbot/i, 'Bingbot (Microsoft)'],
+      // У Яндекса десяток разных ботов (YandexBot, YandexImages, YandexAccessibilityBot,
+      // YandexRenderResourcesBot, YaDirectFetcher и т.д.) — перечислять каждый бессмысленно,
+      // ловим по самому слову "yandex" в паре с bot/crawl/spider (проверяется этим же
+      // правилом чуть ниже) — так что тут достаточно просто "yandex".
+      [/yandex/i, 'Яндекс-бот'],
+      [/duckduckbot/i, 'DuckDuckBot'],
+      [/baiduspider/i, 'Baiduspider'],
+      [/ahrefsbot/i, 'AhrefsBot (SEO-сервис)'],
+      [/semrushbot/i, 'SemrushBot (SEO-сервис)'],
+      [/mj12bot/i, 'MJ12bot (Majestic SEO)'],
+      [/dotbot/i, 'DotBot (Moz)'],
+      [/facebookexternalhit/i, 'Facebook (предпросмотр ссылки)'],
+      // Новый краулер Meta для предпросмотра ссылок — тот же смысл, что и facebookexternalhit
+      // выше, просто под другим именем (developers.facebook.com/docs/sharing/webmasters/crawler).
+      [/meta-externalagent/i, 'Meta (предпросмотр ссылки)'],
+      [/telegrambot/i, 'Telegram (предпросмотр ссылки)'],
+      [/whatsapp/i, 'WhatsApp (предпросмотр ссылки)'],
+      [/slurp/i, 'Yahoo Slurp'],
+      [/ia_archiver/i, 'Archive.org'],
+      [/python-requests/i, 'Скрипт (python-requests)'],
+      [/curl\//i, 'Скрипт (curl)'],
+      [/wget/i, 'Скрипт (wget)'],
+      [/scrapy/i, 'Скрипт-сборщик (Scrapy)'],
+      [/headlesschrome/i, 'Автоматизированный браузер (Headless Chrome)'],
+      [/phantomjs/i, 'Автоматизированный браузер (PhantomJS)'],
+      [/bot|crawl|spider/i, 'Неизвестный бот/краулер'],
+    ];
+    function botName(ua) {
+      const found = BOT_PATTERNS.find(([re]) => re.test(ua));
+      return found ? found[1] : null;
+    }
+    recentViews.forEach(r => { r.bot_name = r.ua ? botName(r.ua) : null; r.is_bot_ua = !!r.bot_name; });
 
     // Клики по кнопкам: подбор оборудования, запрос КП, звонок, WhatsApp
     const ctaRows = await db.allAsync(
       `SELECT value, COUNT(*) AS count FROM stats_events
-       WHERE type = 'cta_click' AND ts >= ${since} GROUP BY value`
+       WHERE type = 'cta_click' AND ts >= ${since} AND ts < ${until} GROUP BY value`
     );
     const ctaClicks = { quiz: 0, offer: 0, call: 0, whatsapp: 0 };
     ctaRows.forEach((r) => { if (r.value in ctaClicks) ctaClicks[r.value] = r.count; });
@@ -1199,7 +1432,7 @@ app.get('/api/admin/stats', adminAuth, async (req, res) => {
     const ctaByProductRows = await db.allAsync(
       `SELECT s.ref_id, s.value AS kind, COUNT(*) AS count, p.name, p.icon
        FROM stats_events s LEFT JOIN products p ON p.id = s.ref_id
-       WHERE s.type = 'cta_click' AND s.ref_id IS NOT NULL AND s.ts >= ${since}
+       WHERE s.type = 'cta_click' AND s.ref_id IS NOT NULL AND s.ts >= ${since} AND s.ts < ${until}
        GROUP BY s.ref_id, s.value`
     );
     const ctaByProductMap = {};
@@ -1210,7 +1443,7 @@ app.get('/api/admin/stats', adminAuth, async (req, res) => {
     const ctaByProduct = Object.values(ctaByProductMap)
       .sort((a, b) => (b.offer + b.call + b.whatsapp) - (a.offer + a.call + a.whatsapp));
 
-    res.json({ days, totalViews, byDay, topSearches, topProducts, recentViews, ctaClicks, ctaByProduct });
+    res.json({ days, totalViews, byDay, topSearches, topProducts, recentViews, ctaClicks, ctaByProduct, ipCountsFull });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -1293,11 +1526,27 @@ app.get('/api/admin/reviews', adminAuth, async (req, res) => {
 });
 app.put('/api/admin/reviews/:id', adminAuth, async (req, res) => {
   try {
-    const status = req.body && req.body.status;
-    if (!['pending', 'approved', 'rejected'].includes(status)) {
+    const b = req.body || {};
+    if ('status' in b && !['pending', 'approved', 'rejected'].includes(b.status)) {
       return res.status(400).json({ error: 'Некорректный статус' });
     }
-    await db.runAsync('UPDATE reviews SET status = ? WHERE id = ?', [status, req.params.id]);
+    const cur = await db.getAsync('SELECT * FROM reviews WHERE id = ?', [req.params.id]);
+    if (!cur) return res.status(404).json({ error: 'Не найдено' });
+    const { sets, params } = partialUpdate({
+      status: null,
+      // Перенос отзыва на другой товар (или в общие — пустое значение) и правка
+      // даты/текста/оценки — нужно, когда отзыв изначально оставлен не на том товаре,
+      // или перенесён сюда вручную (с другой площадки) с исходной датой публикации.
+      product_id: v => v || null,
+      name: v => (v || '').trim() || cur.name,
+      phone: v => (v || '').trim() || null,
+      company: v => (v || '').trim() || null,
+      rating: v => Math.max(1, Math.min(5, Number(v) || cur.rating)),
+      text: v => (v || '').trim() || null,
+      reply: v => (v || '').trim() || null,
+      created_at: v => v || cur.created_at,
+    }, b);
+    if (sets.length) await db.runAsync(`UPDATE reviews SET ${sets.join(', ')} WHERE id = ?`, [...params, req.params.id]);
     res.json({ success: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -1317,8 +1566,13 @@ app.get('/api/admin/products', adminAuth, async (req, res) => {
     let params = [];
     let subcategoryIds = [];
     if (search) {
-      where.push('(p.name LIKE ? OR p.article LIKE ?)');
-      params.push(`%${search}%`, `%${search}%`);
+      if (/^\d+$/.test(String(search).trim())) {
+        where.push('(p.id = ? OR p.name LIKE ? OR p.article LIKE ?)');
+        params.push(Number(search), `%${search}%`, `%${search}%`);
+      } else {
+        where.push('(p.name LIKE ? OR p.article LIKE ?)');
+        params.push(`%${search}%`, `%${search}%`);
+      }
     }
     // Товар виден в категории/подкатегории либо как в своей "родной" (category_id/
     // subcategory_id), либо как дополнительно привязанный (product_extra_categories) —
@@ -1391,6 +1645,33 @@ app.put('/api/admin/products/reorder', adminAuth, async (req, res) => {
 
 const jsonArr = (v) => { try { return JSON.stringify(Array.isArray(v) ? v : JSON.parse(v || '[]')); } catch { return '[]'; } };
 
+// Технические характеристики — объект { "Характеристика": "Значение" }; админка теперь
+// собирает его из строк-полей (не просит писать JSON руками), сюда может прийти и объект,
+// и готовая строка — отбрасываем пустые/битые пары, как jsonFaq делает для FAQ.
+const jsonSpecs = (v) => {
+  let obj;
+  try { obj = (v && typeof v === 'object' && !Array.isArray(v)) ? v : JSON.parse(v || '{}'); } catch { return '{}'; }
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return '{}';
+  const out = {};
+  for (const [k, val] of Object.entries(obj)) {
+    const key = String(k || '').trim();
+    const value = String(val == null ? '' : val).trim();
+    if (key && value) out[key] = value;
+  }
+  return JSON.stringify(out);
+};
+
+// FAQ раздела — массив пар [вопрос, ответ]; отбрасываем всё, что не похоже на
+// нормальную пару непустых строк (битый JSON от клиента не должен попасть в БД как есть).
+const jsonFaq = (v) => {
+  let arr;
+  try { arr = Array.isArray(v) ? v : JSON.parse(v || '[]'); } catch { return '[]'; }
+  if (!Array.isArray(arr)) return '[]';
+  return JSON.stringify(arr
+    .filter(p => Array.isArray(p) && typeof p[0] === 'string' && typeof p[1] === 'string' && p[0].trim() && p[1].trim())
+    .map(p => [p[0].trim(), p[1].trim()]));
+};
+
 // Частичный UPDATE: в SET попадают только те колонки, ключи которых реально есть в теле запроса.
 // cols — { колонка: fn(value, body) | null }. Пустой результат = ничего не меняем.
 function partialUpdate(cols, body) {
@@ -1423,14 +1704,15 @@ app.post('/api/admin/products', adminAuth, async (req, res) => {
     const result = await db.runAsync(
       `INSERT INTO products (category_id, name, article, brand, description, price, price_on_request, icon, in_stock, featured, specs,
                              subtype, perf, perf_unit, related_ids, bundle_ids, youtube, subtitle, images, subcategory_id,
-                             seo_title, seo_description, contact_primary)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                             seo_title, seo_description, contact_primary, in_feed)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [b.category_id, b.name, b.article || '', b.brand || '', b.description || '', b.price || 0,
-       b.price_on_request ? 1 : 0, b.icon || null, b.in_stock ? 1 : 0, jsonArr(b.featured), b.specs || '{}',
+       b.price_on_request ? 1 : 0, b.icon || null, b.in_stock ? 1 : 0, jsonArr(b.featured), jsonSpecs(b.specs),
        b.subtype || null, b.perf || null, b.perf_unit || 'ед./час', jsonArr(b.related_ids), jsonArr(b.bundle_ids),
        b.youtube || null, b.subtitle || null, jsonArr(b.images), b.subcategory_id || null,
        (b.seo_title || '').trim() || null, (b.seo_description || '').trim() || null,
-       (b.contact_primary === '1' || b.contact_primary === '2') ? b.contact_primary : null]
+       (b.contact_primary === '1' || b.contact_primary === '2') ? b.contact_primary : null,
+       b.in_feed === false ? 0 : 1]
     );
     if (b.extra_categories !== undefined) await saveExtraCategories(result.lastID, b.extra_categories);
     res.json({ success: true, id: result.lastID });
@@ -1456,7 +1738,7 @@ app.put('/api/admin/products/:id', adminAuth, async (req, res) => {
       icon: v => v || null,
       in_stock: v => (v ? 1 : 0),
       featured: v => jsonArr(v),
-      specs: v => v || '{}',
+      specs: v => jsonSpecs(v),
       subtype: v => v || null,
       perf: v => v || null,
       perf_unit: v => v || 'ед./час',
@@ -1468,6 +1750,7 @@ app.put('/api/admin/products/:id', adminAuth, async (req, res) => {
       seo_title: v => (v || '').trim() || null,
       seo_description: v => (v || '').trim() || null,
       contact_primary: v => (v === '1' || v === '2') ? v : null,
+      in_feed: v => (v ? 1 : 0),
     }, b);
     if (sets.length) await db.runAsync(`UPDATE products SET ${sets.join(', ')} WHERE id = ?`, [...params, req.params.id]);
     if (b.extra_categories !== undefined) await saveExtraCategories(req.params.id, b.extra_categories);
@@ -1536,9 +1819,10 @@ app.post('/api/admin/categories', adminAuth, async (req, res) => {
     if (!name) return res.status(400).json({ error: 'Укажите название' });
     const slug = req.body.slug ? slugify(req.body.slug) : slugify(name);
     const r = await db.runAsync(
-      `INSERT INTO categories (name, slug, description, icon, seo_title, seo_description) VALUES (?,?,?,?,?,?)`,
+      `INSERT INTO categories (name, slug, description, icon, seo_title, seo_description, faq, in_feed) VALUES (?,?,?,?,?,?,?,?)`,
       [name, slug, description || '', icon || null,
-       (req.body.seo_title || '').trim() || null, (req.body.seo_description || '').trim() || null]);
+       (req.body.seo_title || '').trim() || null, (req.body.seo_description || '').trim() || null,
+       jsonFaq(req.body.faq), req.body.in_feed === false ? 0 : 1]);
     res.json({ success: true, id: r.lastID });
   } catch (e) { res.status(500).json({ error: /UNIQUE/.test(e.message) ? 'Такой slug уже есть' : e.message }); }
 });
@@ -1554,9 +1838,25 @@ app.put('/api/admin/categories/:id', adminAuth, async (req, res) => {
       icon: v => v || null,
       seo_title: v => (v || '').trim() || null,
       seo_description: v => (v || '').trim() || null,
+      faq: v => jsonFaq(v),
+      in_feed: v => (v ? 1 : 0),
     }, b);
-    if (!sets.length) return res.json({ success: true });
-    await db.runAsync(`UPDATE categories SET ${sets.join(', ')} WHERE id = ?`, [...params, req.params.id]);
+    if (sets.length) await db.runAsync(`UPDATE categories SET ${sets.join(', ')} WHERE id = ?`, [...params, req.params.id]);
+    // Галочка "Рекламировать" у категории — это не постоянный фильтр, а разовое массовое
+    // действие: включили — сразу включаются ВСЕ товары категории, выключили — выключаются
+    // ВСЕ. Дальше решает уже флаг конкретного товара (см. merchantFeed() в seo.js, где
+    // участвует только products.in_feed). Срабатывает только если значение реально
+    // поменялось — иначе любое сохранение категории затирало бы точечные отключения товаров.
+    if ('in_feed' in b) {
+      const next = b.in_feed ? 1 : 0;
+      if (next !== cur.in_feed) {
+        // Каскадом — и все подкатегории этой категории (чтобы при открытии подкатегории
+        // галочка не "врала", что она отдельно включена, пока все её товары уже выключены
+        // категорией), и все товары.
+        await db.runAsync('UPDATE subcategories SET in_feed = ? WHERE category_id = ?', [next, req.params.id]);
+        await db.runAsync('UPDATE products SET in_feed = ? WHERE category_id = ?', [next, req.params.id]);
+      }
+    }
     res.json({ success: true });
   } catch (e) { res.status(500).json({ error: /UNIQUE/.test(e.message) ? 'Такой slug уже есть' : e.message }); }
 });
@@ -1596,10 +1896,10 @@ app.post('/api/admin/subcategories', adminAuth, async (req, res) => {
     if (!category_id || !name) return res.status(400).json({ error: 'Укажите категорию и название' });
     const slug = req.body.slug ? slugify(req.body.slug) : slugify(name);
     const r = await db.runAsync(
-      `INSERT INTO subcategories (category_id, name, slug, description, sort, icon, seo_title, seo_description, parent_id) VALUES (?,?,?,?,?,?,?,?,?)`,
+      `INSERT INTO subcategories (category_id, name, slug, description, sort, icon, seo_title, seo_description, parent_id, faq, in_feed) VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
       [category_id, name, slug, description || '', sort || 0, icon || null,
        (req.body.seo_title || '').trim() || null, (req.body.seo_description || '').trim() || null,
-       req.body.parent_id || null]);
+       req.body.parent_id || null, jsonFaq(req.body.faq), req.body.in_feed === false ? 0 : 1]);
     res.json({ success: true, id: r.lastID });
   } catch (e) { res.status(500).json({ error: /UNIQUE/.test(e.message) ? 'Такой slug уже есть в этой категории' : e.message }); }
 });
@@ -1618,9 +1918,26 @@ app.put('/api/admin/subcategories/:id', adminAuth, async (req, res) => {
       seo_title: v => (v || '').trim() || null,
       seo_description: v => (v || '').trim() || null,
       parent_id: v => (v && Number(v) !== Number(req.params.id) ? Number(v) : null),
+      faq: v => jsonFaq(v),
+      in_feed: v => (v ? 1 : 0),
     }, b);
-    if (!sets.length) return res.json({ success: true });
-    await db.runAsync(`UPDATE subcategories SET ${sets.join(', ')} WHERE id = ?`, [...params, req.params.id]);
+    if (sets.length) await db.runAsync(`UPDATE subcategories SET ${sets.join(', ')} WHERE id = ?`, [...params, req.params.id]);
+    // Та же разовая массовая логика, что у категории (см. PUT /api/admin/categories/:id) —
+    // только тут ещё и по вложенным подкатегориям (у "Профессиональные пылесосы" внутри
+    // могут быть свои подгруппы) — та же рекурсия по дереву, что и в queryProducts().
+    if ('in_feed' in b) {
+      const next = b.in_feed ? 1 : 0;
+      if (next !== cur.in_feed) {
+        const idRows = await db.allAsync(
+          `WITH RECURSIVE tree(id) AS (
+             SELECT id FROM subcategories WHERE id = ?
+             UNION ALL SELECT s.id FROM subcategories s JOIN tree t ON s.parent_id = t.id
+           ) SELECT id FROM tree`, [req.params.id]);
+        const ids = idRows.map(r => r.id);
+        const inList = ids.map(() => '?').join(',');
+        await db.runAsync(`UPDATE products SET in_feed = ? WHERE subcategory_id IN (${inList})`, [next, ...ids]);
+      }
+    }
     res.json({ success: true });
   } catch (e) { res.status(500).json({ error: /UNIQUE/.test(e.message) ? 'Такой slug уже есть в этой категории' : e.message }); }
 });
@@ -1628,6 +1945,53 @@ app.delete('/api/admin/subcategories/:id', adminAuth, async (req, res) => {
   try {
     await db.runAsync('UPDATE products SET subcategory_id=NULL WHERE subcategory_id=?', [req.params.id]);
     await db.runAsync('DELETE FROM subcategories WHERE id=?', [req.params.id]);
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ==================== ADMIN СТАТЬИ ====================
+app.get('/api/admin/articles', adminAuth, async (req, res) => {
+  try { res.json(await db.allAsync('SELECT * FROM articles ORDER BY id DESC')); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post('/api/admin/articles', adminAuth, async (req, res) => {
+  try {
+    const { title, excerpt, content, cover } = req.body;
+    if (!title) return res.status(400).json({ error: 'Укажите заголовок' });
+    const slug = req.body.slug ? slugify(req.body.slug) : slugify(title);
+    const r = await db.runAsync(
+      `INSERT INTO articles (title, slug, excerpt, content, cover, seo_title, seo_description, published) VALUES (?,?,?,?,?,?,?,?)`,
+      [title, slug, excerpt || '', content || '', cover || null,
+       (req.body.seo_title || '').trim() || null, (req.body.seo_description || '').trim() || null,
+       req.body.published === false ? 0 : 1]);
+    res.json({ success: true, id: r.lastID });
+  } catch (e) { res.status(500).json({ error: /UNIQUE/.test(e.message) ? 'Такой slug уже есть' : e.message }); }
+});
+app.put('/api/admin/articles/:id', adminAuth, async (req, res) => {
+  try {
+    const b = req.body || {};
+    const cur = await db.getAsync('SELECT * FROM articles WHERE id = ?', [req.params.id]);
+    if (!cur) return res.status(404).json({ error: 'Не найдено' });
+    const { sets, params } = partialUpdate({
+      title: null,
+      slug: (v, body) => (v ? slugify(v) : slugify(body.title || cur.title)),
+      excerpt: v => v || '',
+      content: v => v || '',
+      cover: v => v || null,
+      seo_title: v => (v || '').trim() || null,
+      seo_description: v => (v || '').trim() || null,
+      published: v => (v ? 1 : 0),
+    }, b);
+    if (sets.length) {
+      sets.push("updated_at = datetime('now')");
+      await db.runAsync(`UPDATE articles SET ${sets.join(', ')} WHERE id = ?`, [...params, req.params.id]);
+    }
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ error: /UNIQUE/.test(e.message) ? 'Такой slug уже есть' : e.message }); }
+});
+app.delete('/api/admin/articles/:id', adminAuth, async (req, res) => {
+  try {
+    await db.runAsync('DELETE FROM articles WHERE id=?', [req.params.id]);
     res.json({ success: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -1941,20 +2305,23 @@ const mw = (multerMiddleware) => (req, res, next) =>
     next();
   });
 
-app.post('/api/admin/upload-icon', adminAuth, mw(upload.single('icon')), (req, res) => {
+app.post('/api/admin/upload-icon', adminAuth, mw(upload.single('icon')), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'Файл не загружен' });
+  await compressUploadedImage(req.file.path);
   res.json({ filename: req.file.filename });
 });
 
 // Несколько изображений сразу
-app.post('/api/admin/upload-images', adminAuth, mw(upload.array('images', 12)), (req, res) => {
+app.post('/api/admin/upload-images', adminAuth, mw(upload.array('images', 12)), async (req, res) => {
   if (!req.files || !req.files.length) return res.status(400).json({ error: 'Файлы не загружены' });
+  await Promise.all(req.files.map(f => compressUploadedImage(f.path)));
   res.json({ filenames: req.files.map(f => f.filename) });
 });
 
 // Фото профиля клиента (личный кабинет)
 app.post('/api/me/avatar', customerAuth, mw(upload.single('avatar')), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'Файл не получен' });
+  await compressUploadedImage(req.file.path);
   await db.runAsync('UPDATE customers SET avatar = ? WHERE id = ?', ['/icons/' + req.file.filename, req.customer.id]);
   res.json({ avatar: '/icons/' + req.file.filename });
 });

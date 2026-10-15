@@ -131,6 +131,7 @@ async function loadDynamicReviews() {
         '<div class="stars" aria-label="' + r.rating + ' из 5">' + stars + '</div>' +
         (r.text ? '<p>' + rvEsc(r.text) + '</p>' : '') +
         '<div class="review-author">' + rvEsc(r.name) + (r.company ? ' <span>— ' + rvEsc(r.company) + '</span>' : '') + '</div>' +
+        (r.reply ? '<div class="review-reply"><b>Ответ SIGMA MARKET:</b> ' + rvEsc(r.reply) + '</div>' : '') +
         '</article>';
     }).join('');
   } catch (e) {}

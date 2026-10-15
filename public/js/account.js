@@ -140,8 +140,8 @@
     window.custState.token = window.custState.token || res.token;
     window.custState.customer = res.customer;
     renderProfile(res.customer);
-    document.getElementById('acctLoading').style.display = 'none';
-    document.getElementById('acctRoot').style.display = '';
+    var loadingEl = document.getElementById('acctLoading'); if (loadingEl) loadingEl.style.display = 'none';
+    var rootEl = document.getElementById('acctRoot'); if (rootEl) rootEl.style.display = '';
     var tab = (location.hash || '#data').slice(1);
     if (!document.querySelector('.acct-panel[data-tab="' + tab + '"]')) tab = 'data';
     window.acctShowTab(tab);

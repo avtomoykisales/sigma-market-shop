@@ -14,17 +14,21 @@ const NOINDEX = /^(1|true|yes)$/i.test(process.env.SITE_NOINDEX || '');
 
 // Яндекс.Метрика. Пусто (YM_ID='') — счётчик не вставляется.
 const METRIKA_ID = (process.env.YM_ID != null ? String(process.env.YM_ID) : '112428503').trim();
+// Вебвизор (запись сеансов посетителей) — тяжёлая штука: вешает слежение за каждым
+// движением/кликом/скроллом по всей странице, заметно тормозит отклик на нажатия
+// (INP). Выключен по умолчанию; включить явно — YM_WEBVISOR=1.
+const YM_WEBVISOR = /^(1|true|yes)$/i.test(process.env.YM_WEBVISOR || '');
 function metrikaTag() {
   if (!METRIKA_ID) return '';
   const tag = `https://mc.yandex.ru/metrika/tag.js?id=${METRIKA_ID}`;
   return `<link rel="preconnect" href="https://mc.yandex.ru" crossorigin>` +
-    `<link rel="preload" as="script" href="${tag}" fetchpriority="high">` +
+    `<link rel="preload" as="script" href="${tag}">` +
     `<script>window.YM_ID=${JSON.stringify(METRIKA_ID)};` +
     `(function(m,e,t,r,i,k,a){m[i]=m[i]||function(){(m[i].a=m[i].a||[]).push(arguments)};` +
     `m[i].l=1*new Date();for(var j=0;j<e.scripts.length;j++){if(e.scripts[j].src===r){return;}}` +
     `k=e.createElement(t),a=e.getElementsByTagName(t)[0],k.async=1,k.src=r,a.parentNode.insertBefore(k,a)})` +
     `(window,document,'script','${tag}','ym');` +
-    `ym(${METRIKA_ID},'init',{ssr:true,webvisor:true,clickmap:true,ecommerce:"dataLayer",` +
+    `ym(${METRIKA_ID},'init',{ssr:true,webvisor:${YM_WEBVISOR},clickmap:true,ecommerce:"dataLayer",` +
     `accurateTrackBounce:true,trackLinks:true});</script>` +
     `<noscript><div><img src="https://mc.yandex.ru/watch/${METRIKA_ID}" style="position:absolute;left:-9999px" alt=""></div></noscript>`;
 }
@@ -83,6 +87,14 @@ const esc = (s) => String(s == null ? '' : s)
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
   .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 
+// Миниатюра (до 500px) рядом с полноразмерным фото — см. makeThumb() в server.js.
+// Карточки каталога/похожих товаров показывают фото шириной 180-250px, незачем
+// качать туда версию до 1200px, нужную только на странице товара.
+function thumbIconUrl(icon) {
+  const dot = icon.lastIndexOf('.');
+  return dot === -1 ? '/icons/' + icon : '/icons/' + icon.slice(0, dot) + '-thumb' + icon.slice(dot);
+}
+
 // Обрезать до n символов по границе слова, снять html-теги/переводы строк
 function clip(s, n = 160) {
   s = String(s || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
@@ -112,6 +124,9 @@ function catalogPath(cat, sub) {
 function productPath(p) {
   return '/product/' + p.id + (p && p.name ? '-' + slugName(p.name) : '');
 }
+function articlePath(a) {
+  return '/articles/' + a.slug;
+}
 // Старый ?category=/?product= → адрес нового формата (для 301)
 async function legacyRedirect(req) {
   const q = req.query || {};
@@ -137,7 +152,7 @@ function orgLd(base) {
     foundingDate: '2012',
     email: ORG.email,
     telephone: ORG.phoneRaw,
-    sameAs: ['https://www.instagram.com/b2btech.kz'],
+    sameAs: ['https://www.instagram.com/b2btech.kz', 'https://www.youtube.com/@B2Btechkz'],
     address: {
       '@type': 'PostalAddress',
       addressCountry: ORG.country,
@@ -226,6 +241,46 @@ const STATIC_PAGES = {
   },
 };
 
+// FAQ раздела — редактируется в админке (поле «FAQ» у категории/подкатегории),
+// хранится в БД как JSON-массив пар [вопрос, ответ] (см. jsonFaq() в server.js).
+function parseFaq(raw) {
+  let items;
+  try { items = JSON.parse(raw || '[]'); } catch { items = []; }
+  return Array.isArray(items) ? items : [];
+}
+
+function faqLd(items) {
+  return {
+    '@context': 'https://schema.org',
+    '@type': 'FAQPage',
+    mainEntity: items.map(([q, a]) => ({
+      '@type': 'Question',
+      name: q,
+      acceptedAnswer: { '@type': 'Answer', text: a },
+    })),
+  };
+}
+
+// Та же разметка, что и renderCatalogFaq() в index.html рисует через JS. Приоритет —
+// как у catalogAboutHtml(): FAQ подкатегории перекрывает FAQ категории, если задан.
+async function catalogFaqHtml(catSlug, subSlug) {
+  if (!catSlug || catSlug === 'all') return '';
+  const cat = await db.getAsync('SELECT faq FROM categories WHERE slug = ?', [catSlug]);
+  let faqRaw = (cat && cat.faq) || '[]';
+  if (subSlug) {
+    const sub = await db.getAsync('SELECT faq FROM subcategories WHERE slug = ?', [subSlug]);
+    if (sub && sub.faq && sub.faq !== '[]') faqRaw = sub.faq;
+  }
+  const items = parseFaq(faqRaw);
+  if (!items.length) return '';
+  const rows = items.map(([q, a]) => `
+    <details class="catalog-faq-item">
+      <summary>${esc(q)}</summary>
+      <div class="catalog-faq-answer"><p>${esc(a)}</p></div>
+    </details>`).join('');
+  return `<h2 class="catalog-faq-title">Часто задаваемые вопросы</h2>${rows}`;
+}
+
 const CAT_COPY = {
   avtomojka: {
     title: 'Оборудование для автомоек — купить в Казахстане | SIGMA MARKET',
@@ -243,6 +298,41 @@ const CAT_COPY = {
   },
 };
 
+// SEO-текст под товарами на /catalog (весь каталог, без фильтра по категории) — для
+// остальных разделов такой текст берётся из description категории/подкатегории в БД
+// (см. catalogAboutHtml), а у "всего каталога" своей записи в categories нет, поэтому
+// текст здесь, тем же способом, что и CAT_COPY выше.
+const ALL_CATALOG_ABOUT = `
+<h2>Профессиональное оборудование для автомоек, СТО и клининга в Казахстане</h2>
+<p>SIGMA MARKET — поставщик профессионального оборудования для автомоек, станций технического обслуживания (СТО), автосервисов и клининговых компаний. В нашем каталоге представлены моечные установки, аппараты высокого давления, поломоечные и подметальные машины, промышленные пылесосы, автосервисное оборудование и комплектующие.</p>
+<p>Мы предлагаем комплексные решения для бизнеса: подбор оборудования, поставку, проектирование и монтаж автомоечных комплексов, пусконаладочные работы и сервисное обслуживание. Работаем с клиентами по всему Казахстану.</p>
+<h3>Оборудование для автомоек</h3>
+<p>В каталоге представлено <a href="/catalog/avtomojka">оборудование для автомоек</a> различной производительности и назначения:</p>
+<ul>
+<li><a href="/catalog/avtomojka/avtomaticheskie-moyki-dlya-gruzovyh-avtomobiley">Моечные комплексы для грузовиков, автобусов и спецтехники.</a></li>
+<li><a href="/catalog/avtomojka/avtomaticheskie-moyki-dlya-mashin-robotizirovann">Автоматические бесконтактные, роботизированные, портальные и туннельные автомойки.</a></li>
+<li><a href="/catalog/avtomojka/apparaty-vysokogo-davleniya-avd">Аппараты высокого давления (АВД) с подогревом и без подогрева воды.</a></li>
+<li><a href="/catalog/avtomojka/professionalnye-pylesosy">Профессиональные пылесосы, пылеводососы, пеногенераторы и системы очистки воды.</a></li>
+</ul>
+<p>Подбираем оборудование для новых автомоечных комплексов и модернизации действующих объектов.</p>
+<h3>Оборудование для СТО и автосервисов</h3>
+<p>Раздел <a href="/catalog/sto">оборудования для СТО</a> включает автомобильные подъёмники, компрессоры, шиномонтажные и балансировочные станки, диагностическое оборудование, гидравлические прессы и профессиональный инструмент.</p>
+<p>Оборудование предназначено для оснащения станций технического обслуживания, шиномонтажных мастерских и автосервисных предприятий.</p>
+<h3>Профессиональное оборудование для клининга</h3>
+<p>В разделе <a href="/catalog/klining">оборудования для клининга</a> можно выбрать технику для профессиональной уборки коммерческих, промышленных и общественных помещений:</p>
+<ul>
+<li><a href="/catalog/klining/polomoechnye-mashiny">Поломоечные машины</a> — для влажной уборки полов в торговых центрах, складах, офисах и производственных помещениях.</li>
+<li><a href="/catalog/klining/podmetalnye-mashiny">Подметальные машины</a> — для очистки больших площадей от пыли и мусора.</li>
+<li><a href="/catalog/klining/professionalnye-pylesosy">Промышленные пылесосы</a> — для сбора сухих и влажных загрязнений.</li>
+<li><a href="/catalog/klining/apparaty-vysokogo-davleniya-avd">Аппараты высокого давления, парогенераторы и профессиональное уборочное оборудование.</a></li>
+</ul>
+<p>В ассортименте представлены решения для клининговых компаний, гостиниц, торговых центров, логистических комплексов и производственных предприятий.</p>
+<h3>Купить профессиональное оборудование с доставкой по Казахстану</h3>
+<p>SIGMA MARKET предлагает оборудование для бизнеса с доставкой в Алматы, Астану, Шымкент, Караганду, Актобе, Атырау и другие города Казахстана.</p>
+<p>Наши специалисты помогут подобрать технику с учётом площади объекта, интенсивности эксплуатации, производительности и бюджета.</p>
+<p>Ознакомьтесь с каталогом, сравните характеристики и цены оборудования или свяжитесь с нами для получения консультации и коммерческого предложения.</p>
+`.trim();
+
 // ЕДИНЫЙ источник правды для <title>/<meta description> товара.
 // Используется и сервером (productSeo ниже), и клиентом (через /api/products/:id → p.seo).
 // Меняешь формулу — только здесь.
@@ -257,7 +347,7 @@ function productMeta(p) {
       : clean(
           'Купить ' +
           (p.name || p.subtitle || 'оборудование') +
-          ' в Казахстане. Характеристики, комплектация, цена, поставка и сервис от ' +
+          ' в Казахстане. Характеристики, комплектация, доставка, цена, поставка и сервис от ' +
           SITE_NAME + '.'
         ),
   };
@@ -316,7 +406,7 @@ async function productSeo(base, id, seo) {
   // Google требует, чтобы отзывы, на которых основан рейтинг, были видны на странице —
   // они и есть, в блоке отзывов на карточке товара (см. reviews в /api/products/:id).
   const approvedReviews = await db.allAsync(
-    `SELECT name, rating, text, created_at FROM reviews WHERE product_id = ? AND status = 'approved' ORDER BY id DESC`,
+    `SELECT name, rating, text, reply, created_at FROM reviews WHERE product_id = ? AND status = 'approved' ORDER BY id DESC`,
     [p.id]
   );
   seo.productReviews = approvedReviews;
@@ -413,6 +503,64 @@ async function productSeo(base, id, seo) {
   return seo;
 }
 
+// ЕДИНЫЙ источник правды для <title>/<meta description> статьи — тем же способом,
+// что productMeta() выше: используется и сервером (articleSeo), и клиентом (через
+// /api/articles/:slug → a.seo) при SPA-переходе, чтобы формула была ровно одна.
+function articleMeta(a) {
+  return {
+    title: a.seo_title ? clean(a.seo_title) : clean(a.title + ' | ' + SITE_NAME),
+    description: a.seo_description ? clean(a.seo_description) : clip(a.excerpt || a.content, 160),
+  };
+}
+
+async function articleListSeo(base, seo) {
+  seo.title = 'Статьи и обзоры оборудования — ' + SITE_NAME;
+  seo.description = 'Статьи и обзоры о выборе профессионального оборудования для автомоек, СТО и клининга: как подобрать, сравнение моделей, ответы на частые вопросы покупателей.';
+  seo.h1 = 'Статьи';
+  seo.canonical = base + '/articles';
+  seo.jsonld.push(breadcrumbLd(base, [['Главная', '/'], ['Статьи', '/articles']]));
+  seo.view = 'articles';
+  return seo;
+}
+
+async function articleSeo(base, slug, seo) {
+  const a = await db.getAsync('SELECT * FROM articles WHERE slug = ? AND published = 1', [slug]);
+  if (!a) {
+    seo.title = 'Страница не найдена — 404 | ' + SITE_NAME;
+    seo.description = 'Запрошенная статья не найдена — возможно, она была удалена. Посмотрите другие статьи SIGMA MARKET.';
+    seo.h1 = 'Страница не найдена';
+    seo.robots = 'noindex, follow';
+    seo.canonical = base + '/articles';
+    seo.notFound = true;
+    seo.view = 'notFound';
+    return seo;
+  }
+  seo.view = 'article';
+  seo.articleRow = a;
+
+  const meta = articleMeta(a);
+  seo.title = meta.title;
+  seo.h1 = a.title;
+  seo.description = meta.description;
+  seo.canonical = base + articlePath(a);
+  if (a.cover) seo.image = base + '/icons/' + a.cover;
+
+  seo.jsonld.push(breadcrumbLd(base, [['Главная', '/'], ['Статьи', '/articles'], [a.title, articlePath(a)]]));
+  seo.jsonld.push({
+    '@context': 'https://schema.org',
+    '@type': 'Article',
+    headline: a.title,
+    description: meta.description,
+    url: seo.canonical,
+    datePublished: (a.created_at || '').replace(' ', 'T'),
+    dateModified: (a.updated_at || a.created_at || '').replace(' ', 'T'),
+    image: a.cover ? [base + '/icons/' + a.cover] : undefined,
+    publisher: { '@type': 'Organization', name: SITE_NAME, logo: { '@type': 'ImageObject', url: base + '/assets/icons/logo.png' } },
+    author: { '@type': 'Organization', name: SITE_NAME },
+  });
+  return seo;
+}
+
 async function categorySeo(base, slug, subSlug, seo) {
   const cat = await db.getAsync('SELECT * FROM categories WHERE slug = ?', [slug]);
   if (!cat) {
@@ -491,6 +639,8 @@ async function categorySeo(base, slug, subSlug, seo) {
     crumbs.push([sub.name, catalogPath(slug, sub.slug)]);
   }
   seo.jsonld.push(breadcrumbLd(base, crumbs));
+  const faqItems = parseFaq((sub && sub.faq) || cat.faq);
+  if (faqItems.length) seo.jsonld.push(faqLd(faqItems));
 
   // ItemList — список товаров раздела для Google (см. itemListLd). Не нужен на
   // странице, которую и так просим не индексировать (пустая/составная подкатегория) —
@@ -549,6 +699,11 @@ async function build(req, relPath, opts = {}) {
     }
     return categorySeo(base, mc[1], mc[2] || q.subcategory || '', seo);
   }
+  let maArt = pathname.match(/^\/articles(?:\/([^/]+))?\/?$/);
+  if (maArt) {
+    if (!maArt[1]) return articleListSeo(base, seo);
+    return articleSeo(base, maArt[1], seo);
+  }
 
   if (opts.softFallback && req.path !== '/') {
     seo.title = 'Страница не найдена — 404 | ' + SITE_NAME;
@@ -604,6 +759,7 @@ function renderHead(seo) {
   const tags = [
     `<link rel="icon" href="/assets/icons/favicon-square.png">`,
     `<link rel="apple-touch-icon" href="/assets/icons/favicon-square.png">`,
+    `<meta name="facebook-domain-verification" content="4cvq63m9vy5d97yxue2tmn26s7eza4" />`,
     `<meta name="description" id="metaDescription" content="${d}">`,
     `<meta name="robots" content="${esc(seo.robots)}">`,
     `<link rel="canonical" id="linkCanonical" href="${url}">`,
@@ -651,9 +807,20 @@ function fmtPriceKzt(n) {
   if (!n) return '0 ₸';
   return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ' ') + ' ₸';
 }
-function productCardHtml(p) {
+function productCardHtml(p, idx) {
+  // Сетка каталога на десктопе — несколько колонок в ряд, так что LCP-элементом
+  // страницы может оказаться не только самая первая карточка, а любая из первой
+  // видимой строки (DevTools Performance находил именно такой случай — "ленивая"
+  // карточка не под индексом 0). Не ленивые — первые 4 (с запасом на самую широкую
+  // сетку), а fetchpriority="high" — только у настоящей первой (один кандидат на LCP).
+  const isFirst = idx === 0;
+  const eager = typeof idx === 'number' && idx < 4;
   const imgHtml = p.icon
-    ? `<img src="/icons/${esc(p.icon)}" alt="${esc(p.name)}" loading="lazy">`
+    ? (isFirst
+        ? `<img src="${esc(thumbIconUrl(p.icon))}" alt="${esc(p.name)}" fetchpriority="high" onerror="this.onerror=function(){this.style.display='none'};this.src='/icons/${esc(p.icon)}'">`
+        : eager
+        ? `<img src="${esc(thumbIconUrl(p.icon))}" alt="${esc(p.name)}" onerror="this.onerror=function(){this.style.display='none'};this.src='/icons/${esc(p.icon)}'">`
+        : `<img src="${esc(thumbIconUrl(p.icon))}" alt="${esc(p.name)}" loading="lazy" onerror="this.onerror=function(){this.style.display='none'};this.src='/icons/${esc(p.icon)}'">`)
     : `<span class="card-emoji">${catEmoji(p.category_slug)}</span>`;
   const priceHtml = p.price_on_request
     ? `<div class="card-price-request">Цена по запросу</div>`
@@ -727,6 +894,7 @@ function pvReviewsHtml(reviews) {
           <div class="stars" aria-label="${r.rating} из 5">${pvStars(r.rating)}</div>
           ${r.text ? `<p>${esc(r.text)}</p>` : ''}
           <div class="review-author">${esc(r.name)} <span class="pv-review-date">· ${pvReviewDateFmt(r.created_at)}</span></div>
+          ${r.reply ? `<div class="review-reply"><b>Ответ SIGMA MARKET:</b> ${esc(r.reply)}</div>` : ''}
         </article>`).join('')}</div>`
     : `<p class="pv-review-empty">Отзывов пока нет — будьте первым!</p>`;
   return `<div class="pv-reviews" id="pvReviews"><h3>Отзывы</h3>${summaryHtml}${listHtml}</div>`;
@@ -741,7 +909,7 @@ function productViewHtml(p, reviews) {
   gallery = [...new Set([p.icon, ...gallery].filter(Boolean))];
 
   const galleryHtml = gallery.length
-    ? `<div class="pv-img"><img src="/icons/${esc(gallery[0])}" alt="${esc(p.name)}"></div>`
+    ? `<div class="pv-img"><img src="/icons/${esc(gallery[0])}" alt="${esc(p.name)}" fetchpriority="high"></div>`
     : `<div class="pv-img"><span style="font-size:90px">${catEmoji(p.category_slug)}</span></div>`;
 
   const priceHtml = p.price_on_request
@@ -768,6 +936,38 @@ function productViewHtml(p, reviews) {
     </div>
     ${specsHtml}
     ${pvReviewsHtml(reviews)}`;
+}
+
+function fmtDateRu(s) {
+  if (!s) return '';
+  const d = new Date(String(s).replace(' ', 'T') + 'Z');
+  if (isNaN(d.getTime())) return '';
+  return d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' });
+}
+function articleCardHtml(a) {
+  const img = a.cover
+    ? `<img src="${esc(thumbIconUrl(a.cover))}" alt="${esc(a.title)}" loading="lazy" onerror="this.onerror=function(){this.style.display='none'};this.src='/icons/${esc(a.cover)}'">`
+    : `<span class="article-card-emoji">📄</span>`;
+  return `<a class="article-card" href="${esc(articlePath(a))}">
+      <div class="article-card-cover">${img}</div>
+      <div class="article-card-body">
+        <div class="article-card-date">${esc(fmtDateRu(a.created_at))}</div>
+        <h3 class="article-card-title">${esc(a.title)}</h3>
+        ${a.excerpt ? `<p class="article-card-excerpt">${esc(clip(a.excerpt, 140))}</p>` : ''}
+      </div>
+    </a>`;
+}
+function articleBreadcrumbHtml(a) {
+  const S = ' <span class="crumb-sep">›</span> ';
+  return `<a href="/articles">Статьи</a>${S}<span class="crumb-current">${esc(a.title)}</span>`;
+}
+function articleViewHtml(a) {
+  const coverHtml = a.cover
+    ? `<div class="article-cover"><img src="/icons/${esc(a.cover)}" alt="${esc(a.title)}" fetchpriority="high"></div>` : '';
+  return `<h1 class="article-title">${esc(a.title)}</h1>
+    <div class="article-meta">${esc(fmtDateRu(a.created_at))}</div>
+    ${coverHtml}
+    <div class="article-body catalog-about-text">${a.content || ''}</div>`;
 }
 
 function homeCategoriesHtml(cats) {
@@ -798,7 +998,7 @@ async function catalogAboutHtml(catSlug, subSlug) {
 
 function catalogProductsHtml(productsData) {
   const rows = (productsData && productsData.products) || [];
-  return rows.map(productCardHtml).join('');
+  return rows.map((p, i) => productCardHtml(p, i)).join('');
 }
 
 // Подставить первую порцию категорий/товаров в готовый html (после inject()).
@@ -819,7 +1019,7 @@ async function injectContent(html, seo, req, hydrate) {
     // display:none прямо в разметке партиала. Сервер уже кладёт в HTML только партиал
     // нужного экрана (renderPage/SPA_VIEWS), так что скрывать тут нечего — снимаем
     // display:none сразу, иначе весь наш SSR-контент ниже просто невидим без JS.
-    const viewWrapperId = { home: 'homeView', catalog: 'catalogView', product: 'productView', notFound: 'notFoundView' }[seo.view];
+    const viewWrapperId = { home: 'homeView', catalog: 'catalogView', product: 'productView', notFound: 'notFoundView', articles: 'articlesView', article: 'articleView' }[seo.view];
     if (viewWrapperId) {
       html = html.replace(
         new RegExp(`(<div id="${viewWrapperId}")\\s+style="display:none"`),
@@ -837,7 +1037,47 @@ async function injectContent(html, seo, req, hydrate) {
         '<div class="section-title" id="pvCrumb">Товары и услуги</div>',
         `<div class="section-title" id="pvCrumb">${pvBreadcrumbHtml(seo.productRow)}</div>`
       );
+    } else if (seo.view === 'article' && !seo.notFound && seo.articleRow) {
+      const bodyHtml = articleViewHtml(seo.articleRow);
+      html = html.replace(
+        /<div id="articleViewBody">[\s\S]*?Загрузка[\s\S]*?<\/div>\s*<\/div>/,
+        `<div id="articleViewBody" data-article-slug="${esc(seo.articleRow.slug)}">${bodyHtml}</div>`
+      );
+      html = html.replace(
+        '<div class="section-title" id="articleCrumb">Статьи</div>',
+        `<div class="section-title" id="articleCrumb">${articleBreadcrumbHtml(seo.articleRow)}</div>`
+      );
+    } else if (seo.view === 'articles' && !seo.notFound) {
+      const list = await db.allAsync('SELECT * FROM articles WHERE published = 1 ORDER BY id DESC LIMIT 60');
+      const gridHtml = list.map(articleCardHtml).join('');
+      html = html.replace(
+        /<div class="articles-grid" id="articlesGrid">[\s\S]*?<\/div>\s*<\/div>/,
+        `<div class="articles-grid" id="articlesGrid">${gridHtml || '<p class="articles-empty">Пока нет статей.</p>'}</div>`
+      );
     } else if (seo.view === 'home') {
+      // Баннер квиза раньше был display:none в исходном HTML и появлялся только после
+      // JS (даже быстрого, через hydrate) — хоть один кадр без него браузер успевал
+      // отрисовать, и Lighthouse всё равно засчитывал это как сдвиг макета (CLS).
+      // Теперь настоящий текст уже в первом ответе сервера — сдвигать нечего.
+      const quiz = (hydrate && hydrate.settings && hydrate.settings.quiz) || {};
+      if (quiz.enabled !== false && quiz.steps && quiz.steps.length) {
+        html = html.replace(
+          '<div class="quiz-cta" id="quizCta" style="display:none">',
+          '<div class="quiz-cta" id="quizCta">'
+        );
+        if (quiz.title) {
+          html = html.replace(
+            /<h3 id="quizCtaTitle">[\s\S]*?<\/h3>/,
+            `<h3 id="quizCtaTitle">${esc(quiz.title)}</h3>`
+          );
+        }
+        if (quiz.subtitle) {
+          html = html.replace(
+            /<p id="quizCtaSub">[\s\S]*?<\/p>/,
+            `<p id="quizCtaSub">${esc(quiz.subtitle)}</p>`
+          );
+        }
+      }
       const catsHtml = homeCategoriesHtml(hydrate && hydrate.categories);
       if (catsHtml) {
         html = html.replace(
@@ -860,7 +1100,8 @@ async function injectContent(html, seo, req, hydrate) {
 
       const pathname = decodeURIComponent(req.path);
       const mc = pathname.match(/^\/catalog(?:\/([^/]+)(?:\/([^/]+))?)?\/?$/);
-      const aboutHtml = mc && mc[1] ? await catalogAboutHtml(mc[1], mc[2]) : '';
+      const aboutHtml = mc && mc[1] ? await catalogAboutHtml(mc[1], mc[2])
+        : (mc && !mc[1] ? `<div class="catalog-about-text">${ALL_CATALOG_ABOUT}</div>` : '');
       if (aboutHtml) {
         html = html.replace(
           '<section class="section catalog-about" id="catalogAbout" style="display:none">',
@@ -869,6 +1110,18 @@ async function injectContent(html, seo, req, hydrate) {
         html = html.replace(
           '<div class="catalog-about-inner" id="catalogAboutBody"></div>',
           `<div class="catalog-about-inner" id="catalogAboutBody">${aboutHtml}</div>`
+        );
+      }
+
+      const faqHtml = mc && mc[1] ? await catalogFaqHtml(mc[1], mc[2]) : '';
+      if (faqHtml) {
+        html = html.replace(
+          '<section class="section catalog-faq" id="catalogFaq" style="display:none">',
+          '<section class="section catalog-faq" id="catalogFaq">'
+        );
+        html = html.replace(
+          '<div class="catalog-faq-inner" id="catalogFaqBody"></div>',
+          `<div class="catalog-faq-inner" id="catalogFaqBody">${faqHtml}</div>`
         );
       }
     }
@@ -881,14 +1134,17 @@ async function injectContent(html, seo, req, hydrate) {
 /* Вставить SEO в готовый html-документ */
 function inject(html, seo) {
   const head = renderHead(seo);
-  // Яндекс.Метрика и тег Google Ads — как можно раньше, сразу после <head>
+  // Яндекс.Метрика и тег Google Ads — после стиля сайта (а не сразу после <head>):
+  // иначе их preload с высоким приоритетом отбирал пропускную способность у CSS и
+  // главной картинки на мобильном интернете, замедляя первую отрисовку (LCP).
+  const styleAnchor = /<link rel="stylesheet" href="\/style\.css[^>]*>/i;
   const ym = metrikaTag();
   if (ym && !html.includes('mc.yandex.ru/metrika')) {
-    html = html.replace(/<head>/i, '<head>\n' + ym);
+    html = styleAnchor.test(html) ? html.replace(styleAnchor, (m) => m + '\n' + ym) : html.replace(/<head>/i, '<head>\n' + ym);
   }
   const gads = gadsTag();
   if (gads && !html.includes('googletagmanager.com/gtag/js')) {
-    html = html.replace(/<head>/i, '<head>\n' + gads);
+    html = styleAnchor.test(html) ? html.replace(styleAnchor, (m) => m + '\n' + gads) : html.replace(/<head>/i, '<head>\n' + gads);
   }
   if (/<title>[\s\S]*?<\/title>/i.test(html)) {
     html = html.replace(/<title>[\s\S]*?<\/title>/i, `<title>${esc(seo.title)}</title>`);
@@ -923,7 +1179,11 @@ async function robots(req) {
     'Allow: /api/products',
     'Allow: /api/categories',
     'Allow: /api/settings',
-    'Disallow: /*?*q=',
+    // "Disallow: /*?*q=" тут нарочно НЕ ставим: страница поиска сама помечена <meta
+    // name="robots" content="noindex"> — но чтобы Google это увидел, ему нужно разрешить
+    // её СКАНИРОВАТЬ. Запрет в robots.txt как раз это и ломал: Google не может дойти до
+    // страницы, чтобы прочитать noindex, и держит старую версию в индексе бесконечно
+    // (ровно это и жаловалась Search Console — "проиндексировано, несмотря на блокировку").
     '',
     'Sitemap: ' + base + '/sitemap.xml',
     '',
@@ -941,6 +1201,10 @@ async function sitemap(req) {
   add('/delivery', { priority: '0.5', changefreq: 'monthly' });
   add('/contacts', { priority: '0.5', changefreq: 'monthly' });
   add('/reviews', { priority: '0.4', changefreq: 'monthly' });
+  add('/articles', { priority: '0.6', changefreq: 'weekly' });
+
+  const articles = await db.allAsync('SELECT slug, updated_at FROM articles WHERE published = 1 ORDER BY id DESC');
+  for (const a of articles) add(articlePath(a), { priority: '0.5', changefreq: 'monthly', lastmod: (a.updated_at || '').slice(0, 10) || undefined });
 
   const cats = await db.allAsync('SELECT slug FROM categories ORDER BY id');
   for (const c of cats) add(catalogPath(c.slug), { priority: '0.8', changefreq: 'weekly' });
@@ -985,4 +1249,56 @@ async function sitemap(req) {
     body + '\n</urlset>\n';
 }
 
-module.exports = { build, inject, injectContent, robots, sitemap, baseUrl, legacyRedirect, productPath, catalogPath, slugName, productMeta };
+// Фид товаров для Google Merchant Center (формат RSS 2.0 + namespace g:, тот же, что
+// требует Google — https://support.google.com/merchants/answer/7052112). Ссылка на
+// этот файл один раз прописывается в Merchant Center, дальше Google сам периодически
+// его перечитывает — обновлять вручную не нужно, цены/наличие всегда актуальные.
+//
+// Товары "цена по запросу" сюда не попадают — Merchant Center требует точную цену
+// у каждого товара в фиде, без неё строка просто будет отклонена Google.
+async function merchantFeed(req) {
+  const base = baseUrl(req);
+  const prods = await db.allAsync(
+    `SELECT p.*, c.name AS category_name, sc.name AS subcategory_name
+     FROM products p JOIN categories c ON p.category_id = c.id
+     LEFT JOIN subcategories sc ON p.subcategory_id = sc.id
+     WHERE p.price_on_request = 0 AND p.price > 0 AND p.in_feed = 1
+     ORDER BY p.id`);
+
+  const items = prods.map((p) => {
+    const price = (Math.round(Number(p.price) || 0)).toFixed(2) + ' KZT';
+    const productType = [p.category_name, p.subcategory_name].filter(Boolean).join(' > ');
+    const identifierMissing = !p.brand; // нет бренда → нет и MPN/GTIN, которым можно верить
+    return '  <item>\n' +
+      '    <g:id>' + esc(String(p.id)) + '</g:id>\n' +
+      '    <title>' + esc(clip(p.name, 150)) + '</title>\n' +
+      '    <description>' + esc(clip(p.description || p.name, 5000)) + '</description>\n' +
+      '    <link>' + esc(base + productPath(p)) + '</link>\n' +
+      (p.icon ? '    <g:image_link>' + esc(base + '/icons/' + p.icon) + '</g:image_link>\n' : '') +
+      '    <g:availability>' + (p.in_stock ? 'in stock' : 'out of stock') + '</g:availability>\n' +
+      '    <g:price>' + price + '</g:price>\n' +
+      '    <g:condition>new</g:condition>\n' +
+      // 111 = "Business & Industrial" в официальном справочнике категорий Google
+      // (taxonomy-with-ids.en-US.txt) — без этого Google сам пытается угадать категорию
+      // по названию и иногда принимает "автомойку"/"туннельного типа" за транспортное
+      // средство (блокирует показ как "Транспортные средства"). Эта категория правильна
+      // для всего каталога — это коммерческое/промышленное оборудование, не транспорт.
+      '    <g:google_product_category>111</g:google_product_category>\n' +
+      (p.brand ? '    <g:brand>' + esc(p.brand) + '</g:brand>\n' : '') +
+      (p.article ? '    <g:mpn>' + esc(p.article) + '</g:mpn>\n' : '') +
+      (identifierMissing ? '    <g:identifier_exists>false</g:identifier_exists>\n' : '') +
+      (productType ? '    <g:product_type>' + esc(productType) + '</g:product_type>\n' : '') +
+      '  </item>';
+  }).join('\n');
+
+  return '<?xml version="1.0" encoding="UTF-8"?>\n' +
+    '<rss version="2.0" xmlns:g="http://base.google.com/ns/1.0">\n' +
+    '<channel>\n' +
+    '  <title>' + esc(SITE_NAME) + '</title>\n' +
+    '  <link>' + esc(base) + '</link>\n' +
+    '  <description>Фид товаров для Google Merchant Center</description>\n' +
+    items + '\n' +
+    '</channel>\n</rss>\n';
+}
+
+module.exports = { build, inject, injectContent, robots, sitemap, merchantFeed, baseUrl, legacyRedirect, productPath, catalogPath, articlePath, slugName, productMeta, articleMeta };

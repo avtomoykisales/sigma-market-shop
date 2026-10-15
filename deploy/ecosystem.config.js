@@ -15,6 +15,9 @@ module.exports = {
         SITE_URL: 'https://b2btech.kz',
         SITE_NOINDEX: '0',
         YM_ID: 112428503,
+        // Вебвизор (запись сеансов посетителей в Яндекс.Метрике) — отключён: замедлял
+        // отклик сайта на нажатия (INP) у всех посетителей. Включить — поставить '1'.
+        YM_WEBVISOR: '0',
         GADS_ID: 'AW-18370364758',
         // Уведомления о заказах (WhatsApp + почта)
         // WhatsApp через официальный Meta Business API (developers.facebook.com →

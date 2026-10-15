@@ -124,7 +124,7 @@ async function queryProducts(q) {
     const subcatCatWhere = category && category !== 'all' ? 'AND c.slug = ?' : '';
     const subcatFParams = category && category !== 'all' ? [category] : [];
     const subcatRows = await db.allAsync(
-      `SELECT s.id, s.name, s.slug, s.icon, s.description, s.seo_title, s.seo_description, s.sort, s.parent_id,
+      `SELECT s.id, s.name, s.slug, s.icon, s.description, s.seo_title, s.seo_description, s.faq, s.sort, s.parent_id,
               par.slug AS parent_slug,
               (SELECT COUNT(DISTINCT pid) FROM (
                  SELECT id AS pid FROM products x WHERE x.subcategory_id = s.id
@@ -144,7 +144,7 @@ async function queryProducts(q) {
     });
     const subcats = subcatRows.filter(r => r.cnt > 0).map(r => ({
       name: r.name, slug: r.slug, icon: r.icon, description: r.description,
-      seo_title: r.seo_title, seo_description: r.seo_description,
+      seo_title: r.seo_title, seo_description: r.seo_description, faq: r.faq,
       cnt: r.cnt, parent_slug: r.parent_slug, sort: r.sort,
     }));
     const brandList = brands.map(b => b.brand).filter(Boolean);

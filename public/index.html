@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Профессиональное оборудование для автомоек, СТО и клининга в Казахстане</title>
+<link rel="preload" href="/fonts/AvantGardeGothicC-Regular.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="/style.css?v={{V}}">
 </head>
 <body class="shop">
@@ -50,6 +51,22 @@ window.toggleCompare = function () {};
 // а сама страница/переход при этом всё равно отработают.
 window.setUrl = window.setUrl || function () {};
 window.replaceUrl = window.replaceUrl || function () {};
+// Заглушка для setView — та же гонка ещё раз, и как раз она доходит до реальных
+// пользователей: product.js подгружается раньше основного скрипта (он тут ниже по
+// файлу), и если тот ещё не выполнился, а product.js уже успел подменить openModal
+// на настоящий showProduct() — клик по карточке долетает до "await setView(...)"
+// раньше, чем setView вообще объявлена. Вместо падения — обычный переход на нужный
+// адрес (state.productId/category к этому моменту showProduct()/selectCategory()
+// уже успели проставить), сервер сам отрисует страницу правильно.
+window.setView = window.setView || function (name) {
+  if (name === 'product' && state.productId) { location.href = '/product/' + state.productId; return; }
+  if (name === 'catalog' && state.category && state.category !== 'all') { location.href = '/catalog/' + state.category; return; }
+  if (name === 'catalog') { location.href = '/catalog'; return; }
+  location.reload();
+};
+// Заглушка для selectCategory — клик по вкладке категории в каталоге (она тоже в
+// SSR-разметке) может случиться до того же основного скрипта ниже.
+window.selectCategory = window.selectCategory || function (slug) { location.href = '/catalog/' + slug; };
 // Заглушка для heroStep — стрелки баннера на главной тоже рисуются сразу в HTML
 // (partial:hero), а саму функцию назначает initHeroSlider() внутри site.js, которая
 // может ещё не успеть выполниться на медленном интернете. Ничего не делаем вместо
@@ -75,6 +92,10 @@ window.state = window.state || { sort: 'default', cart: [], categories: [], sett
 
 <!-- partial:notfound -->
 
+<!-- partial:articles -->
+
+<!-- partial:article -->
+
 <!-- ========== НЕДАВНО ПРОСМОТРЕННЫЕ ========== -->
 <section class="section recent-section" id="recentSection" style="display:none">
   <div class="container">
@@ -87,6 +108,13 @@ window.state = window.state || { sort: 'default', cart: [], categories: [], sett
 <section class="section catalog-about" id="catalogAbout" style="display:none">
   <div class="container">
     <div class="catalog-about-inner" id="catalogAboutBody"></div>
+  </div>
+</section>
+
+<!-- ========== FAQ РАЗДЕЛА (для отдельных подкатегорий) ========== -->
+<section class="section catalog-faq" id="catalogFaq" style="display:none">
+  <div class="container">
+    <div class="catalog-faq-inner" id="catalogFaqBody"></div>
   </div>
 </section>
 
@@ -180,6 +208,18 @@ window.state = window.state || { sort: 'default', cart: [], categories: [], sett
 <div class="toast" id="toast"></div>
 
 <script src="/js/site.js?v={{V}}"></script>
+<script>
+// Страховка: thumbIconUrl должна прийти из site.js, но у части посетителей сам site.js
+// иногда не загружается/не выполняется (нестабильная мобильная сеть, блокировщики и
+// т.п.) — тогда product.js ниже падает с "thumbIconUrl is not defined" и рвёт рендер
+// карточек целиком. Если site.js всё же отработал, этот код просто ничего не делает.
+if (typeof window.thumbIconUrl !== 'function') {
+  window.thumbIconUrl = function (icon) {
+    var dot = icon.lastIndexOf('.');
+    return dot === -1 ? '/icons/' + icon : '/icons/' + icon.slice(0, dot) + '-thumb' + icon.slice(dot);
+  };
+}
+</script>
 <script src="/js/product.js?v={{V}}"></script>
 <script>
 let state = {
@@ -309,6 +349,9 @@ async function init() {
   document.querySelectorAll('[data-nav="catalog"]').forEach(a => a.addEventListener('click', e => {
     e.preventDefault(); closeDrawer(); showCatalog('all');
   }));
+  document.querySelectorAll('[data-nav="articles"]').forEach(a => a.addEventListener('click', e => {
+    e.preventDefault(); closeDrawer(); showArticles();
+  }));
   document.querySelectorAll('[data-nav="favorites"]').forEach(a => a.addEventListener('click', e => {
     e.preventDefault(); closeDrawer(); showFavorites();
   }));
@@ -355,6 +398,8 @@ function handleRoute() {
     // ЧПУ
     let mProd = location.pathname.match(/^\/product\/(\d+)/);
     if (mProd) { showProduct(+mProd[1]); return; }
+    let mArt = location.pathname.match(/^\/articles(?:\/([^/]+))?\/?$/);
+    if (mArt) { mArt[1] ? showArticle(mArt[1]) : showArticles(); return; }
     let mCat = location.pathname.match(/^\/catalog(?:\/([^/]+)(?:\/([^/]+))?)?\/?$/);
     if (mCat) {
       if (!mCat[1]) { showCatalog('all'); return; }
@@ -475,15 +520,20 @@ function instantScrollTo(x, y) {
 function scrollToView(id) {
   const el = document.getElementById(id);
   if (!el) return;
-  // чтение getBoundingClientRect форсирует пересчёт лейаута после смены display
-  const y = Math.max(0, el.getBoundingClientRect().top + window.scrollY - 72);
-  instantScrollTo(0, y);
+  // getBoundingClientRect сразу после смены display (в setView только что) форсировал
+  // синхронный пересчёт лейаута прямо посреди скрипта ("Principled reflow" в DevTools
+  // Performance) — откладываем чтение на следующий кадр, когда браузер и так считает
+  // лейаут сам, без принудительного запроса.
+  requestAnimationFrame(() => {
+    const y = Math.max(0, el.getBoundingClientRect().top + window.scrollY - 72);
+    instantScrollTo(0, y);
+  });
 }
 
 // Разметка каждого экрана (home/catalog/product/notFound) сервер шлёт только для
 // того, что реально нужно на этот адрес — остальные подгружаем сюда же по требованию,
 // один раз, при первом переходе (дальше уже просто show/hide, как раньше).
-const _viewPartial = { home: 'home', catalog: 'catalog', product: 'product', notFound: 'notfound' };
+const _viewPartial = { home: 'home', catalog: 'catalog', product: 'product', notFound: 'notfound', articles: 'articles', article: 'article' };
 const _viewLoading = {};
 async function ensureView(name) {
   if (document.getElementById(name + 'View')) return;
@@ -495,22 +545,38 @@ async function ensureView(name) {
         const tmp = document.createElement('div');
         tmp.innerHTML = html.trim();
         document.getElementById('main').insertBefore(tmp.firstElementChild, document.getElementById('recentSection'));
+      })
+      .catch(e => {
+        // Сбой сети ("Failed to fetch") иначе навсегда застревал тут — следующий визит
+        // на этот экран просто ждал бы уже отклонённый промис. Сбрасываем кэш, чтобы
+        // в следующий раз (например, при повторном клике) запрос ушёл заново.
+        _viewLoading[name] = null;
+        throw e;
       });
   }
   return _viewLoading[name];
 }
 
+// catalogView подгружается в DOM лениво (см. ensureView) — если переход на страницу
+// товара/статьи случился раньше, чем успел подгрузиться каталог (или подгрузка вовсе
+// не удалась из-за обрыва сети), элементов каталога в DOM ещё/уже нет. Без этой
+// проверки это валило "Cannot read properties of null (reading 'style')".
+function setDisplay(id, value) {
+  const el = document.getElementById(id);
+  if (el) el.style.display = value;
+}
 async function setView(name) {
   await ensureView(name);
   // Остальные три экрана могут быть ещё не подгружены вообще (не просто скрыты) —
   // прятать нечего, пропускаем несуществующие.
-  ['homeView', 'catalogView', 'productView', 'notFoundView'].forEach(id => {
+  ['homeView', 'catalogView', 'productView', 'notFoundView', 'articlesView', 'articleView'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.style.display = (id === name + 'View') ? '' : 'none';
   });
   syncViewHeadings(name);
   renderSubcatBar();
   renderCatalogAbout();
+  renderCatalogFaq();
 }
 
 // На странице должен быть ровно один <h1> — заголовок активного вида.
@@ -528,6 +594,8 @@ function syncViewHeadings(name) {
     catalog: document.getElementById('catalogTitle'),
     product: document.querySelector('#productView .pv-name'),
     notFound: document.getElementById('nfTitle'),
+    articles: document.getElementById('articlesTitle'),
+    article: document.querySelector('#articleView .article-title'),
   };
   for (const [view, el] of Object.entries(map)) retagHeading(el, view === name ? 'H1' : 'H2');
 }
@@ -553,9 +621,9 @@ const SEO_CAT_TITLE = {
 };
 
 const SEO_CAT_DESC = {
-  avtomojka: 'Профессиональное оборудование для автомоек: автоматические и роботизированные мойки, АВД, пылесосы и системы очистки воды. Поставка, монтаж и сервис по Казахстану.',
-  sto: 'Профессиональное оборудование для СТО и автосервиса: подъёмники, компрессоры, шиномонтажное и пневматическое оборудование. Поставка, монтаж и сервис по Казахстану.',
-  klining: 'Профессиональное клининговое оборудование: поломоечные и подметальные машины, пылесосы и аппараты высокого давления. Поставка и сервис по Казахстану.',
+  avtomojka: 'Профессиональное оборудование для автомоек: автоматические и роботизированные мойки для легковых и грузовых автомобилей, АВД, пылесосы и системы очистки воды. Доставка, монтаж и сервис по Казахстану.',
+  sto: 'Профессиональное оборудование для СТО и автосервиса: подъёмники, компрессоры, шиномонтажное и пневматическое оборудование. Доставка, монтаж и сервис по Казахстану.',
+  klining: 'Профессиональное клининговое оборудование: поломоечные и подметальные машины, пылесосы и аппараты высокого давления. Доставка и сервис по Казахстану.',
 };
 function applyCatalogMeta() {
   const sub = state.filters.subcat || [];
@@ -566,7 +634,7 @@ function applyCatalogMeta() {
         'Результаты поиска по каталогу SIGMA MARKET.', '/catalog', 'noindex, follow');
     } else {
       setMeta('Оборудование для автомоек, СТО и клининга в Казахстане | SIGMA MARKET',
-        'Профессиональное оборудование для автомоек, СТО и клининга в Казахстане. Подбор, поставка, монтаж, пусконаладка и сервис | SIGMA MARKET.',
+        'Профессиональное оборудование для автомоек, СТО и клининга в Казахстане. Подбор, поставка, монтаж, доставка, пусконаладка и сервис | SIGMA MARKET.',
         '/catalog');
     }
     return;
@@ -619,8 +687,8 @@ async function showCatalog(slug, subcat) {
   setUrl(catalogUrl());
   await setView('catalog');
   renderCatTabs();   // на случай если catalogView подгрузился только сейчас
-  document.getElementById('catTabs').style.display = '';
-  document.getElementById('catalogFilters').style.display = '';
+  setDisplay('catTabs', '');
+  setDisplay('catalogFilters', '');
   document.getElementById('catalogLabel').textContent = 'каталог оборудования';
   setActiveNav('catalog');
   updateBreadcrumb();
@@ -639,8 +707,8 @@ async function showFavorites() {
   state.page = 1;
   setUrl('/#favorites');
   await setView('catalog');
-  document.getElementById('catTabs').style.display = 'none';
-  document.getElementById('catalogFilters').style.display = 'none';
+  setDisplay('catTabs', 'none');
+  setDisplay('catalogFilters', 'none');
   document.getElementById('catalogLabel').textContent = 'сохранённое';
   document.getElementById('catalogTitle').textContent = `Избранное (${favIds.length})`;
   document.getElementById('crumbTrail').innerHTML = '';
@@ -665,7 +733,7 @@ async function selectCategory(slug, btn) {
 }
 
 function updateBreadcrumb() {
-  document.getElementById('catalogFilters').style.display = state.settings.filters.enabled === false ? 'none' : '';
+  setDisplay('catalogFilters', state.settings.filters.enabled === false ? 'none' : '');
   const cat = state.categories.find(c => c.slug === state.category);
   const sub = state.filters.subcat || [];
   const allSubs = (state.facets && state.facets.subcategories) || [];
@@ -785,11 +853,13 @@ async function loadProducts(opts) {
     if (state._builtFor !== state.category) { buildFilters(); state._builtFor = state.category; }
     else syncFilterChecks();
   } else {
-    document.getElementById('catalogFilters').style.display = 'none';
-    document.querySelector('.btn-filters-mobile').style.display = 'none';
+    setDisplay('catalogFilters', 'none');
+    const filtersBtn = document.querySelector('.btn-filters-mobile');
+    if (filtersBtn) filtersBtn.style.display = 'none';
   }
   if (state.view === 'catalog') { updateBreadcrumb(); applyCatalogMeta(); }
   renderCatalogAbout();
+  renderCatalogFaq();
   renderActiveFilters();
   document.getElementById('resultsCount').textContent = `Найдено: ${data.total} товаров`;
 
@@ -798,7 +868,7 @@ async function loadProducts(opts) {
     document.getElementById('pagination').innerHTML = '';
     return;
   }
-  grid.innerHTML = data.products.map(p => cardHtml(p)).join('');
+  grid.innerHTML = data.products.map((p, i) => cardHtml(p, i)).join('');
   renderPagination(data.total);
 }
 
@@ -812,17 +882,18 @@ async function loadFavorites() {
     return;
   }
   grid.innerHTML = '<div class="spinner"><div class="spin"></div></div>';
-  const items = await Promise.all(favIds.map(id => apiFetch('/api/products/' + id).catch(() => null)));
+  const items = await Promise.all(favIds.map(id => apiFetch('/api/products/' + id)
+    .catch(e => { window.logClientError('Избранное: не загрузился товар #' + id + ': ' + (e && (e.message || e)), 'favorites'); return null; })));
   const products = items.filter(Boolean);
   document.getElementById('resultsCount').textContent = `В избранном: ${products.length}`;
-  grid.innerHTML = products.map(p => cardHtml(p)).join('');
+  grid.innerHTML = products.map((p, i) => cardHtml(p, i)).join('');
   document.getElementById('pagination').innerHTML = '';
 }
 
 // ===== ФИЛЬТРЫ =====
 function buildFilters() {
   const s = state.settings.filters || {};
-  if (s.enabled === false) { document.getElementById('catalogFilters').style.display = 'none'; return; }
+  if (s.enabled === false) { setDisplay('catalogFilters', 'none'); return; }
   const fc = state.facets; if (!fc) return;
   const f = state.filters;
   let html = '';
@@ -997,9 +1068,23 @@ function renderActiveFilters() {
   el.querySelectorAll('.chip').forEach((b, i) => b.onclick = chips[i][1]);
 }
 
-function cardHtml(p) {
+// thumbIconUrl() теперь определена в site.js (грузится раньше этого файла) — см.
+// комментарий там же.
+function cardHtml(p, idx) {
+  // Сетка каталога на десктопе — несколько колонок в ряд (в зависимости от ширины
+  // экрана), так что LCP-элементом страницы может оказаться не только самая первая
+  // карточка, а любая из первой видимой строки — DevTools как раз и находил на это
+  // "ленивую" карточку не под индексом 0. Поэтому не ленивые — первые 4 (с запасом на
+  // самую широкую сетку), а fetchpriority="high" — только у настоящей первой (ровно
+  // один кандидат на LCP, как и рекомендует Google).
+  const isFirst = idx === 0;
+  const eager = typeof idx === 'number' && idx < 4;
   const imgHtml = p.icon
-    ? `<img src="/icons/${p.icon}" alt="${p.name}" loading="lazy" onerror="this.style.display='none'">`
+    ? (isFirst
+        ? `<img src="${thumbIconUrl(p.icon)}" alt="${p.name}" fetchpriority="high" onerror="this.onerror=function(){this.style.display='none'};this.src='/icons/${p.icon}'">`
+        : eager
+        ? `<img src="${thumbIconUrl(p.icon)}" alt="${p.name}" onerror="this.onerror=function(){this.style.display='none'};this.src='/icons/${p.icon}'">`
+        : `<img src="${thumbIconUrl(p.icon)}" alt="${p.name}" loading="lazy" onerror="this.onerror=function(){this.style.display='none'};this.src='/icons/${p.icon}'">`)
     : `<span class="card-emoji">${getCatEmoji(p.category_slug)}</span>`;
   const cardBonus = window.bonusForPrice(p.price);
   const priceHtml = p.price_on_request
@@ -1066,7 +1151,7 @@ function addToCart(id) {
   });
 }
 function removeFromCart(id) { state.cart = state.cart.filter(i=>i.id!==id); saveCart(); renderCart(); }
-function changeQty(id, d) { const i = state.cart.find(i=>i.id===id); if(i){ i.qty=Math.max(1,i.qty+d); saveCart(); renderCart(); } }
+function changeQty(id, d) { const i = state.cart.find(i=>i.id===id); if(i){ i.qty=Math.min(20,Math.max(1,i.qty+d)); saveCart(); renderCart(); } }
 function saveCart() {
   try { localStorage.setItem('cart', JSON.stringify(state.cart)); } catch (e) {}
   document.getElementById('cartCount').textContent = state.cart.reduce((s,i)=>s+i.qty,0);
@@ -1170,6 +1255,12 @@ async function submitOrder() {
       if (window.custState && window.custState.token) {
         apiFetch('/api/me').then(r => { if (r.customer) { window.custState.customer = r.customer; refreshAccountUI(); } });
       }
+    } else {
+      // Сервер ответил нормально, но отклонил заказ (например, не прошла проверка
+      // корзины/телефона) — раньше тут не было никакой реакции: кнопка просто
+      // разблокировалась молча, человек не понимал, получилось или нет.
+      window.logClientError('Заказ отклонён сервером: ' + (res.error || 'без текста ошибки'), 'submitOrder');
+      showToast('❌ ' + (res.error || 'Не удалось отправить заявку. Попробуйте ещё раз.'));
     }
   } catch (e) { console.error('submitOrder:', e); window.logClientError(e && (e.message || e), 'submitOrder'); showToast('❌ Ошибка. Попробуйте ещё раз.'); }
   btn.disabled=false; btn.textContent='✅ Отправить заявку';
@@ -1224,7 +1315,8 @@ async function renderCompareBar() {
   document.getElementById('compareCount').textContent = compareIds.length;
   if (compareIds.length < 1) { bar.classList.remove('show'); return; }
   bar.classList.add('show');
-  const items = await Promise.all(compareIds.map(id => apiFetch('/api/products/' + id).catch(() => null)));
+  const items = await Promise.all(compareIds.map(id => apiFetch('/api/products/' + id)
+    .catch(e => { window.logClientError('Сравнение: не загрузился товар #' + id + ': ' + (e && (e.message || e)), 'compare'); return null; })));
   document.getElementById('compareThumbs').innerHTML = items.filter(Boolean).map(p =>
     `<div class="cmp-thumb">${p.icon ? `<img src="/icons/${p.icon}" onerror="this.replaceWith('📦')">` : getCatEmoji(p.category_slug)}
       <button onclick="toggleCompare(${p.id})">✕</button></div>`).join('');
@@ -1232,7 +1324,8 @@ async function renderCompareBar() {
 function clearCompare() { compareIds = []; lsSet('compare', compareIds); renderCompareBar(); renderCatalogChecks(); }
 async function openCompare() {
   if (compareIds.length < 2) { showToast('Выберите минимум 2 товара'); return; }
-  const items = (await Promise.all(compareIds.map(id => apiFetch('/api/products/' + id).catch(() => null)))).filter(Boolean);
+  const items = (await Promise.all(compareIds.map(id => apiFetch('/api/products/' + id)
+    .catch(e => { window.logClientError('Сравнение: не загрузился товар #' + id + ': ' + (e && (e.message || e)), 'compare'); return null; })))).filter(Boolean);
   const specKeys = Array.from(new Set(items.reduce((acc, p) => {
     let s = p.specs; if (typeof s === 'string') { try { s = JSON.parse(s); } catch (e) { s = {}; } }
     return acc.concat(Object.keys(s || {}));
@@ -1263,15 +1356,54 @@ async function renderRecent() {
   const sec = document.getElementById('recentSection');
   const ids = recentIds.slice(0, 8);
   if (state.settings.blocks.recent === false || ids.length < 2 || state.view === 'favorites') { sec.style.display = 'none'; return; }
-  const items = (await Promise.all(ids.map(id => apiFetch('/api/products/' + id).catch(() => null)))).filter(Boolean);
+  const items = (await Promise.all(ids.map(id => apiFetch('/api/products/' + id)
+    .catch(e => { window.logClientError('Недавние: не загрузился товар #' + id + ': ' + (e && (e.message || e)), 'recent'); return null; })))).filter(Boolean);
   if (items.length < 2) { sec.style.display = 'none'; return; }
   document.getElementById('recentStrip').innerHTML = items.map(miniCard).join('');
   sec.style.display = '';
 }
 
 // ===== ОПИСАНИЕ РАЗДЕЛА (SEO-текст внизу каталога) =====
+// Текст для "всего каталога" (без категории) — своей записи в categories у него нет,
+// поэтому текст здесь же, тем же способом, что и ALL_CATALOG_ABOUT в seo.js (держать
+// в двух местах — тот же приём, что уже используется для BADGES/featuredBadgesHtml).
+const ALL_CATALOG_ABOUT = `
+<h2>Профессиональное оборудование для автомоек, СТО и клининга в Казахстане</h2>
+<p>SIGMA MARKET — поставщик профессионального оборудования для автомоек, станций технического обслуживания (СТО), автосервисов и клининговых компаний. В нашем каталоге представлены моечные установки, аппараты высокого давления, поломоечные и подметальные машины, промышленные пылесосы, автосервисное оборудование и комплектующие.</p>
+<p>Мы предлагаем комплексные решения для бизнеса: подбор оборудования, поставку, проектирование и монтаж автомоечных комплексов, пусконаладочные работы и сервисное обслуживание. Работаем с клиентами по всему Казахстану.</p>
+<h3>Оборудование для автомоек</h3>
+<p>В каталоге представлено <a href="/catalog/avtomojka">оборудование для автомоек</a> различной производительности и назначения:</p>
+<ul>
+<li><a href="/catalog/avtomojka/avtomaticheskie-moyki-dlya-gruzovyh-avtomobiley">Моечные комплексы для легковых автомобилей, грузовиков, автобусов и спецтехники.</a></li>
+<li><a href="/catalog/avtomojka/avtomaticheskie-moyki-dlya-mashin-robotizirovann">Автоматические бесконтактные, роботизированные, портальные и туннельные автомойки.</a></li>
+<li><a href="/catalog/avtomojka/apparaty-vysokogo-davleniya-avd">Аппараты высокого давления (АВД) с подогревом и без подогрева воды.</a></li>
+<li><a href="/catalog/avtomojka/professionalnye-pylesosy">Профессиональные пылесосы, пылеводососы, пеногенераторы и системы очистки воды.</a></li>
+</ul>
+<p>Подбираем оборудование для новых автомоечных комплексов и модернизации действующих объектов.</p>
+<h3>Оборудование для СТО и автосервисов</h3>
+<p>Раздел <a href="/catalog/sto">оборудования для СТО</a> включает автомобильные подъёмники, компрессоры, шиномонтажные и балансировочные станки, диагностическое оборудование, гидравлические прессы и профессиональный инструмент.</p>
+<p>Оборудование предназначено для оснащения станций технического обслуживания, шиномонтажных мастерских и автосервисных предприятий.</p>
+<h3>Профессиональное оборудование для клининга</h3>
+<p>В разделе <a href="/catalog/klining">оборудования для клининга</a> можно выбрать технику для профессиональной уборки коммерческих, промышленных и общественных помещений:</p>
+<ul>
+<li><a href="/catalog/klining/polomoechnye-mashiny">Поломоечные машины</a> — для влажной уборки полов в торговых центрах, складах, офисах и производственных помещениях.</li>
+<li><a href="/catalog/klining/podmetalnye-mashiny">Подметальные машины</a> — для очистки больших площадей от пыли и мусора.</li>
+<li><a href="/catalog/klining/professionalnye-pylesosy">Промышленные пылесосы</a> — для сбора сухих и влажных загрязнений.</li>
+<li><a href="/catalog/klining/apparaty-vysokogo-davleniya-avd">Аппараты высокого давления, парогенераторы и профессиональное уборочное оборудование.</a></li>
+</ul>
+<p>В ассортименте представлены решения для клининговых компаний, гостиниц, торговых центров, логистических комплексов и производственных предприятий.</p>
+<h3>Купить профессиональное оборудование с доставкой по Казахстану</h3>
+<p>SIGMA MARKET предлагает оборудование для бизнеса с доставкой в Алматы, Астану, Шымкент, Караганду, Актобе, Атырау и другие города Казахстана.</p>
+<p>Наши специалисты помогут подобрать технику с учётом площади объекта, интенсивности эксплуатации, производительности и бюджета.</p>
+<p>Ознакомьтесь с каталогом, сравните характеристики и цены оборудования или свяжитесь с нами для получения консультации и коммерческого предложения.</p>
+`.trim();
 function renderCatalogAbout() {
   const sec = document.getElementById('catalogAbout');
+  if (state.view === 'catalog' && state.category === 'all' && !state.search) {
+    document.getElementById('catalogAboutBody').innerHTML = `<div class="catalog-about-text">${ALL_CATALOG_ABOUT}</div>`;
+    sec.style.display = '';
+    return;
+  }
   const cat = (state.categories || []).find(c => c.slug === state.category);
   // показываем только на странице категории/подкатегории (не поиск, не избранное, не «Все»)
   if (state.view !== 'catalog' || !cat || state.search) { sec.style.display = 'none'; return; }
@@ -1295,6 +1427,44 @@ function renderCatalogAbout() {
   const bodyHtml = /<[a-z][\s\S]*>/i.test(descText) ? descText : nl2p(descText);
   document.getElementById('catalogAboutBody').innerHTML =
     `<div class="catalog-about-text">${bodyHtml}</div>`;
+  sec.style.display = '';
+}
+
+// FAQ раздела — редактируется в админке (поле «FAQ» у категории/подкатегории),
+// приходит с сервера как JSON-строка в поле faq. Приоритет как у «Описание»:
+// FAQ подкатегории перекрывает FAQ категории, если задан.
+function parseFaq(raw) {
+  let items;
+  try { items = JSON.parse(raw || '[]'); } catch (e) { items = []; }
+  return Array.isArray(items) ? items : [];
+}
+
+function renderCatalogFaq() {
+  const sec = document.getElementById('catalogFaq');
+  if (state.view !== 'catalog') { sec.style.display = 'none'; return; }
+
+  const cat = (state.categories || []).find(c => c.slug === state.category);
+  if (!cat) { sec.style.display = 'none'; return; }
+
+  const allSubs = (state.facets && state.facets.subcategories) || [];
+  const bySlug = allSubs.reduce((o, s) => { o[s.slug] = s; return o; }, {});
+  const curSub = (state.filters && state.filters.subcat) || [];
+  const sel = curSub.length === 1 ? curSub[0] : null;
+  const selRow = sel ? bySlug[sel] : null;
+
+  const faqRaw = (selRow && selRow.faq && selRow.faq !== '[]') ? selRow.faq : cat.faq;
+  const items = parseFaq(faqRaw);
+  if (!items.length) { sec.style.display = 'none'; return; }
+
+  const escH = s => String(s == null ? '' : s).replace(/[&<>"]/g,
+    c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const rows = items.map(([q, a]) => `
+    <details class="catalog-faq-item">
+      <summary>${escH(q)}</summary>
+      <div class="catalog-faq-answer"><p>${escH(a)}</p></div>
+    </details>`).join('');
+  document.getElementById('catalogFaqBody').innerHTML =
+    `<h2 class="catalog-faq-title">Часто задаваемые вопросы</h2>${rows}`;
   sec.style.display = '';
 }
 
@@ -1355,10 +1525,10 @@ function quizPick(key, id, i) {
 let quizResults = [];
 let quizHasMore = false;
 let quizTotal = 0;
-function quizResultCardHtml(p) {
+function quizResultCardHtml(p, isFirst) {
   const cmpOn = compareIds.includes(p.id);
   return `<div class="quiz-result-card" onclick="closeQuiz()">
-    ${miniCard(p)}
+    ${miniCard(p, isFirst)}
     <label class="card-compare" onclick="event.stopPropagation()"><input type="checkbox" ${cmpOn?'checked':''} onchange="toggleCompare(${p.id})"> Сравнить</label>
   </div>`;
 }
@@ -1367,7 +1537,7 @@ function renderQuizResults() {
   document.getElementById('quizBody').innerHTML = `
     <h3 class="modal-name">${quizResults.length ? 'Рекомендуем для вас' : 'Не нашли точного совпадения'}</h3>
     <p class="quiz-step-label">${quizResults.length ? 'Подобрано по вашим ответам. Уточните детали у менеджера.' : 'Оставьте заявку — подберём вручную.'}</p>
-    <div class="mini-row" id="quizResultsGrid">${quizResults.map(quizResultCardHtml).join('')}</div>
+    <div class="mini-row" id="quizResultsGrid">${quizResults.map((p, i) => quizResultCardHtml(p, i === 0)).join('')}</div>
     <div class="quiz-result-actions">
       ${quizHasMore ? `<button class="btn-catalog" id="quizMoreBtn" onclick="quizLoadMore()">Показать ещё${left > 0 ? ' (' + Math.min(left, 8) + ')' : ''}</button>` : ''}
       <button class="quiz-back" onclick="quizAns={};renderQuizStep(0)">Пройти заново</button>
@@ -1375,20 +1545,34 @@ function renderQuizResults() {
 }
 async function quizSubmit() {
   document.getElementById('quizBody').innerHTML = '<div class="spinner"><div class="spin"></div>&nbsp; Подбираем…</div>';
-  const res = await apiFetch('/api/products/quiz', 'POST', Object.assign({}, quizAns, { offset: 0 }));
-  quizResults = res.products || [];
-  quizHasMore = !!res.hasMore;
-  quizTotal = res.total || quizResults.length;
-  renderQuizResults();
+  try {
+    const res = await apiFetch('/api/products/quiz', 'POST', Object.assign({}, quizAns, { offset: 0 }));
+    quizResults = res.products || [];
+    quizHasMore = !!res.hasMore;
+    quizTotal = res.total || quizResults.length;
+    renderQuizResults();
+  } catch (e) {
+    // Без этого при сбое сети человек видел бы вечную надпись "Подбираем…" без
+    // объяснений и без кнопки что-то сделать дальше.
+    window.logClientError(e && (e.message || e), 'quizSubmit');
+    document.getElementById('quizBody').innerHTML = `<div class="spinner">Не удалось подобрать оборудование — проверьте интернет.
+      <button type="button" class="btn-catalog" onclick="quizAns={};renderQuizStep(0)" style="margin-top:12px">Начать заново</button></div>`;
+  }
 }
 async function quizLoadMore() {
   const btn = document.getElementById('quizMoreBtn');
   if (btn) { btn.disabled = true; btn.textContent = 'Загрузка…'; }
-  const res = await apiFetch('/api/products/quiz', 'POST', Object.assign({}, quizAns, { offset: quizResults.length }));
-  quizResults = quizResults.concat(res.products || []);
-  quizHasMore = !!res.hasMore;
-  quizTotal = res.total || quizTotal;
-  renderQuizResults();
+  try {
+    const res = await apiFetch('/api/products/quiz', 'POST', Object.assign({}, quizAns, { offset: quizResults.length }));
+    quizResults = quizResults.concat(res.products || []);
+    quizHasMore = !!res.hasMore;
+    quizTotal = res.total || quizTotal;
+    renderQuizResults();
+  } catch (e) {
+    window.logClientError(e && (e.message || e), 'quizLoadMore');
+    if (btn) { btn.disabled = false; btn.textContent = 'Повторить'; }
+    showToast('❌ Не удалось загрузить ещё. Попробуйте ещё раз.');
+  }
 }
 
 // ===== UTILS =====

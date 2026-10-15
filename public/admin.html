@@ -32,6 +32,7 @@
     <div class="nav-item" onclick="showPanel('orders')" id="nav-orders"><span class="icon">📋</span>Заявки</div>
     <div class="nav-item" onclick="showPanel('products')" id="nav-products"><span class="icon">📦</span>Товары</div>
     <div class="nav-item" onclick="showPanel('subcats')" id="nav-subcats"><span class="icon">🗂</span>Категории</div>
+    <div class="nav-item" onclick="showPanel('articles')" id="nav-articles"><span class="icon">📝</span>Статьи</div>
     <div class="nav-item" onclick="showPanel('customers')" id="nav-customers"><span class="icon">🧑‍🤝‍🧑</span>Клиенты</div>
     <div class="nav-item" onclick="showPanel('reviews')" id="nav-reviews"><span class="icon">⭐</span>Отзывы товаров</div>
     <div class="nav-item" onclick="showPanel('engage')" id="nav-engage"><span class="icon">⚙️</span>Настройки</div>
@@ -86,6 +87,7 @@
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
           <span style="font-size:13px;color:var(--muted);font-weight:700">Период:</span>
           <button class="action-btn" id="statsDays-0" onclick="loadStats(0)">Сегодня</button>
+          <button class="action-btn" id="statsDays--1" onclick="loadStats(-1)">Вчера</button>
           <button class="action-btn" id="statsDays-7" onclick="loadStats(7)">7 дней</button>
           <button class="action-btn" id="statsDays-30" onclick="loadStats(30)">30 дней</button>
           <button class="action-btn" id="statsDays-90" onclick="loadStats(90)">90 дней</button>
@@ -140,11 +142,16 @@
         </table></div>
       </div>
     </br>
-      <div class="card">
+      <div class="card" style="max-height:820px;">
         <div class="card-header"><h3>Когда и что смотрели</h3></div>
-        <p style="color:var(--muted);font-size:13px;padding:0 4px 8px">Последние 200 просмотров за выбранный период, самые свежие сверху.</p>
+        <p style="color:var(--muted);font-size:13px;padding:0 4px 8px">Последние 1000 просмотров за выбранный период, самые свежие сверху.</p>
+        <div style="display:flex;gap:8px;padding:0 4px 10px;align-items:center">
+          <input id="statsIpFilter" type="text" placeholder="Поиск по IP, например 95.108.213.82" style="flex:1;max-width:320px;padding:7px 10px;border:1px solid var(--border);border-radius:8px" onkeydown="if(event.key==='Enter') loadStats()">
+          <button class="action-btn" onclick="loadStats()">Найти</button>
+          <button class="action-btn" onclick="document.getElementById('statsIpFilter').value='';loadStats()">Сбросить</button>
+        </div>
         <div class="table-wrap" style="max-height:420px;overflow:auto"><table>
-          <thead><tr><th>Время</th><th>Страница</th></tr></thead>
+          <thead><tr><th>Время</th><th>Страница</th><th>Источник</th><th>IP</th><th>User-Agent</th></tr></thead>
           <tbody id="statsRecentTbody"></tbody>
         </table></div>
       </div>
@@ -166,7 +173,7 @@
           <button class="btn-new" onclick="openProductForm()">+ Новый товар</button>
         </div>
         <div class="toolbar">
-          <input class="search-input" id="prodSearch" placeholder="Поиск по названию, артикулу…" oninput="searchProds()">
+          <input class="search-input" id="prodSearch" placeholder="Поиск по названию, артикулу, ID…" oninput="searchProds()">
           <select class="search-input" id="prodCatFilter" onchange="onProdCatFilterChange()" style="min-width:160px">
             <option value="">Все категории</option>
           </select>
@@ -266,6 +273,41 @@
       </div>
     </div>
 
+    <!-- REVIEW EDIT MODAL -->
+    <div class="overlay" id="revEditOverlay">
+      <div class="form-modal" style="width:min(700px,95vw)">
+        <h3>Редактировать отзыв</h3>
+        <div class="form-grid form-grid-2">
+          <div class="fg full"><label>Товар <span style="font-weight:400;text-transform:none;color:var(--muted)">— пусто = общий отзыв о компании (страница «Отзывы»)</span></label>
+            <div id="revProductPick" style="margin-bottom:8px"></div>
+            <div class="rel-search-wrap">
+              <input id="revProductSearch" class="rel-search" placeholder="Поиск товара для привязки…" oninput="revProductSearch(this.value)">
+              <div id="revProductResults" class="rel-results"></div>
+            </div>
+          </div>
+          <div class="fg"><label>Имя *</label><input id="rvName"></div>
+          <div class="fg"><label>Компания <span style="font-weight:400;text-transform:none;color:var(--muted)">— для общих отзывов</span></label><input id="rvCompany"></div>
+          <div class="fg"><label>Телефон</label><input id="rvPhone"></div>
+          <div class="fg"><label>Оценка</label>
+            <select id="rvRating">
+              <option value="5">★★★★★ (5)</option>
+              <option value="4">★★★★☆ (4)</option>
+              <option value="3">★★★☆☆ (3)</option>
+              <option value="2">★★☆☆☆ (2)</option>
+              <option value="1">★☆☆☆☆ (1)</option>
+            </select>
+          </div>
+          <div class="fg"><label>Дата и время</label><input type="datetime-local" id="rvDate"></div>
+          <div class="fg full"><label>Текст отзыва</label><textarea id="rvText" style="min-height:120px"></textarea></div>
+          <div class="fg full"><label>Ответ от SIGMA MARKET <span style="font-weight:400;text-transform:none;color:var(--muted)">— покажется на сайте под отзывом, оставьте пустым, чтобы не отвечать</span></label><textarea id="rvReply" style="min-height:80px"></textarea></div>
+        </div>
+        <div class="form-actions">
+          <button class="btn-cancel" onclick="document.getElementById('revEditOverlay').classList.remove('open')">Отмена</button>
+          <button class="btn-save" onclick="saveReviewEdit()">💾 Сохранить</button>
+        </div>
+      </div>
+    </div>
+
     <!-- CATEGORIES + SUBCATEGORIES -->
     <div class="panel" id="panel-subcats">
       <div class="card" style="margin-bottom:20px">
@@ -305,6 +347,11 @@
           <div class="fg full"><label>Описание <span style="font-weight:400;text-transform:none;color:var(--muted)"></span></label><textarea id="ctDesc" data-rich="1" style="min-height:150px"></textarea></div>
           <div class="fg"><label>SEO-заголовок (title) <span style="font-weight:400;text-transform:none;color:var(--muted)">— если пусто, генерируется автоматически</span></label><input id="ctSeoTitle" maxlength="120"></div>
           <div class="fg"><label>SEO-описание (meta description) <span style="font-weight:400;text-transform:none;color:var(--muted)">— если пусто, берётся из «Описание»</span></label><textarea id="ctSeoDesc" maxlength="320" style="min-height:60px"></textarea></div>
+          <div class="fg full"><label>FAQ (вопросы и ответы) <span style="font-weight:400;text-transform:none;color:var(--muted)">— показывается на странице раздела и в выдаче Google; подкатегория может переопределить своим FAQ</span></label>
+            <div id="ctFaqList"></div>
+            <button type="button" class="action-btn" onclick="addFaqRow('ctFaqList')">+ Добавить вопрос</button>
+          </div>
+          <div class="fg full"><label class="eng-check"><input type="checkbox" id="ctInFeed" checked> Рекламировать в Google Merchant Center <span>— разово включает/выключает сразу все товары этой категории; дальше можно донастроить отдельные товары, не трогая эту галочку</span></label></div>
           <div class="fg full"><label>Иконка</label>
             <div class="img-manager" style="padding:12px">
               <div class="img-grid" id="ctIconGrid"></div>
@@ -322,6 +369,53 @@
         <div class="form-actions">
           <button class="btn-cancel" onclick="document.getElementById('catOverlay').classList.remove('open')">Отмена</button>
           <button class="btn-save" onclick="saveCat()">💾 Сохранить</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- СТАТЬИ -->
+    <div class="panel" id="panel-articles">
+      <div class="card">
+        <div class="card-header">
+          <h3>Статьи</h3>
+          <button class="btn-new" onclick="openArticleForm()">+ Новая статья</button>
+        </div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Обложка</th><th>Заголовок</th><th>Slug</th><th>Статус</th><th>Дата</th><th></th></tr></thead>
+          <tbody id="articlesTbody"></tbody>
+        </table></div>
+      </div>
+    </div>
+
+    <!-- ARTICLE FORM MODAL -->
+    <div class="overlay" id="artOverlay">
+      <div class="form-modal" style="width:min(900px,95vw)">
+        <h3 id="artFormTitle">Новая статья</h3>
+        <div class="form-grid form-grid-2">
+          <div class="fg"><label>Заголовок *</label><input id="atTitle" placeholder="Как выбрать поломоечную машину для склада"></div>
+          <div class="fg"><label>Slug (необязательно)</label><input id="atSlug" placeholder="сгенерируется автоматически из заголовка"></div>
+          <div class="fg full"><label>Краткое описание <span style="font-weight:400;text-transform:none;color:var(--muted)">— показывается в списке статей</span></label><textarea id="atExcerpt" style="min-height:70px"></textarea></div>
+          <div class="fg full"><label>Текст статьи</label><textarea id="atContent" data-rich="1" style="min-height:320px"></textarea></div>
+          <div class="fg"><label>SEO-заголовок (title) <span style="font-weight:400;text-transform:none;color:var(--muted)">— если пусто, генерируется автоматически</span></label><input id="atSeoTitle" maxlength="120"></div>
+          <div class="fg"><label>SEO-описание (meta description) <span style="font-weight:400;text-transform:none;color:var(--muted)">— если пусто, берётся из краткого описания</span></label><textarea id="atSeoDesc" maxlength="320" style="min-height:60px"></textarea></div>
+          <div class="fg full"><label class="eng-check"><input type="checkbox" id="atPublished" checked> Опубликовано <span>— выключите, чтобы скрыть статью с сайта, не удаляя её</span></label></div>
+          <div class="fg full"><label>Обложка</label>
+            <div class="img-manager" style="padding:12px">
+              <div class="img-grid" id="atCoverGrid"></div>
+              <div class="img-add-row">
+                <input type="file" id="atCoverFile" accept=".png,.jpg,.jpeg,.webp" style="display:none" onchange="uploadArtCover()">
+                <button type="button" class="action-btn" onclick="document.getElementById('atCoverFile').click()">📤 Загрузить</button>
+                <input id="atCoverManual" placeholder="или имя файла + Enter"
+                  style="flex:1;padding:8px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:13px"
+                  onkeydown="if(event.key==='Enter'){event.preventDefault();atCover=this.value.trim();renderAtCover();this.value=''}">
+              </div>
+              <div id="atCoverResult" style="font-size:12px;margin-top:6px"></div>
+            </div>
+          </div>
+        </div>
+        <div class="form-actions">
+          <button class="btn-cancel" onclick="document.getElementById('artOverlay').classList.remove('open')">Отмена</button>
+          <button class="btn-save" onclick="saveArticle()">💾 Сохранить</button>
         </div>
       </div>
     </div>
@@ -547,7 +641,10 @@
         </div>
       </div>
       <div class="fg full"><label>Описание <span style="font-weight:400;text-transform:none;color:var(--muted)">— форматирование кнопками, либо «&lt;/&gt; HTML» для кода</span></label><textarea id="fDesc" data-rich="1" style="min-height:150px"></textarea></div>
-      <div class="fg full"><label>Технические характеристики (JSON)</label><textarea id="fSpecs" placeholder='{"Давление":"200 бар","Расход":"15 л/мин"}' style="font-family:monospace;font-size:12px"></textarea></div>
+      <div class="fg full"><label>Технические характеристики <span style="font-weight:400;text-transform:none;color:var(--muted)">— показываются в карточке товара и в начале страницы товара</span></label>
+        <div id="fSpecsList"></div>
+        <button type="button" class="action-btn" onclick="addSpecRow('fSpecsList')">+ Добавить характеристику</button>
+      </div>
       <div class="fg full"><label>SEO-заголовок (title) <span style="font-weight:400;text-transform:none;color:var(--muted)">— если пусто, сформируется из названия и бренда</span></label><input id="fSeoTitle" maxlength="120"></div>
       <div class="fg full"><label>SEO-описание (meta description) <span style="font-weight:400;text-transform:none;color:var(--muted)">— если пусто, берётся из описания товара</span></label><textarea id="fSeoDesc" maxlength="320"></textarea></div>
       <div class="fg full"><label>Аксессуары и запчасти для этой модели</label>
@@ -579,6 +676,9 @@
         <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
           <input type="checkbox" id="fInStock" checked> В наличии
         </label>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+          <input type="checkbox" id="fInFeed" checked> Рекламировать в Google Merchant Center
+        </label>
       </div>
     </div>
     <div class="form-actions">
@@ -600,6 +700,11 @@
       <div class="fg full"><label>Описание <span style="font-weight:400;text-transform:none;color:var(--muted)"></span></label><textarea id="scDesc" data-rich="1" style="min-height:150px"></textarea></div>
       <div class="fg"><label>SEO-заголовок (title) <span style="font-weight:400;text-transform:none;color:var(--muted)">— если пусто, генерируется автоматически</span></label><input id="scSeoTitle" maxlength="120"></div>
       <div class="fg"><label>SEO-описание (meta description) <span style="font-weight:400;text-transform:none;color:var(--muted)">— если пусто, берётся из «Описание»</span></label><textarea id="scSeoDesc" maxlength="320" style="min-height:60px"></textarea></div>
+      <div class="fg full"><label>FAQ (вопросы и ответы) <span style="font-weight:400;text-transform:none;color:var(--muted)">— показывается на странице раздела и в выдаче Google; если пусто, используется FAQ категории</span></label>
+        <div id="scFaqList"></div>
+        <button type="button" class="action-btn" onclick="addFaqRow('scFaqList')">+ Добавить вопрос</button>
+      </div>
+      <div class="fg full"><label class="eng-check"><input type="checkbox" id="scInFeed" checked> Рекламировать в Google Merchant Center <span>— разово включает/выключает сразу все товары этой подкатегории (и вложенных в неё); дальше можно донастроить отдельные товары, не трогая эту галочку</span></label></div>
       <div class="fg"><label>Порядок сортировки</label><input id="scSort" type="number" value="0"></div>
       <div class="fg full"><label>Иконка</label>
         <div class="img-manager" style="padding:12px">
@@ -1119,7 +1224,7 @@ function showPanel(name) {
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
   document.getElementById('panel-'+name).classList.add('active');
   document.getElementById('nav-'+name).classList.add('active');
-  const titles = {dashboard:'Дашборд',stats:'Статистика',products:'Управление товарами',subcats:'Категории и подкатегории',orders:'Заявки клиентов',customers:'Клиенты',reviews:'Отзывы на товары',engage:'Вовлечённость и подбор',upload:'Загрузка иконок',logs:'Журнал действий',errors:'Ошибки сайта',admins:'Администраторы'};
+  const titles = {dashboard:'Дашборд',stats:'Статистика',products:'Управление товарами',subcats:'Категории и подкатегории',articles:'Статьи',orders:'Заявки клиентов',customers:'Клиенты',reviews:'Отзывы на товары',engage:'Вовлечённость и подбор',upload:'Загрузка иконок',logs:'Журнал действий',errors:'Ошибки сайта',admins:'Администраторы'};
   document.getElementById('panelTitle').textContent = titles[name] || name;
   if (name === 'stats') loadStats();
   if (name === 'products') loadProducts();
@@ -1129,6 +1234,7 @@ function showPanel(name) {
   if (name === 'dashboard') loadDashboard();
   if (name === 'engage') { loadEngage(); loadKpLeads(); }
   if (name === 'subcats') { loadCats(); loadSubcats(); }
+  if (name === 'articles') loadArticles();
   if (name === 'logs') loadLogs(1);
   if (name === 'errors') loadErrors(1);
   if (name === 'admins') loadAdmins();
@@ -1284,7 +1390,7 @@ async function deleteAdmin(id, username) {
 let catEditId = null, ctIcon = '';
 async function loadCats() {
   const list = await apiFetch('/api/admin/categories');
-  categories = list.map(c => ({ id: c.id, name: c.name, slug: c.slug, description: c.description, icon: c.icon, seo_title: c.seo_title, seo_description: c.seo_description }));
+  categories = list.map(c => ({ id: c.id, name: c.name, slug: c.slug, description: c.description, icon: c.icon, seo_title: c.seo_title, seo_description: c.seo_description, faq: c.faq, in_feed: c.in_feed }));
   fillCatSelect(); fillCatFilter();
   const tb = document.getElementById('catsTbody');
   tb.innerHTML = list.map(c => `<tr>
@@ -1324,6 +1430,73 @@ async function uploadCatIcon() {
   } catch (e) { res.textContent = '❌ Ошибка загрузки'; res.style.color = '#ef4444'; }
   document.getElementById('ctIconFile').value = '';
 }
+// ===== FAQ (общее для категорий и подкатегорий) =====
+// Каждая строка — пара <input>(вопрос) + <textarea>(ответ); значения выставляем через
+// .value, а не интерполяцией в innerHTML — безопаснее (без ручного экранирования кавычек).
+function addFaqRow(listId, q, a) {
+  const row = document.createElement('div');
+  row.className = 'faq-row';
+  row.style.cssText = 'display:flex;gap:8px;margin-bottom:8px;align-items:flex-start';
+  row.innerHTML = `
+    <div style="flex:1">
+      <input class="faq-q" placeholder="Вопрос" style="width:100%;margin-bottom:4px;padding:8px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:13px">
+      <textarea class="faq-a" placeholder="Ответ" style="width:100%;min-height:60px;padding:8px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:13px"></textarea>
+    </div>
+    <button type="button" class="action-btn del" onclick="this.closest('.faq-row').remove()" style="flex:none">✕</button>`;
+  row.querySelector('.faq-q').value = q || '';
+  row.querySelector('.faq-a').value = a || '';
+  document.getElementById(listId).appendChild(row);
+}
+function renderFaqList(listId, faqJson) {
+  const el = document.getElementById(listId);
+  el.innerHTML = '';
+  let items = [];
+  try { items = JSON.parse(faqJson || '[]'); } catch (e) {}
+  if (Array.isArray(items)) items.forEach(pair => addFaqRow(listId, pair && pair[0], pair && pair[1]));
+}
+function collectFaq(listId) {
+  const items = [];
+  document.querySelectorAll(`#${listId} .faq-row`).forEach(r => {
+    const q = r.querySelector('.faq-q').value.trim();
+    const a = r.querySelector('.faq-a').value.trim();
+    if (q && a) items.push([q, a]);
+  });
+  return items;
+}
+
+// ===== ХАРАКТЕРИСТИКИ ТОВАРА (вместо ручного JSON) =====
+// Та же идея, что и FAQ выше: строки «Характеристика» + «Значение» вместо текста JSON,
+// который легко сломать пропущенной кавычкой/запятой. Порядок строк — это и есть порядок
+// в карточке товара (JS-объект с текстовыми ключами сохраняет порядок добавления).
+function addSpecRow(listId, k, v) {
+  const row = document.createElement('div');
+  row.className = 'spec-row';
+  row.style.cssText = 'display:flex;gap:8px;margin-bottom:8px;align-items:center';
+  row.innerHTML = `
+    <input class="spec-k" placeholder="Характеристика (например, Вес)" style="flex:1;padding:8px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:13px">
+    <input class="spec-v" placeholder="Значение (например, 382 кг)" style="flex:1;padding:8px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:13px">
+    <button type="button" class="action-btn del" onclick="this.closest('.spec-row').remove()" style="flex:none">✕</button>`;
+  row.querySelector('.spec-k').value = k || '';
+  row.querySelector('.spec-v').value = v || '';
+  document.getElementById(listId).appendChild(row);
+}
+function renderSpecsList(listId, specsRaw) {
+  const el = document.getElementById(listId);
+  el.innerHTML = '';
+  let obj = {};
+  try { obj = (specsRaw && typeof specsRaw === 'object') ? specsRaw : JSON.parse(specsRaw || '{}'); } catch (e) {}
+  Object.entries(obj || {}).forEach(([k, v]) => addSpecRow(listId, k, v));
+}
+function collectSpecs(listId) {
+  const obj = {};
+  document.querySelectorAll(`#${listId} .spec-row`).forEach(r => {
+    const k = r.querySelector('.spec-k').value.trim();
+    const v = r.querySelector('.spec-v').value.trim();
+    if (k && v) obj[k] = v;
+  });
+  return obj;
+}
+
 function openCatForm(id) {
   catEditId = id || null;
   const c = id ? categories.find(x => x.id === id) : null;
@@ -1334,6 +1507,8 @@ function openCatForm(id) {
   document.getElementById('ctDesc')._richSet(c ? (c.description || '') : '');
   document.getElementById('ctSeoTitle').value = c ? (c.seo_title || '') : '';
   document.getElementById('ctSeoDesc').value = c ? (c.seo_description || '') : '';
+  renderFaqList('ctFaqList', c ? c.faq : '');
+  document.getElementById('ctInFeed').checked = c ? !!c.in_feed : true;
   ctIcon = c ? (c.icon || '') : '';
   renderCtIcon();
   document.getElementById('catOverlay').classList.add('open');
@@ -1349,7 +1524,9 @@ async function saveCat() {
     description: dEl.value.trim(),
     icon: ctIcon || null,
     seo_title: document.getElementById('ctSeoTitle').value.trim() || null,
-    seo_description: document.getElementById('ctSeoDesc').value.trim() || null
+    seo_description: document.getElementById('ctSeoDesc').value.trim() || null,
+    faq: collectFaq('ctFaqList'),
+    in_feed: document.getElementById('ctInFeed').checked
   };
   const res = catEditId
     ? await apiFetch(`/api/admin/categories/${catEditId}`, 'PUT', data)
@@ -1364,6 +1541,92 @@ async function deleteCat(id) {
   const res = await apiFetch(`/api/admin/categories/${id}`, 'DELETE');
   if (res.error) { showToast('❌ ' + res.error); return; }
   showToast('🗑 Удалено'); loadCats(); loadSubcats();
+}
+
+// ===== СТАТЬИ =====
+let articles = [], artEditId = null, atCover = '';
+async function loadArticles() {
+  articles = await apiFetch('/api/admin/articles');
+  const tb = document.getElementById('articlesTbody');
+  tb.innerHTML = articles.map(a => `<tr>
+    <td>${a.cover ? `<img src="${catImgSrc(a.cover)}" style="width:40px;height:28px;object-fit:cover;border-radius:4px" onerror="this.replaceWith('—')">` : '—'}</td>
+    <td><strong>${esc(a.title)}</strong></td>
+    <td style="color:var(--muted)">${esc(a.slug)}</td>
+    <td>${a.published ? '<span style="color:#16a34a">● опубликовано</span>' : '<span style="color:var(--muted)">○ скрыто</span>'}</td>
+    <td style="color:var(--muted);font-size:12px">${fmtDate(a.created_at && a.created_at.replace(' ', 'T') + 'Z')}</td>
+    <td>
+      <button class="action-btn" onclick="openArticleForm(${a.id})">✏️</button>
+      <button class="action-btn del" onclick="deleteArticle(${a.id})">🗑</button>
+    </td>
+  </tr>`).join('') || '<tr><td colspan="6" style="padding:20px;color:var(--muted)">Статей пока нет</td></tr>';
+}
+function renderAtCover() {
+  const g = document.getElementById('atCoverGrid');
+  document.getElementById('atCoverResult').textContent = '';
+  g.innerHTML = atCover
+    ? `<div class="img-cell main"><img src="${catImgSrc(atCover)}" onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'img-broken',textContent:'нет файла'}))">
+        <button type="button" class="img-del" onclick="atCover='';renderAtCover()">✕</button>
+        <div class="img-fn">${esc(atCover)}</div></div>`
+    : '<div class="img-empty">Обложка не задана</div>';
+}
+async function uploadArtCover() {
+  const f = document.getElementById('atCoverFile').files[0];
+  if (!f) return;
+  const res = document.getElementById('atCoverResult');
+  res.textContent = 'Загрузка…'; res.style.color = 'var(--muted)';
+  const fd = new FormData(); fd.append('icon', f);
+  try {
+    const r = await fetch('/api/admin/upload-icon', { method: 'POST', headers: { 'x-admin-token': token }, body: fd });
+    const d = await r.json();
+    if (d.filename) { atCover = d.filename; renderAtCover(); }
+    else { res.textContent = '❌ ' + (d.error || 'Ошибка'); res.style.color = '#ef4444'; }
+  } catch (e) { res.textContent = '❌ Ошибка загрузки'; res.style.color = '#ef4444'; }
+  document.getElementById('atCoverFile').value = '';
+}
+function openArticleForm(id) {
+  artEditId = id || null;
+  const a = id ? articles.find(x => x.id === id) : null;
+  document.getElementById('artFormTitle').textContent = id ? 'Редактировать статью' : 'Новая статья';
+  document.getElementById('atTitle').value = a ? a.title : '';
+  document.getElementById('atSlug').value = a ? a.slug : '';
+  document.getElementById('atExcerpt').value = a ? (a.excerpt || '') : '';
+  initRichEditor('atContent');
+  document.getElementById('atContent')._richSet(a ? (a.content || '') : '');
+  document.getElementById('atSeoTitle').value = a ? (a.seo_title || '') : '';
+  document.getElementById('atSeoDesc').value = a ? (a.seo_description || '') : '';
+  document.getElementById('atPublished').checked = a ? !!a.published : true;
+  atCover = a ? (a.cover || '') : '';
+  renderAtCover();
+  document.getElementById('artOverlay').classList.add('open');
+}
+async function saveArticle() {
+  const title = document.getElementById('atTitle').value.trim();
+  if (!title) { showToast('Укажите заголовок'); return; }
+  const cEl = document.getElementById('atContent');
+  if (cEl._richSync) cEl._richSync();
+  const data = {
+    title,
+    slug: document.getElementById('atSlug').value.trim(),
+    excerpt: document.getElementById('atExcerpt').value.trim(),
+    content: cEl.value.trim(),
+    cover: atCover || null,
+    seo_title: document.getElementById('atSeoTitle').value.trim() || null,
+    seo_description: document.getElementById('atSeoDesc').value.trim() || null,
+    published: document.getElementById('atPublished').checked,
+  };
+  const res = artEditId
+    ? await apiFetch(`/api/admin/articles/${artEditId}`, 'PUT', data)
+    : await apiFetch('/api/admin/articles', 'POST', data);
+  if (res.error) { showToast('❌ ' + res.error); return; }
+  showToast('✅ Сохранено', 'green');
+  document.getElementById('artOverlay').classList.remove('open');
+  loadArticles();
+}
+async function deleteArticle(id) {
+  if (!confirm('Удалить статью?')) return;
+  const res = await apiFetch(`/api/admin/articles/${id}`, 'DELETE');
+  if (res.error) { showToast('❌ ' + res.error); return; }
+  showToast('🗑 Удалено'); loadArticles();
 }
 
 // ===== ПОДКАТЕГОРИИ =====
@@ -1476,6 +1739,8 @@ function openSubcatForm(id) {
   document.getElementById('scDesc')._richSet(s ? (s.description || '') : '');
   document.getElementById('scSeoTitle').value = s ? (s.seo_title || '') : '';
   document.getElementById('scSeoDesc').value = s ? (s.seo_description || '') : '';
+  renderFaqList('scFaqList', s ? s.faq : '');
+  document.getElementById('scInFeed').checked = s ? !!s.in_feed : true;
   document.getElementById('scSort').value = s ? s.sort : 0;
   scIcon = s ? (s.icon || '') : '';
   renderScIcon();
@@ -1495,7 +1760,9 @@ async function saveSubcat() {
     icon: scIcon || null,
     seo_title: document.getElementById('scSeoTitle').value.trim() || null,
     seo_description: document.getElementById('scSeoDesc').value.trim() || null,
-    parent_id: document.getElementById('scParent').value || null
+    parent_id: document.getElementById('scParent').value || null,
+    faq: collectFaq('scFaqList'),
+    in_feed: document.getElementById('scInFeed').checked
   };
   const res = subcatEditId
     ? await apiFetch(`/api/admin/subcategories/${subcatEditId}`, 'PUT', data)
@@ -1747,12 +2014,33 @@ async function uploadProductImages() {
 // ===== СТАТИСТИКА =====
 let statsCurrentDays = 0;   // по умолчанию — «Сегодня»
 function fmtStatsDate(d) { const [y,m,day] = d.split('-'); return `${day}.${m}.${y.slice(2)}`; }
+// Разбирает User-Agent в понятное название браузера + устройства — порядок проверок
+// важен: у Яндекс.Браузера/Edge/Opera/Samsung Internet в UA тоже есть "Chrome"/"Safari",
+// поэтому их проверяем раньше.
+function parseBrowserName(ua) {
+  const s = String(ua || '');
+  let browser = 'Другой браузер';
+  if (/YaBrowser/i.test(s)) browser = 'Яндекс.Браузер';
+  else if (/EdgA|EdgiOS|Edg\//i.test(s)) browser = 'Edge';
+  else if (/OPR\/|Opera/i.test(s)) browser = 'Opera';
+  else if (/SamsungBrowser/i.test(s)) browser = 'Samsung Internet';
+  else if (/FxiOS/i.test(s)) browser = 'Firefox (iOS)';
+  else if (/Firefox/i.test(s)) browser = 'Firefox';
+  else if (/CriOS/i.test(s)) browser = 'Chrome (iOS)';
+  else if (/Chrome\//i.test(s)) browser = 'Chrome';
+  else if (/Safari\//i.test(s) && /iPhone|iPad|Macintosh/i.test(s)) browser = 'Safari';
+  else if (/MSIE|Trident/i.test(s)) browser = 'Internet Explorer';
+  const device = /iPhone/i.test(s) ? ' 📱 iPhone' : /iPad/i.test(s) ? ' 📱 iPad'
+    : /Android/i.test(s) ? ' 📱 Android' : /Macintosh|Windows|Linux/i.test(s) ? ' 💻' : '';
+  return browser + device;
+}
 async function loadStats(days) {
   statsCurrentDays = days != null ? days : statsCurrentDays;
   document.querySelectorAll('[id^="statsDays-"]').forEach(b => b.classList.remove('active'));
   const activeBtn = document.getElementById('statsDays-' + statsCurrentDays);
   if (activeBtn) activeBtn.classList.add('active');
-  const data = await apiFetch('/api/admin/stats?days=' + statsCurrentDays);
+  const ipFilter = (document.getElementById('statsIpFilter') || {}).value || '';
+  const data = await apiFetch('/api/admin/stats?days=' + statsCurrentDays + (ipFilter.trim() ? '&ip=' + encodeURIComponent(ipFilter.trim()) : ''));
   if (data.error) { showToast('❌ ' + data.error); return; }
 
   document.getElementById('stat-views').textContent = data.totalViews;
@@ -1794,13 +2082,28 @@ async function loadStats(days) {
     </tr>`).join('')
     || '<tr><td colspan="5" style="padding:20px;color:var(--muted)">Пока нет кликов по товарам</td></tr>';
 
-  document.getElementById('statsRecentTbody').innerHTML = (data.recentViews || []).map(r => {
+  const recentViewsList = data.recentViews || [];
+  // Сколько раз встречается каждый IP — ЗА ВЕСЬ ВЫБРАННЫЙ ПЕРИОД (data.ipCountsFull,
+  // отдельный запрос на сервере без лимита в 1000 строк), а не только в этом урезанном
+  // списке — иначе "×N" занижало бы счётчик для адресов, у которых заходов больше, чем
+  // влезает в таблицу.
+  const ipCounts = data.ipCountsFull || {};
+  document.getElementById('statsRecentTbody').innerHTML = recentViewsList.map(r => {
     const page = r.type === 'product_view'
       ? esc(r.product_name || ('Товар #' + r.ref_id + ' (удалён)')) + ' <span style="color:var(--muted)">— карточка товара</span>'
       : esc(r.path || '/');
-    return `<tr><td style="white-space:nowrap">${fmtDate(r.ts.replace(' ', 'T') + 'Z')}</td><td>${page}</td></tr>`;
+    const cnt = r.ip ? (ipCounts[r.ip] || 0) : 0;
+    const ipHtml = r.ip
+      ? `<span${cnt >= 3 ? ' style="color:#E5484D;font-weight:700"' : ''} title="${cnt} раз(а) за весь период">${esc(r.ip)}${cnt >= 3 ? ' ×' + cnt : ''}</span>`
+      : '<span style="color:var(--muted)">—</span>';
+    const uaHtml = r.is_bot_ua
+      ? `<span style="color:#E5484D;font-weight:700" title="${esc(r.ua || '')}">🤖 ${esc(r.bot_name || 'бот')}</span>`
+      : (r.ua ? `<span style="color:var(--muted)" title="${esc(r.ua)}">${esc(parseBrowserName(r.ua))}</span>` : '<span style="color:var(--muted)">—</span>');
+    const isAds = /реклама/.test(r.traffic_source || '');
+    const srcHtml = `<span${isAds ? ' style="color:var(--green);font-weight:700"' : ''} title="${esc(r.ref || 'нет referrer')}">${esc(r.traffic_source || '—')}</span>`;
+    return `<tr><td style="white-space:nowrap">${fmtDate(r.ts.replace(' ', 'T') + 'Z')}</td><td>${page}</td><td style="white-space:nowrap">${srcHtml}</td><td style="white-space:nowrap">${ipHtml}</td><td style="white-space:nowrap">${uaHtml}</td></tr>`;
   }).join('')
-    || '<tr><td colspan="2" style="padding:20px;color:var(--muted)">Пока нет просмотров</td></tr>';
+    || '<tr><td colspan="5" style="padding:20px;color:var(--muted)">Пока нет просмотров</td></tr>';
 }
 let dashboardSort = [{ col: 'id', dir: 'desc' }];
 function sortDashboardBy(col, additive) {
@@ -1976,12 +2279,13 @@ async function openProductForm(id = null) {
     document.getElementById('fYoutube').value = p.youtube||'';
     document.getElementById('fPerf').value = p.perf||'';
     document.getElementById('fPerfUnit').value = p.perf_unit||'';
-    document.getElementById('fSpecs').value = typeof p.specs === 'object' ? JSON.stringify(p.specs,null,2) : (p.specs||'{}');
+    renderSpecsList('fSpecsList', p.specs);
     document.getElementById('fSeoTitle').value = p.seo_title||'';
     document.getElementById('fSeoDesc').value = p.seo_description||'';
     document.getElementById('fRequest').checked = !!p.price_on_request;
     setFeaturedValue(parseIds(p.featured));
     document.getElementById('fInStock').checked = !!p.in_stock;
+    document.getElementById('fInFeed').checked = p.in_feed == null ? true : !!p.in_feed;
     document.getElementById('fCategory').value = p.category_id;
     document.getElementById('fContactPrimary').value = (p.contact_primary === '1' || p.contact_primary === '2') ? p.contact_primary : '';
     fillSubcatSelect(p.subcategory_id || '');
@@ -1993,10 +2297,11 @@ async function openProductForm(id = null) {
     ['fName','fArticle','fBrand','fPrice','fIcon', 'fSubtitle','fYoutube','fPerf','fPerfUnit','fSeoTitle','fSeoDesc'].forEach(id => document.getElementById(id).value = '');
     document.getElementById('fDesc')._richSet('');
     setImgList([]);
-    document.getElementById('fSpecs').value = '{}';
+    document.getElementById('fSpecsList').innerHTML = '';
     document.getElementById('fRequest').checked = false;
     setFeaturedValue([]);
     document.getElementById('fInStock').checked = true;
+    document.getElementById('fInFeed').checked = true;
     document.getElementById('fContactPrimary').value = '';
     fillSubcatSelect('');
     initRelPicker(document.querySelector('.rel-picker[data-field="related"]'), []);
@@ -2018,8 +2323,7 @@ async function saveProduct() {
   if (!brand) { showToast('Укажите бренд товара'); return; }
   const _fd = document.getElementById('fDesc');
   if (_fd._richSync) _fd._richSync();
-  let specs = '{}';
-  try { JSON.parse(document.getElementById('fSpecs').value); specs = document.getElementById('fSpecs').value; } catch (e) {}
+  const specs = collectSpecs('fSpecsList');
   const data = {
     category_id: document.getElementById('fCategory').value,
     subcategory_id: document.getElementById('fSubcategory').value || null,
@@ -2032,6 +2336,7 @@ async function saveProduct() {
     icon: imgList[0] || null,
     images: imgList.slice(1),
     in_stock: document.getElementById('fInStock').checked ? 1 : 0,
+    in_feed: document.getElementById('fInFeed').checked,
     featured: getFeaturedValue(),
     specs,
     subtitle: document.getElementById('fSubtitle').value.trim() || null,
@@ -2551,9 +2856,11 @@ async function saveNewOrder() {
 }
 
 // ===== ОТЗЫВЫ ТОВАРОВ =====
+let reviewsRows = [];
 async function loadReviews() {
   const status = document.getElementById('revStatus').value;
   const data = await apiFetch('/api/admin/reviews' + (status ? `?status=${status}` : ''));
+  reviewsRows = data.rows || [];
   const STARS = n => '★'.repeat(n) + '☆'.repeat(5 - n);
   const BTNS = {
     pending: r => `<button class="action-btn" style="color:#16a34a" onclick="setReviewStatus(${r.id},'approved')">✅ Опубликовать</button>
@@ -2561,13 +2868,13 @@ async function loadReviews() {
     approved: r => `<button class="action-btn" style="color:#dc2626" onclick="setReviewStatus(${r.id},'rejected')">✕ Снять с публикации</button>`,
     rejected: r => `<button class="action-btn" style="color:#16a34a" onclick="setReviewStatus(${r.id},'approved')">✅ Опубликовать</button>`,
   };
-  document.getElementById('reviewsTbody').innerHTML = (data.rows || []).map(r => `
+  document.getElementById('reviewsTbody').innerHTML = reviewsRows.map(r => `
     <tr>
       <td>${fmtDate(r.created_at && r.created_at.replace(' ', 'T') + 'Z')}</td>
       <td>${r.product_name ? esc(r.product_name) : '🏢 О компании'}</td>
       <td style="color:var(--accent);letter-spacing:1px">${STARS(r.rating)}</td>
-      <td><strong>${esc(r.name)}</strong>${r.company ? ` <span style="color:var(--muted)">— ${esc(r.company)}</span>` : ''}${r.phone ? ` <span style="color:var(--muted);font-size:12px">· ${esc(r.phone)}</span>` : ''}${r.text ? `<div style="color:var(--muted);font-size:13px;margin-top:3px;white-space:normal">${esc(r.text)}</div>` : ''}</td>
-      <td>${(BTNS[r.status] || (() => ''))(r)} <button class="action-btn del" onclick="deleteReview(${r.id})">🗑</button></td>
+      <td><strong>${esc(r.name)}</strong>${r.company ? ` <span style="color:var(--muted)">— ${esc(r.company)}</span>` : ''}${r.phone ? ` <span style="color:var(--muted);font-size:12px">· ${esc(r.phone)}</span>` : ''}${r.text ? `<div style="color:var(--muted);font-size:13px;margin-top:3px;white-space:normal">${esc(r.text)}</div>` : ''}${r.reply ? `<div style="color:var(--green);font-size:13px;margin-top:3px;white-space:normal">↳ ${esc(r.reply)}</div>` : ''}</td>
+      <td>${(BTNS[r.status] || (() => ''))(r)} <button class="action-btn" onclick="openReviewEdit(${r.id})">${r.reply ? '✏️ Ответ' : '💬 Ответить'}</button> <button class="action-btn del" onclick="deleteReview(${r.id})">🗑</button></td>
     </tr>`).join('') || '<tr><td colspan="5" style="padding:20px;color:var(--muted)">Отзывов нет</td></tr>';
 }
 async function setReviewStatus(id, status) {
@@ -2579,6 +2886,79 @@ async function deleteReview(id) {
   if (!confirm('Удалить отзыв?')) return;
   await apiFetch(`/api/admin/reviews/${id}`, 'DELETE');
   showToast('🗑 Отзыв удалён');
+  loadReviews();
+}
+
+// ===== РЕДАКТИРОВАНИЕ ОТЗЫВА (перенос на другой товар, правка даты/текста) =====
+let revEditId = null, revProductId = null;
+function toLocalDatetimeValue(utcStr) {
+  const d = utcStr ? new Date(utcStr.replace(' ', 'T') + 'Z') : new Date();
+  const pad = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+function fromLocalDatetimeValue(v) {
+  if (!v) return null;
+  const d = new Date(v);
+  const pad = n => String(n).padStart(2, '0');
+  return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}`;
+}
+function renderRevProduct(name) {
+  const el = document.getElementById('revProductPick');
+  el.innerHTML = revProductId
+    ? `<span class="rel-chip">${esc(name || ('#' + revProductId))} <button type="button" onclick="revProductId=null;renderRevProduct()">✕</button></span>`
+    : `<span class="rel-empty">🏢 Общий отзыв о компании (не привязан к товару)</span>`;
+}
+let revProdSearchT;
+function revProductSearch(q) {
+  clearTimeout(revProdSearchT);
+  const resEl = document.getElementById('revProductResults');
+  if (!q.trim()) { resEl.innerHTML = ''; return; }
+  revProdSearchT = setTimeout(async () => {
+    const rows = await apiFetch('/api/admin/products-lite?q=' + encodeURIComponent(q.trim()));
+    resEl.innerHTML = rows.map(r =>
+      `<div class="rel-res" data-id="${r.id}" data-name="${esc(r.name)}">${esc(r.name)} <small>${esc(r.article || '')} ${esc(r.brand || '')}</small></div>`).join('') || '<div class="rel-res muted">Не найдено</div>';
+    resEl.querySelectorAll('.rel-res[data-id]').forEach(d => d.onclick = () => {
+      revProductId = +d.dataset.id;
+      renderRevProduct(d.dataset.name);
+      document.getElementById('revProductSearch').value = '';
+      resEl.innerHTML = '';
+    });
+  }, 300);
+}
+function openReviewEdit(id) {
+  const r = reviewsRows.find(x => x.id === id);
+  if (!r) return;
+  revEditId = id;
+  revProductId = r.product_id || null;
+  renderRevProduct(r.product_name);
+  document.getElementById('revProductSearch').value = '';
+  document.getElementById('revProductResults').innerHTML = '';
+  document.getElementById('rvName').value = r.name || '';
+  document.getElementById('rvCompany').value = r.company || '';
+  document.getElementById('rvPhone').value = r.phone || '';
+  document.getElementById('rvRating').value = r.rating || 5;
+  document.getElementById('rvText').value = r.text || '';
+  document.getElementById('rvReply').value = r.reply || '';
+  document.getElementById('rvDate').value = toLocalDatetimeValue(r.created_at);
+  document.getElementById('revEditOverlay').classList.add('open');
+}
+async function saveReviewEdit() {
+  const name = document.getElementById('rvName').value.trim();
+  if (!name) { showToast('Укажите имя'); return; }
+  const data = {
+    product_id: revProductId,
+    name,
+    company: document.getElementById('rvCompany').value.trim(),
+    phone: document.getElementById('rvPhone').value.trim(),
+    rating: +document.getElementById('rvRating').value,
+    text: document.getElementById('rvText').value.trim(),
+    reply: document.getElementById('rvReply').value.trim(),
+    created_at: fromLocalDatetimeValue(document.getElementById('rvDate').value),
+  };
+  const res = await apiFetch(`/api/admin/reviews/${revEditId}`, 'PUT', data);
+  if (res.error) { showToast('❌ ' + res.error); return; }
+  showToast('✅ Сохранено', 'green');
+  document.getElementById('revEditOverlay').classList.remove('open');
   loadReviews();
 }
 

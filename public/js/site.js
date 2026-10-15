@@ -14,6 +14,17 @@
   function tokenSet(v) { try { localStorage.setItem('customerToken', v); } catch (e) {} }
   function tokenRemove() { try { localStorage.removeItem('customerToken'); } catch (e) {} }
 
+  // Миниатюра (до 500px) рядом с полноразмерным фото — см. makeThumb() в server.js.
+  // Живёт здесь (а не в index.html), потому что это самый первый подключаемый скрипт —
+  // product.js вызывает её из miniCard()/showProduct() при рендере карточек, а он
+  // загружается и выполняется раньше index.html. Если бы функция была объявлена только
+  // в index.html, иногда (в т.ч. при нестандартном кешировании у части посетителей)
+  // к моменту вызова она ещё не успевала определиться — "thumbIconUrl is not defined".
+  window.thumbIconUrl = function (icon) {
+    var dot = icon.lastIndexOf('.');
+    return dot === -1 ? '/icons/' + icon : '/icons/' + icon.slice(0, dot) + '-thumb' + icon.slice(dot);
+  };
+
   /* ---------- ЛОГ ОШИБОК (видно в админке, раздел «Ошибки») ---------- */
   // Не должен сам ничего ломать: fetch фоном, ошибки отправки просто игнорируем.
   window.logClientError = function (message, context) {
@@ -38,12 +49,21 @@
   /* ---------- СТАТИСТИКА ПРОСМОТРОВ (видно в админке, раздел «Статистика») ---------- */
   // Считаем именно на клиенте: после первой загрузки переходы внутри SPA идут через
   // JS без обращения к серверу, поэтому серверный лог их бы не увидел.
+  // Источник визита (откуда пришли — реклама/поиск/напрямую) запоминаем ОДИН раз, в
+  // момент самой первой загрузки страницы — document.referrer/location.search у
+  // внутренних переходов SPA это были бы уже "сам сайт"/пустая строка, а нам нужно
+  // знать, с чего начался визит, а не с какой внутренней страницы кликнули.
+  var _entryRef = document.referrer || '';
+  var _entryQuery = location.search || '';
   window.trackView = function (path, refId) {
     try {
       fetch('/api/track-view', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: refId ? 'product_view' : 'pageview', path: path || location.pathname, refId: refId || null })
+        body: JSON.stringify({
+          type: refId ? 'product_view' : 'pageview', path: path || location.pathname, refId: refId || null,
+          ref: _entryRef, entryQuery: _entryQuery
+        })
       }).catch(function () {});
     } catch (e) {}
   };
@@ -226,8 +246,19 @@
     var custToken = tokenGet();
     if (custToken) opts.headers['x-customer-token'] = custToken;
     if (body) opts.body = JSON.stringify(body);
-    var r = await fetch(url, opts);
-    return r.json();
+    try {
+      var r = await fetch(url, opts);
+      return await r.json();
+    } catch (e) {
+      // "Failed to fetch" — обрыв сети (слабый мобильный интернет и т.п.), не ошибка
+      // сервера. Для чтения данных (GET) одна быстрая повторная попытка решает
+      // большинство таких случаев, вместо пустого блока на странице у посетителя.
+      // POST (заявки, отзывы и т.п.) не повторяем — нельзя случайно продублировать.
+      if (opts.method !== 'GET') throw e;
+      await new Promise(function (res) { setTimeout(res, 600); });
+      var r2 = await fetch(url, opts);
+      return await r2.json();
+    }
   };
 
   // /api/settings нужен и здесь (initAccount — кнопка «Войти»), и основному скрипту
@@ -239,10 +270,18 @@
   var _settingsPromise = null;
   window.getSettings = function () {
     if (!_settingsPromise) {
-      _settingsPromise = window.apiFetch('/api/settings').catch(function (e) {
-        _settingsPromise = null;
-        throw e;
-      });
+      // Сервер уже прислал настройки с первым HTML-ответом (см. buildHydrate() в
+      // server.js) — без этого блок квиза на главной появлялся только после отдельного
+      // похода на /api/settings и «прыгал» вниз всё, что ниже него (CLS).
+      if (window.__HYDRATE__ && window.__HYDRATE__.settings) {
+        _settingsPromise = Promise.resolve(window.__HYDRATE__.settings);
+        window.__HYDRATE__.settings = null;
+      } else {
+        _settingsPromise = window.apiFetch('/api/settings').catch(function (e) {
+          _settingsPromise = null;
+          throw e;
+        });
+      }
     }
     return _settingsPromise;
   };
@@ -389,19 +428,31 @@
     var pid = opts.productId || '';
     var wa, call;
 
+    // opts.card — крупный вариант кнопки (страница товара): иконка в кружке и вторая
+    // строка подписи, вместо обычной тонкой кнопки с одной подписью.
+    var label = function (svg, title, subtitle) {
+      if (!opts.card) return svg + '<span>' + title + '</span>';
+      return '<span class="pv-cta-icon">' + svg + '</span>' +
+        '<span class="pv-cta-text"><b>' + title + '</b><small>' + subtitle + '</small></span>';
+    };
+    var cls = opts.card ? ' pv-cta' : '';
+
     if (nums.length > 1) {
       var data = attr(JSON.stringify(nums));
-      wa = '<button type="button" class="btn-wa" data-ck="wa" data-q="' + attr(q) + '" data-nums="' + data + '" data-pid="' + pid + '" ' +
-        'onclick="event.stopPropagation();contactPick(this)" aria-label="Написать в WhatsApp">' + WA_SVG + '<span>WhatsApp</span></button>';
-      call = '<button type="button" class="btn-call" data-ck="call" data-nums="' + data + '" data-pid="' + pid + '" ' +
-        'onclick="event.stopPropagation();contactPick(this)" aria-label="Позвонить">' + CALL_SVG + '<span>Позвонить</span></button>';
+      wa = '<button type="button" class="btn-wa' + cls + '" data-ck="wa" data-q="' + attr(q) + '" data-nums="' + data + '" data-pid="' + pid + '" ' +
+        'onclick="event.stopPropagation();contactPick(this)" aria-label="Написать в WhatsApp">' + label(WA_SVG, 'WhatsApp', 'Быстрый ответ') + '</button>';
+      call = '<button type="button" class="btn-call' + cls + '" data-ck="call" data-nums="' + data + '" data-pid="' + pid + '" ' +
+        'onclick="event.stopPropagation();contactPick(this)" aria-label="Позвонить">' + label(CALL_SVG, 'Позвонить', 'Получить консультацию') + '</button>';
     } else {
+      // Подпись под «Позвонить» в карточном варианте — сам номер (а не общая фраза),
+      // чтобы его было видно сразу, без наведения/клика.
       var c = nums[0], tel = '+' + c.wa;
-      wa = '<a class="btn-wa" href="https://wa.me/' + c.wa + q + '" target="_blank" rel="noopener" ' +
-        'onclick="event.stopPropagation();trackClick(\'whatsapp\',' + (pid || 'null') + ')" aria-label="Написать в WhatsApp ' + tel + '">' + WA_SVG + '<span>WhatsApp</span></a>';
-      call = '<a class="btn-call" href="tel:' + tel + '" onclick="event.stopPropagation();trackClick(\'call\',' + (pid || 'null') + ')" aria-label="Позвонить ' + tel + '">' +
-        CALL_SVG + '<span>Позвонить</span></a>';
+      wa = '<a class="btn-wa' + cls + '" href="https://wa.me/' + c.wa + q + '" target="_blank" rel="noopener" ' +
+        'onclick="event.stopPropagation();trackClick(\'whatsapp\',' + (pid || 'null') + ')" aria-label="Написать в WhatsApp ' + tel + '">' + label(WA_SVG, 'WhatsApp', 'Быстрый ответ') + '</a>';
+      call = '<a class="btn-call' + cls + '" href="tel:' + tel + '" onclick="event.stopPropagation();trackClick(\'call\',' + (pid || 'null') + ')" aria-label="Позвонить ' + tel + '">' +
+        label(CALL_SVG, 'Позвонить', c.raw || tel) + '</a>';
     }
+    if (opts.card) return wa + call;
     return '<div class="contact-actions' + (opts.compact ? ' contact-actions--compact' : '') + '">' +
       '<div class="contact-row">' + wa + call + '</div></div>';
   };
