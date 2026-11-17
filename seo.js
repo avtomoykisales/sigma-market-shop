@@ -6,7 +6,7 @@
    Плюс генерация robots.txt и sitemap.xml.
    ============================================================ */
 const db = require('./database');
-const { queryProducts } = require('./queries');
+const { queryProducts, applyDiscount } = require('./queries');
 
 // Пред-запусковый режим: весь сайт закрыт от индексации (robots.txt + <meta robots>
 // + заголовок X-Robots-Tag в server.js). Включается SITE_NOINDEX=1. Снять в день запуска.
@@ -33,14 +33,34 @@ function metrikaTag() {
     `<noscript><div><img src="https://mc.yandex.ru/watch/${METRIKA_ID}" style="position:absolute;left:-9999px" alt=""></div></noscript>`;
 }
 
-// Google Ads — тег для отслеживания конверсий по рекламным кампаниям. Пусто (GADS_ID='') —
-// счётчик не вставляется.
+// Google Ads (конверсии по рекламным кампаниям) и Google Analytics 4 (общая аналитика
+// сайта) — разные теги Google, оба необязательны (пусто — не вставляется). Если задан
+// хоть один, грузим библиотеку gtag.js один раз и настраиваем в ней оба счётчика сразу —
+// именно так Google рекомендует подключать несколько тегов на одной странице.
 const GADS_ID = (process.env.GADS_ID != null ? String(process.env.GADS_ID) : '').trim();
+const GA4_ID = (process.env.GA4_ID != null ? String(process.env.GA4_ID) : '').trim();
 function gadsTag() {
+  const ids = [GADS_ID, GA4_ID].filter(Boolean);
+  if (!ids.length) return '';
+  return `<script async src="https://www.googletagmanager.com/gtag/js?id=${ids[0]}"></script>` +
+    `<script>window.GADS_ID=${JSON.stringify(GADS_ID)};window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}` +
+    `gtag('js',new Date());` + ids.map((id) => `gtag('config','${id}');`).join('') + `</script>`;
+}
+
+// Клик по номеру телефона или WhatsApp нигде не фиксировался — Google Ads видел только
+// заявки из корзины, поэтому не было понятно, какие объявления приводят звонящих клиентов.
+// Один обработчик на весь документ (вешается один раз, ловит и ссылки, добавленные позже
+// через JS) шлёт в Google Ads конверсионное событие по клику на tel:/wa.me/whatsapp, сам
+// переход по ссылке не трогает. Нужен только при включённом GADS_ID (иначе gtag не определён).
+function clickTrackTag() {
   if (!GADS_ID) return '';
-  return `<script async src="https://www.googletagmanager.com/gtag/js?id=${GADS_ID}"></script>` +
-    `<script>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}` +
-    `gtag('js',new Date());gtag('config','${GADS_ID}');</script>`;
+  return `<script>document.addEventListener('click',function(e){` +
+    `var a=e.target.closest('a[href^="tel:"], a[href*="wa.me"], a[href*="whatsapp"]');` +
+    `if(!a||typeof gtag!=='function')return;` +
+    `var href=a.getAttribute('href')||'';` +
+    `var isWa=/wa\\.me|whatsapp/i.test(href);` +
+    `gtag('event','conversion',{send_to:isWa?'${GADS_ID}/JLTQCIn0vKsdENaK1rdE':'${GADS_ID}/xye4CIb0vKsdENaK1rdE',value:1.0,currency:'USD'});` +
+    `},true);</script>`;
 }
 
 const SITE_NAME = 'SIGMA MARKET';
@@ -54,11 +74,67 @@ const BADGES = {
   recommend: '👍 Рекомендуем',
   deal: '💰 Выгодная цена',
 };
-function featuredBadgesHtml(p) {
+function featuredBadgesHtml(p, extra) {
   let keys = [];
-  try { keys = Array.isArray(p.featured) ? p.featured : JSON.parse(p.featured || '[]'); } catch (e) {}
-  if (!keys.length) return '';
-  return `<div class="card-badges">${keys.map(k => BADGES[k] ? `<span class="badge-hit badge-c-${k}">${BADGES[k]}</span>` : '').join('')}</div>`;
+  // Пока на товаре активна скидка/акция — обычные значки (Хит продаж, Выгодная цена и
+  // т.п.) не показываем вообще, чтобы не спорили за внимание с бейджем скидки: скидка
+  // и так самая сильная причина купить прямо сейчас.
+  if (!p.old_price) {
+    try { keys = Array.isArray(p.featured) ? p.featured : JSON.parse(p.featured || '[]'); } catch (e) {}
+  }
+  if (!keys.length && !extra) return '';
+  return `<div class="card-badges">${extra || ''}${keys.map(k => BADGES[k] ? `<span class="badge-hit badge-c-${k}">${BADGES[k]}</span>` : '').join('')}</div>`;
+}
+// Бейдж для товара со скидкой, заданной процентом — отдельно от featuredBadgesHtml(extra),
+// чтобы переиспользовать в карточке каталога и на странице товара одной функцией. Без
+// конкретного числа ("% Скидка", не "−15%") — так короче и не нужно гадать, когда цифра
+// не влезает на маленьком экране.
+function discountBadgeHtml(p) {
+  return p.discount_mode === 'percent' ? `<span class="badge-hit badge-discount">% Скидка</span>` : '';
+}
+// Диагональная лента в углу карточки — для скидки, заданной готовой ценой (без процента),
+// вместо обычного бейджа: визуально отличает "обычную" % скидку от акции/спецпредложения.
+function discountRibbonHtml(p) {
+  return p.discount_mode === 'price' ? `<div class="card-ribbon"><span class="card-ribbon-icon">%</span>Акция</div>` : '';
+}
+// Пилюля "Экономия N ₸" рядом с ценой — абсолютная сумма скидки, одинаково для обоих
+// способов её задать (и процент, и готовая цена сводятся к old_price/price).
+function savePillHtml(p, cls) {
+  if (!p.old_price) return '';
+  return `<span class="${cls}">Экономия ${fmtPriceKzt(p.old_price - p.price)}</span>`;
+}
+function discountDayWord(n) {
+  const n10 = n % 10, n100 = n % 100;
+  if (n100 >= 11 && n100 <= 14) return 'дней';
+  if (n10 === 1) return 'день';
+  if (n10 >= 2 && n10 <= 4) return 'дня';
+  return 'дней';
+}
+// Текст обратного отсчёта до конца скидки ("2 дня 12:30:15") — только если у скидки
+// вообще есть дата окончания (discount_until пусто = "пока не отменят", считать нечего).
+// Используется и здесь для начального SSR-значения, и в той же форме client-side
+// (startCountdowns() в index.html), который досчитывает его на лету каждую секунду —
+// по data-until атрибуту элемента, не трогая разметку.
+function discountCountdownText(untilStr) {
+  if (!untilStr) return null;
+  const end = new Date(untilStr + 'T23:59:59');
+  const ms = end - new Date();
+  if (ms <= 0) return null;
+  const sec = Math.floor(ms / 1000);
+  const days = Math.floor(sec / 86400);
+  const hours = Math.floor((sec % 86400) / 3600);
+  const mins = Math.floor((sec % 3600) / 60);
+  const secs = sec % 60;
+  const pad = (n) => String(n).padStart(2, '0');
+  return days > 0
+    ? `${days} ${discountDayWord(days)} ${pad(hours)}:${pad(mins)}:${pad(secs)}`
+    : `${pad(hours)}:${pad(mins)}:${pad(secs)}`;
+}
+function countdownHtml(p, cls) {
+  if (!p.old_price || !p.discount_until) return '';
+  const txt = discountCountdownText(p.discount_until);
+  if (!txt) return '';
+  return `<div class="${cls}" data-until="${esc(p.discount_until)}">⏱ ${txt}</div>`;
 }
 
 const DEFAULT_TITLE =
@@ -122,7 +198,11 @@ function catalogPath(cat, sub) {
   return '/catalog/' + cat + (sub ? '/' + sub : '');
 }
 function productPath(p) {
-  return '/product/' + p.id + (p && p.name ? '-' + slugName(p.name) : '');
+  // p.slug — сохранённый при создании товара, не меняется при переименовании (см.
+  // server.js). slugName(p.name) — запасной вариант для старых запросов, которые его
+  // почему-то не выбрали (на случай, если где-то забыли добавить slug в SELECT).
+  const slug = (p && p.slug) || (p && p.name ? slugName(p.name) : '');
+  return '/product/' + p.id + (slug ? '-' + slug : '');
 }
 function articlePath(a) {
   return '/articles/' + a.slug;
@@ -131,7 +211,7 @@ function articlePath(a) {
 async function legacyRedirect(req) {
   const q = req.query || {};
   if (q.product) {
-    const p = await db.getAsync('SELECT id, name FROM products WHERE id = ?', [q.product]);
+    const p = await db.getAsync('SELECT id, name, slug FROM products WHERE id = ?', [q.product]);
     return p ? productPath(p) : null;
   }
   if (q.category) {
@@ -238,6 +318,18 @@ const STATIC_PAGES = {
     crumb: 'Отзывы',
     title: 'Отзывы клиентов о SIGMA MARKET | Поставка, монтаж и сервис',
     desc: 'Отзывы клиентов SIGMA MARKET о поставке, монтаже и сервисном обслуживании оборудования для автомоек, СТО и клининга по Казахстану.',
+  },
+
+  '/privacy.html': {
+    crumb: 'Политика конфиденциальности',
+    title: 'Политика конфиденциальности | SIGMA MARKET',
+    desc: 'Политика конфиденциальности SIGMA MARKET: какие данные собираются на сайте b2btech.kz, как используются и как их можно изменить или удалить.',
+  },
+
+  '/bonus-program.html': {
+    crumb: 'Бонусная программа',
+    title: 'Бонусная программа | SIGMA MARKET',
+    desc: 'Условия бонусной программы SIGMA MARKET: как начисляются и списываются бонусные баллы за покупки на b2btech.kz.',
   },
 };
 
@@ -359,8 +451,9 @@ async function productSeo(base, id, seo) {
             sc.name AS subcategory_name, sc.slug AS subcategory_slug, sc.parent_id AS subcategory_parent_id
      FROM products p JOIN categories c ON p.category_id = c.id
      LEFT JOIN subcategories sc ON p.subcategory_id = sc.id
-     WHERE p.id = ?`, [id]);
+     WHERE p.id = ? AND p.published = 1`, [id]);
 
+  if (p) applyDiscount(p);
   if (!p) {
     seo.title = 'Страница не найдена — 404 | ' + SITE_NAME;
     seo.description = 'Запрошенный товар не найден — возможно, он был снят с продажи. Посмотрите каталог оборудования SIGMA MARKET.';
@@ -537,6 +630,10 @@ async function articleSeo(base, slug, seo) {
   }
   seo.view = 'article';
   seo.articleRow = a;
+  seo.articleComments = await db.allAsync(
+    `SELECT name, text, reply, created_at FROM article_comments WHERE article_id = ? AND status = 'approved' ORDER BY id DESC`,
+    [a.id]
+  );
 
   const meta = articleMeta(a);
   seo.title = meta.title;
@@ -562,7 +659,7 @@ async function articleSeo(base, slug, seo) {
 }
 
 async function categorySeo(base, slug, subSlug, seo) {
-  const cat = await db.getAsync('SELECT * FROM categories WHERE slug = ?', [slug]);
+  const cat = await db.getAsync('SELECT * FROM categories WHERE slug = ? AND published = 1', [slug]);
   if (!cat) {
     seo.title = 'Страница не найдена — 404 | ' + SITE_NAME;
     seo.description = 'Запрошенный раздел каталога не найден. Посмотрите каталог оборудования SIGMA MARKET.';
@@ -579,7 +676,7 @@ async function categorySeo(base, slug, subSlug, seo) {
   let sub = null;
   if (subs.length === 1) {
     sub = await db.getAsync(
-      'SELECT * FROM subcategories WHERE slug = ? AND category_id = ?', [subs[0], cat.id]);
+      'SELECT * FROM subcategories WHERE slug = ? AND category_id = ? AND published = 1', [subs[0], cat.id]);
     // указана ровно одна подкатегория, и такой не существует — это 404, а не тихий
     // показ родительской категории (раньше отдавали 200 с любым выдуманным слагом).
     if (!sub) {
@@ -599,9 +696,11 @@ async function categorySeo(base, slug, subSlug, seo) {
          SELECT id FROM subcategories WHERE id = ?
          UNION ALL SELECT s.id FROM subcategories s JOIN tree t ON s.parent_id = t.id
        ) SELECT COUNT(DISTINCT pid) AS c FROM (
-         SELECT id AS pid FROM products WHERE subcategory_id IN (SELECT id FROM tree)
+         SELECT id AS pid FROM products WHERE subcategory_id IN (SELECT id FROM tree) AND published = 1
          UNION
-         SELECT product_id AS pid FROM product_extra_categories WHERE subcategory_id IN (SELECT id FROM tree)
+         SELECT pec.product_id AS pid FROM product_extra_categories pec
+         JOIN products xp ON xp.id = pec.product_id
+         WHERE pec.subcategory_id IN (SELECT id FROM tree) AND xp.published = 1
        )`, [sub.id]);
     if (!n || !n.c) seo.robots = 'noindex, follow';
   }
@@ -740,6 +839,12 @@ async function build(req, relPath, opts = {}) {
     return seo;
   }
 
+  if (relPath === '/checkout.html') {
+    seo.title = 'Оформление заказа — ' + SITE_NAME;
+    seo.robots = 'noindex, nofollow';
+    return seo;
+  }
+
   const st = STATIC_PAGES[relPath];
   if (st) {
     seo.title = st.title;
@@ -824,18 +929,35 @@ function productCardHtml(p, idx) {
     : `<span class="card-emoji">${catEmoji(p.category_slug)}</span>`;
   const priceHtml = p.price_on_request
     ? `<div class="card-price-request">Цена по запросу</div>`
-    : p.price ? `<div class="card-price">${fmtPriceKzt(p.price)}</div>`
+    : p.price ? `<div class="card-price-block">
+        ${p.old_price ? `<div class="card-price-old">${fmtPriceKzt(p.old_price)}</div>` : ''}
+        <span class="card-price${p.old_price ? ' card-price-sale' : ''}">${fmtPriceKzt(p.price)}</span>
+      </div>`
     : `<div class="card-price-request">Уточните цену</div>`;
-  const addBtn = p.price_on_request
-    ? `<button class="btn-offer" onclick="event.stopPropagation();requestModal(${p.id})"><img src="/assets/icons/icon-offer.png" alt=""> Запросить цену</button>`
-    : `<button class="btn-buy" onclick="event.stopPropagation();buyNow(${p.id})">В корзину</button>`;
+  // Товары "по запросу" тоже можно класть в корзину — renderCart()/submitOrder() в
+  // index.html уже давно считают их отдельно ("+ по запросу" в итоге, price:0 в заявке),
+  // так что отдельная кнопка "Запросить цену" тут больше не нужна: узнать цену можно,
+  // оформив заявку из корзины, как и для обычных товаров.
+  // Корзина — в localStorage клиента, здесь на сервере её не видно, поэтому состояние
+  // "уже в корзине" эта кнопка не знает (как и раньше) — сразу после загрузки страницы
+  // её подменит cardHtml() в index.html, которая это состояние уже учитывает.
+  const addBtn = `<button class="btn-buy" data-id="${p.id}" onclick="event.stopPropagation();catalogToggleCart(${p.id})">В корзину</button>`;
   const favBtn = `<button class="card-fav" title="В избранное" onclick="event.stopPropagation();toggleFav(${p.id})">♡</button>`;
   const cmpBtn = `<label class="card-compare" onclick="event.stopPropagation()"><input type="checkbox" onchange="toggleCompare(${p.id})"> Сравнить</label>`;
   const url = productPath(p);
-  const badgesHtml = featuredBadgesHtml(p);
-  return `<div class="product-card${badgesHtml ? ' featured' : ''}" onclick="openModal(${p.id})">
+  // Таймер до конца скидки — там же, где бейдж/лента скидки (над картинкой), а не
+  // отдельной строкой ниже: это одно и то же сообщение "скидка ограничена по времени".
+  // Для процентного бейджа — в том же столбике слева; для ленты "Акция" угол уже занят
+  // диагональю, поэтому таймер уходит в свободный угол справа (под сердечком).
+  const isRibbon = p.discount_mode === 'price';
+  const badgesHtml = featuredBadgesHtml(p, discountBadgeHtml(p) + (isRibbon ? '' : countdownHtml(p, 'card-countdown')));
+  const ribbonHtml = discountRibbonHtml(p);
+  const ribbonCountdownHtml = isRibbon ? countdownHtml(p, 'card-countdown card-countdown-corner') : '';
+  return `<div class="product-card${(badgesHtml || ribbonHtml) ? ' featured' : ''}" onclick="openModal(${p.id})">
+    ${ribbonHtml}
     <div class="card-img-wrap">
       ${badgesHtml}
+      ${ribbonCountdownHtml}
       ${favBtn}
       ${imgHtml}
     </div>
@@ -846,7 +968,10 @@ function productCardHtml(p, idx) {
     </div>
     <div class="card-footer-row">
       ${priceHtml}
-      <a class="btn-detail" href="${url}" onclick="event.stopPropagation();openModal(${p.id});return false;">Подробнее <img src="/assets/icons/arrow-green.png" alt="→"></a>
+      <div class="card-footer-right">
+        ${savePillHtml(p, 'card-save-pill')}
+        <a class="btn-detail" href="${url}" onclick="event.stopPropagation();openModal(${p.id});return false;">Подробнее <img src="/assets/icons/arrow-green.png" alt="→"></a>
+      </div>
     </div>
     <div class="card-actions-row">${addBtn}${cmpBtn}</div>
   </div>`;
@@ -900,7 +1025,12 @@ function pvReviewsHtml(reviews) {
   return `<div class="pv-reviews" id="pvReviews"><h3>Отзывы</h3>${summaryHtml}${listHtml}</div>`;
 }
 
-function productViewHtml(p, reviews) {
+// Те же иконки, что в public/js/product.js (PV_ICON_CART/PV_ICON_KP) — скопированы, а не
+// импортированы, т.к. один файл выполняется в браузере, другой на сервере.
+const PV_ICON_KP = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M12 11v6"/><path d="M9 14l3 3 3-3"/></svg>';
+const PV_ICON_CART = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></svg>';
+
+function productViewHtml(p, reviews, settings) {
   let specs = p.specs;
   if (typeof specs === 'string') { try { specs = JSON.parse(specs); } catch { specs = {}; } }
 
@@ -908,18 +1038,44 @@ function productViewHtml(p, reviews) {
   try { gallery = JSON.parse(p.images || '[]'); } catch {}
   gallery = [...new Set([p.icon, ...gallery].filter(Boolean))];
 
-  const galleryHtml = gallery.length
-    ? `<div class="pv-img"><img src="/icons/${esc(gallery[0])}" alt="${esc(p.name)}" fetchpriority="high"></div>`
-    : `<div class="pv-img"><span style="font-size:90px">${catEmoji(p.category_slug)}</span></div>`;
+  const pvIsRibbon = p.discount_mode === 'price';
+  const pvBadgesHtml = featuredBadgesHtml(p, discountBadgeHtml(p) + (pvIsRibbon ? '' : countdownHtml(p, 'pv-countdown')));
+  const pvRibbonHtml = discountRibbonHtml(p);
+  const pvRibbonCountdownHtml = pvIsRibbon ? countdownHtml(p, 'pv-countdown card-countdown-corner') : '';
+  // Лента рисуется вне .pv-img (своей overflow:hidden-рамки у картинки), сразу в
+  // .pv-gallery — см. тот же приём и его причину в productCardHtml/cardHtml:
+  // так 3D-тень и уголки ленты не обрезаются, а ложатся поверх рамки блока.
+  const galleryHtml = (gallery.length
+    ? `<div class="pv-img">${pvBadgesHtml}${pvRibbonCountdownHtml}<img src="/icons/${esc(gallery[0])}" alt="${esc(p.name)}" fetchpriority="high"></div>`
+    : `<div class="pv-img">${pvBadgesHtml}${pvRibbonCountdownHtml}<span style="font-size:90px">${catEmoji(p.category_slug)}</span></div>`)
+    + pvRibbonHtml;
 
   const priceHtml = p.price_on_request
     ? `<div class="pv-price-req">Цена по запросу — итоговая стоимость зависит от комплектации</div>`
-    : p.price ? `<div class="pv-price">${fmtPriceKzt(p.price)}</div>` : '';
+    : p.price ? `<div class="pv-price-block">
+        ${p.old_price ? `<div class="pv-price-old">${fmtPriceKzt(p.old_price)}</div>` : ''}
+        <div class="pv-price-row">
+          <span class="pv-price${p.old_price ? ' pv-price-sale' : ''}">${fmtPriceKzt(p.price)}</span>
+          ${savePillHtml(p, 'pv-save-pill')}
+        </div>
+      </div>` : '';
 
   const specsHtml = (specs && Object.keys(specs).length)
     ? `<div class="pv-specs"><h3>Технические параметры</h3>
         <table class="specs-table">${Object.entries(specs).map(([k, v]) => `<tr><td>${esc(k)}</td><td><strong>${esc(v)}</strong></td></tr>`).join('')}</table></div>`
     : '';
+
+  // Кнопки "В корзину"/КП — без них Google Merchant Center не находит на странице товара
+  // рабочую кнопку покупки (его проверка не всегда дожидается JS): "В корзину"/"Скачать
+  // КП"/"Запросить КП" раньше существовали только в client-side рендере (product.js),
+  // в самом первом ответе сервера их не было вообще. Те же классы/обработчики, что и
+  // там — просто готовая разметка здесь, а не выполнение JS, чтобы встроенные кнопки
+  // заработали сразу после того как подключится общий js/product.js.
+  const kpInstant = !!(settings && settings.kp && settings.kp.instantDownload);
+  const offerBtn = kpInstant
+    ? `<button type="button" class="pv-cta pv-cta-kp" onclick="openKpModal(${p.id})"><span class="pv-cta-icon">${PV_ICON_KP}</span><span class="pv-cta-text"><b>Скачать КП</b><small>Коммерческое предложение</small></span></button>`
+    : `<button type="button" class="pv-cta pv-cta-kp" onclick="requestModal(${p.id})"><span class="pv-cta-icon">${PV_ICON_KP}</span><span class="pv-cta-text"><b>Запросить КП</b><small>Коммерческое предложение</small></span></button>`;
+  const buyBtn = `<button type="button" class="pv-cta pv-cta-cart" onclick="pvToggleCart(${p.id})"><span class="pv-cta-icon">${PV_ICON_CART}</span><span class="pv-cta-text"><b>Добавить в корзину</b></span></button>`;
 
   return `<div class="pv-top">
       <div class="pv-gallery">${galleryHtml}</div>
@@ -932,6 +1088,7 @@ function productViewHtml(p, reviews) {
           ${p.article ? `<span>Артикул: ${esc(p.article)}</span>` : ''}
         </div>
         ${priceHtml}
+        <div class="pv-cta-grid">${buyBtn}${offerBtn}</div>
       </div>
     </div>
     ${specsHtml}
@@ -961,13 +1118,29 @@ function articleBreadcrumbHtml(a) {
   const S = ' <span class="crumb-sep">›</span> ';
   return `<a href="/articles">Статьи</a>${S}<span class="crumb-current">${esc(a.title)}</span>`;
 }
-function articleViewHtml(a) {
+// Тот же принцип, что у pvReviewsHtml выше — видимый на странице текст, не только
+// звёзды/разметка: комментарии к статье важны и как свежий уникальный контент для
+// индексации, не только как вовлечённость читателей.
+function articleCommentsHtml(comments) {
+  const rows = comments || [];
+  const listHtml = rows.length
+    ? `<div class="pv-review-list">${rows.map((c) => `
+        <article class="review-card">
+          <p>${esc(c.text)}</p>
+          <div class="review-author">${esc(c.name)} <span class="pv-review-date">· ${pvReviewDateFmt(c.created_at)}</span></div>
+          ${c.reply ? `<div class="review-reply"><b>Ответ SIGMA MARKET:</b> ${esc(c.reply)}</div>` : ''}
+        </article>`).join('')}</div>`
+    : `<p class="pv-review-empty">Комментариев пока нет — поделитесь мнением первым!</p>`;
+  return `<div class="article-comments" id="articleComments"><h3>Обсуждение</h3>${listHtml}</div>`;
+}
+function articleViewHtml(a, comments) {
   const coverHtml = a.cover
     ? `<div class="article-cover"><img src="/icons/${esc(a.cover)}" alt="${esc(a.title)}" fetchpriority="high"></div>` : '';
   return `<h1 class="article-title">${esc(a.title)}</h1>
     <div class="article-meta">${esc(fmtDateRu(a.created_at))}</div>
     ${coverHtml}
-    <div class="article-body catalog-about-text">${a.content || ''}</div>`;
+    <div class="article-body catalog-about-text">${a.content || ''}</div>
+    ${articleCommentsHtml(comments)}`;
 }
 
 function homeCategoriesHtml(cats) {
@@ -994,6 +1167,37 @@ async function catalogAboutHtml(catSlug, subSlug) {
   if (/<[a-z][\s\S]*>/i.test(descText)) return `<div class="catalog-about-text">${descText}</div>`;
   const nl2p = descText.split(/\n{2,}/).map((p) => `<p>${esc(p).replace(/\n/g, '<br>')}</p>`).join('');
   return `<div class="catalog-about-text">${nl2p}</div>`;
+}
+
+// Фото/видео реализованных проектов подкатегории (поле «Фото и видео проектов» в
+// админке) — тот же блок, что renderCatalogGallery() в index.html рисует через JS.
+// У категорий (не подкатегорий) галереи нет — только у конкретной подкатегории.
+function youtubeId(url) {
+  const m = String(url || '').match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?v=|embed\/|shorts\/))([a-zA-Z0-9_-]{6,})/);
+  return m ? m[1] : null;
+}
+function galleryItemHtml(it) {
+  if (it.type === 'photo' && it.file) {
+    const url = thumbIconUrl(it.file);
+    return `<a class="gallery-item gallery-photo" href="${esc(url)}" target="_blank" rel="noopener">
+      <img src="${esc(url)}" alt="Наш проект" loading="lazy"></a>`;
+  }
+  if (it.type === 'video' && it.url) {
+    const yid = youtubeId(it.url);
+    return yid
+      ? `<div class="gallery-item gallery-video"><iframe src="https://www.youtube.com/embed/${yid}"
+          title="Видео проекта" loading="lazy" allowfullscreen></iframe></div>`
+      : `<a class="gallery-item gallery-video-link" href="${esc(it.url)}" target="_blank" rel="noopener">▶ Смотреть видео</a>`;
+  }
+  return '';
+}
+async function catalogGalleryHtml(catSlug, subSlug) {
+  if (!catSlug || catSlug === 'all' || !subSlug) return '';
+  const sub = await db.getAsync('SELECT gallery FROM subcategories WHERE slug = ?', [subSlug]);
+  let items = [];
+  try { items = JSON.parse((sub && sub.gallery) || '[]'); } catch (e) {}
+  if (!Array.isArray(items) || !items.length) return '';
+  return items.map(galleryItemHtml).join('');
 }
 
 function catalogProductsHtml(productsData) {
@@ -1028,7 +1232,7 @@ async function injectContent(html, seo, req, hydrate) {
     }
 
     if (seo.view === 'product' && !seo.notFound && seo.productRow) {
-      const bodyHtml = productViewHtml(seo.productRow, seo.productReviews);
+      const bodyHtml = productViewHtml(seo.productRow, seo.productReviews, hydrate && hydrate.settings);
       html = html.replace(
         /<div id="productViewBody">[\s\S]*?Загрузка[\s\S]*?<\/div>\s*<\/div>/,
         `<div id="productViewBody" data-product-id="${seo.productRow.id}">${bodyHtml}</div>`
@@ -1038,7 +1242,7 @@ async function injectContent(html, seo, req, hydrate) {
         `<div class="section-title" id="pvCrumb">${pvBreadcrumbHtml(seo.productRow)}</div>`
       );
     } else if (seo.view === 'article' && !seo.notFound && seo.articleRow) {
-      const bodyHtml = articleViewHtml(seo.articleRow);
+      const bodyHtml = articleViewHtml(seo.articleRow, seo.articleComments);
       html = html.replace(
         /<div id="articleViewBody">[\s\S]*?Загрузка[\s\S]*?<\/div>\s*<\/div>/,
         `<div id="articleViewBody" data-article-slug="${esc(seo.articleRow.slug)}">${bodyHtml}</div>`
@@ -1113,6 +1317,18 @@ async function injectContent(html, seo, req, hydrate) {
         );
       }
 
+      const galleryHtml = mc && mc[1] ? await catalogGalleryHtml(mc[1], mc[2]) : '';
+      if (galleryHtml) {
+        html = html.replace(
+          '<section class="section catalog-gallery" id="catalogGallery" style="display:none">',
+          '<section class="section catalog-gallery" id="catalogGallery">'
+        );
+        html = html.replace(
+          '<div class="catalog-gallery-grid" id="catalogGalleryBody"></div>',
+          `<div class="catalog-gallery-grid" id="catalogGalleryBody">${galleryHtml}</div>`
+        );
+      }
+
       const faqHtml = mc && mc[1] ? await catalogFaqHtml(mc[1], mc[2]) : '';
       if (faqHtml) {
         html = html.replace(
@@ -1145,6 +1361,10 @@ function inject(html, seo) {
   const gads = gadsTag();
   if (gads && !html.includes('googletagmanager.com/gtag/js')) {
     html = styleAnchor.test(html) ? html.replace(styleAnchor, (m) => m + '\n' + gads) : html.replace(/<head>/i, '<head>\n' + gads);
+  }
+  const clickTrack = clickTrackTag();
+  if (clickTrack && !html.includes('isWa=/wa')) {
+    html = html.replace(/<\/head>/i, clickTrack + '\n</head>');
   }
   if (/<title>[\s\S]*?<\/title>/i.test(html)) {
     html = html.replace(/<title>[\s\S]*?<\/title>/i, `<title>${esc(seo.title)}</title>`);
@@ -1202,19 +1422,23 @@ async function sitemap(req) {
   add('/contacts', { priority: '0.5', changefreq: 'monthly' });
   add('/reviews', { priority: '0.4', changefreq: 'monthly' });
   add('/articles', { priority: '0.6', changefreq: 'weekly' });
+  add('/privacy', { priority: '0.2', changefreq: 'yearly' });
+  add('/bonus-program', { priority: '0.2', changefreq: 'yearly' });
 
   const articles = await db.allAsync('SELECT slug, updated_at FROM articles WHERE published = 1 ORDER BY id DESC');
   for (const a of articles) add(articlePath(a), { priority: '0.5', changefreq: 'monthly', lastmod: (a.updated_at || '').slice(0, 10) || undefined });
 
-  const cats = await db.allAsync('SELECT slug FROM categories ORDER BY id');
+  const cats = await db.allAsync('SELECT slug FROM categories WHERE published = 1 ORDER BY id');
   for (const c of cats) add(catalogPath(c.slug), { priority: '0.8', changefreq: 'weekly' });
 
   const subRows = await db.allAsync(
     `SELECT s.id, s.slug, s.parent_id, c.slug AS cat,
             (SELECT COUNT(DISTINCT pid) FROM (
-               SELECT id AS pid FROM products p WHERE p.subcategory_id = s.id
+               SELECT id AS pid FROM products p WHERE p.subcategory_id = s.id AND p.published = 1
                UNION
-               SELECT product_id AS pid FROM product_extra_categories WHERE subcategory_id = s.id
+               SELECT pec.product_id AS pid FROM product_extra_categories pec
+               JOIN products xp ON xp.id = pec.product_id
+               WHERE pec.subcategory_id = s.id AND xp.published = 1
              )) AS own
      FROM subcategories s JOIN categories c ON s.category_id = c.id
      ORDER BY c.id, s.sort, s.name`);
@@ -1228,7 +1452,7 @@ async function sitemap(req) {
     add(catalogPath(s.cat, s.slug), { priority: '0.7', changefreq: 'weekly' });
   }
 
-  const prods = await db.allAsync('SELECT id, name, created_at FROM products ORDER BY id');
+  const prods = await db.allAsync('SELECT id, name, slug, created_at FROM products WHERE published = 1 ORDER BY id');
   for (const p of prods) {
     add(productPath(p), {
       priority: '0.6', changefreq: 'weekly',
@@ -1256,34 +1480,67 @@ async function sitemap(req) {
 //
 // Товары "цена по запросу" сюда не попадают — Merchant Center требует точную цену
 // у каждого товара в фиде, без неё строка просто будет отклонена Google.
+// Точные категории из официального классификатора Google (taxonomy-with-ids.en-US.txt)
+// для тех типов оборудования, где они реально есть — все они на поверку лежат в ветке
+// "Home & Garden" (бытовые аналоги), отдельной ветки для промышленного/коммерческого
+// клининг-оборудования у Google просто нет. Для остального (автомойки и т.п.), где
+// точного соответствия нет, используем общую 111 — см. комментарий в merchantFeed().
+const GOOGLE_CATEGORY_BY_SUBCAT = {
+  'Мойка холодной водой': 1226,   // Pressure Washers (АВД)
+  'Мойка горячей водой': 1226,    // Pressure Washers (АВД)
+  'Поломоечные машины': 543602,   // Floor Scrubbers
+  'Подметальные машины': 500016,  // Power Sweepers
+  'Профессиональные пылесосы': 619, // Vacuums
+};
 async function merchantFeed(req) {
   const base = baseUrl(req);
   const prods = await db.allAsync(
-    `SELECT p.*, c.name AS category_name, sc.name AS subcategory_name
+    `SELECT p.*, c.name AS category_name, sc.name AS subcategory_name, sc.google_category AS subcategory_google_category
      FROM products p JOIN categories c ON p.category_id = c.id
      LEFT JOIN subcategories sc ON p.subcategory_id = sc.id
-     WHERE p.price_on_request = 0 AND p.price > 0 AND p.in_feed = 1
+     WHERE p.price_on_request = 0 AND p.price > 0 AND p.in_feed = 1 AND p.published = 1
      ORDER BY p.id`);
 
   const items = prods.map((p) => {
+    // <g:price> здесь обязан остаться оригинальной (не уценённой) ценой — так Google
+    // Merchant Center и показывает зачёркнутую цену + цену со скидкой сам, по правилам
+    // sale_price; поэтому applyDiscount() (который подменяет p.price) тут не используем.
     const price = (Math.round(Number(p.price) || 0)).toFixed(2) + ' KZT';
+    const today = new Date().toISOString().slice(0, 10);
+    const discPct = Math.round(Number(p.discount_percent) || 0);
+    const discFixedPrice = Number(p.discount_price) || 0;
+    const notExpired = !p.discount_until || String(p.discount_until) >= today;
+    // Тот же приоритет, что в applyDiscount (queries.js): процент важнее готовой цены.
+    let saleAmount = null;
+    if (notExpired && discPct > 0 && discPct < 100) saleAmount = Math.round(p.price * (1 - discPct / 100));
+    else if (notExpired && discFixedPrice > 0 && discFixedPrice < p.price) saleAmount = Math.round(discFixedPrice);
+    const salePrice = saleAmount != null ? saleAmount.toFixed(2) + ' KZT' : null;
     const productType = [p.category_name, p.subcategory_name].filter(Boolean).join(' > ');
     const identifierMissing = !p.brand; // нет бренда → нет и MPN/GTIN, которым можно верить
+    const googleCategory = (p.subcategory_google_category && String(p.subcategory_google_category).trim())
+      || GOOGLE_CATEGORY_BY_SUBCAT[p.subcategory_name] || null;
     return '  <item>\n' +
       '    <g:id>' + esc(String(p.id)) + '</g:id>\n' +
       '    <title>' + esc(clip(p.name, 150)) + '</title>\n' +
       '    <description>' + esc(clip(p.description || p.name, 5000)) + '</description>\n' +
       '    <link>' + esc(base + productPath(p)) + '</link>\n' +
       (p.icon ? '    <g:image_link>' + esc(base + '/icons/' + p.icon) + '</g:image_link>\n' : '') +
+      // Раньше тут всегда стояло "in stock" независимо от p.in_stock — это расходилось с
+      // schema.org-разметкой на самой странице товара (см. availability чуть выше в этом
+      // файле), а когда у Google в фиде "в наличии", а на странице товара — "нет в наличии",
+      // это ровно то несоответствие, которое Google трактует как проблему с качеством фида.
       '    <g:availability>' + (p.in_stock ? 'in stock' : 'out of stock') + '</g:availability>\n' +
       '    <g:price>' + price + '</g:price>\n' +
+      (salePrice ? '    <g:sale_price>' + salePrice + '</g:sale_price>\n' : '') +
       '    <g:condition>new</g:condition>\n' +
-      // 111 = "Business & Industrial" в официальном справочнике категорий Google
-      // (taxonomy-with-ids.en-US.txt) — без этого Google сам пытается угадать категорию
-      // по названию и иногда принимает "автомойку"/"туннельного типа" за транспортное
-      // средство (блокирует показ как "Транспортные средства"). Эта категория правильна
-      // для всего каталога — это коммерческое/промышленное оборудование, не транспорт.
-      '    <g:google_product_category>111</g:google_product_category>\n' +
+      // Приоритет: категория, вручную привязанная в админке к подкатегории (Мира может
+      // задать её сама для любой подкатегории — текстом, как её показывает сама форма
+      // Merchant Center, или числовым ID) → точное соответствие из официального
+      // классификатора для части оборудования (GOOGLE_CATEGORY_BY_SUBCAT) → если ничего
+      // не задано, тег вообще не отправляем, и Google определяет категорию сам —
+      // раньше тут всегда стояла общая "Бизнес и промышленность" (111) по умолчанию,
+      // но для новых подкатегорий это часто неточнее, чем автоопределение Google.
+      (googleCategory ? '    <g:google_product_category>' + esc(String(googleCategory)) + '</g:google_product_category>\n' : '') +
       (p.brand ? '    <g:brand>' + esc(p.brand) + '</g:brand>\n' : '') +
       (p.article ? '    <g:mpn>' + esc(p.article) + '</g:mpn>\n' : '') +
       (identifierMissing ? '    <g:identifier_exists>false</g:identifier_exists>\n' : '') +

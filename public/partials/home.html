@@ -8,7 +8,7 @@
         <h3 id="quizCtaTitle">Не знаете, что выбрать?</h3>
         <p id="quizCtaSub">Ответьте на 3 вопроса — подберём подходящее оборудование под ваши задачи.</p>
       </div>
-      <button class="btn-catalog" type="button" onclick="openQuiz()">Подобрать за 1 минуту →</button>
+      <button class="btn-catalog" type="button" onclick="safeOpenQuiz()">Подобрать за 1 минуту →</button>
     </div>
   </div>
 
@@ -46,7 +46,9 @@
         <a href="/about" class="link-more">Подробнее о компании</a>
       </div>
       <div class="about-img">
-        <img src="/assets/icons/about-photo.jpg" alt="SIGMA MARKET" loading="lazy" onerror="this.closest('.about-img').style.display='none'">
+        <a href="/catalog" class="link-all" onclick="showCatalog('all');return false;">
+          <img src="/assets/icons/about-photo.jpg" alt="SIGMA MARKET" loading="lazy" onerror="this.closest('.about-img').style.display='none'">
+        </a>
       </div>
     </div>
   </section>

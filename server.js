@@ -7,10 +7,10 @@ const db = require('./database');
 const seo = require('./seo');
 const bitrix = require('./bitrix');
 const notify = require('./notify');
-const otp = require('./otp');
+const auth = require('./auth');
 const kp = require('./kp');
 const crypto = require('crypto');
-const { queryCategories, queryProducts } = require('./queries');
+const { queryCategories, queryProducts, applyDiscount } = require('./queries');
 
 // Страховка от падения всего сайта из-за одной необработанной ошибки в асинхронном
 // коде (например, сбой посреди генерации PDF, когда ответ уже начал отправляться) —
@@ -51,13 +51,13 @@ function getPartial(name) {
 // Экраны SPA (index.html) — на старте страницы шлём только тот, что реально нужен
 // для текущего маршрута; остальные подгружает клиент по требованию (JS, ensureView).
 const SPA_VIEWS = new Set(['home', 'catalog', 'product', 'notfound', 'articles', 'article']);
-// Версия для ?v=... в ссылках на site.js/product.js/style.css — считается по дате
-// изменения самих файлов, а не руками (раньше не раз забывали её поднять, и браузер
+// Версия для ?v=... в ссылках на site.js/product.js/checkout.js/style.css — считается по
+// дате изменения самих файлов, а не руками (раньше не раз забывали её поднять, и браузер
 // после правок тихо отдавал старую версию из 30-дневного кэша). Меняется сама и сразу
-// при следующей правке любого из этих трёх файлов — перезапуск сервера не нужен.
+// при следующей правке любого из этих файлов — перезапуск сервера не нужен.
 function assetVersion() {
   try {
-    const files = ['js/site.js', 'js/product.js', 'style.css'].map(f => path.join(PUBLIC_DIR, f));
+    const files = ['js/site.js', 'js/product.js', 'js/checkout.js', 'js/account.js', 'style.css'].map(f => path.join(PUBLIC_DIR, f));
     const mtimes = files.map(f => { try { return fs.statSync(f).mtimeMs; } catch { return 0; } });
     return Math.round(Math.max(0, ...mtimes)).toString(36);
   } catch (e) { return 'x'; }
@@ -85,7 +85,7 @@ async function buildHydrate(seoData, req) {
     // limit должен совпадать с state.limit в public/index.html — иначе клиент решит,
     // что уже получил все товары (page*limit >= total), и не подгрузит остальное при скролле.
     hydrate.products = await queryProducts({
-      category: catSlug, subcategory: subSlug, page: 1, limit: 500, sort: 'default', facets: '1'
+      category: catSlug, subcategory: subSlug, page: 1, limit: 48, sort: 'default', facets: '1'
     });
     hydrate.productsFilter = { category: catSlug, subcat: subSlug };
   }
@@ -195,6 +195,45 @@ const upload = multer({
   fileFilter: (req, file, cb) => cb(null, /image\//.test(file.mimetype))
 });
 
+// Квитанции/чеки (напр. при списании бонуса клиенту, см. PUT .../deduct-bonus) — отдельная
+// папка и фильтр: в отличие от ICONS_DIR сюда можно и PDF, это не витринные фото товара.
+const RECEIPTS_DIR = path.join(__dirname, 'public/receipts');
+fs.mkdirSync(RECEIPTS_DIR, { recursive: true });
+const receiptStorage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, RECEIPTS_DIR),
+  filename: (req, file, cb) => {
+    const ext = (path.extname(file.originalname || '') || '.jpg').toLowerCase();
+    cb(null, 'receipt-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8) + ext);
+  }
+});
+const uploadReceipt = multer({
+  storage: receiptStorage,
+  limits: { fileSize: 20 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => cb(null, /^image\//.test(file.mimetype) || file.mimetype === 'application/pdf')
+});
+
+// Вложения в чате (клиент ↔ админ, см. chat_messages.attachment) — картинки, PDF и
+// документы Word, своя папка, та же схема именования, что у чеков.
+const CHAT_DIR = path.join(__dirname, 'public/chat-uploads');
+fs.mkdirSync(CHAT_DIR, { recursive: true });
+const chatStorage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, CHAT_DIR),
+  filename: (req, file, cb) => {
+    const ext = (path.extname(file.originalname || '') || '.jpg').toLowerCase();
+    cb(null, 'chat-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8) + ext);
+  }
+});
+const uploadChat = multer({
+  storage: chatStorage,
+  limits: { fileSize: 15 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => cb(null,
+    /^image\//.test(file.mimetype) ||
+    file.mimetype === 'application/pdf' ||
+    file.mimetype === 'application/msword' ||
+    file.mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+  )
+});
+
 // Фото часто приходят с телефона/от поставщика в исходном разрешении (тысячи px,
 // до нескольких МБ) — а на сайте показываются шириной 180-520px. Сжимаем сразу при
 // загрузке: уменьшаем до разумного максимума и пережимаем с тем же форматом/именем
@@ -222,7 +261,7 @@ async function makeThumb(sharp, buffer, ext, filePath) {
 }
 async function compressUploadedImage(filePath) {
   const ext = path.extname(filePath).toLowerCase();
-  if (!['.jpg', '.jpeg', '.png', '.webp', '.bmp', '.tiff', '.tif'].includes(ext)) return;
+  if (!['.jpg', '.jpeg', '.png', '.webp', '.bmp', '.tiff', '.tif'].includes(ext)) return path.basename(filePath);
   try {
     const sharp = require('sharp');
     const before = fs.statSync(filePath).size;
@@ -265,10 +304,24 @@ async function compressUploadedImage(filePath) {
     const buffer = ext === '.png' ? await img.png({ compressionLevel: 9 }).toBuffer()
       : ext === '.webp' ? await img.webp({ quality: 82 }).toBuffer()
       : await img.jpeg({ quality: 82, mozjpeg: true }).toBuffer();
+    // BMP/TIFF всегда попадают в ветку "сжать как JPEG" выше (willBeJpeg) — но до сих
+    // пор файл оставался под старым именем/расширением (.bmp/.tiff), и сервер продолжал
+    // отдавать его с Content-Type той же картинки, хотя внутри уже настоящий JPEG.
+    // Браузеры обычно справляются (определяют формат по содержимому), но PageSpeed/
+    // Lighthouse считает такой файл "неэффективным форматом" из-за расширения и
+    // занижает оценку — раз уж перекодировали в JPEG, называем файл .jpg по-честному.
+    if (willBeJpeg && ext !== '.jpg' && ext !== '.jpeg') {
+      const jpgPath = filePath.slice(0, -ext.length) + '.jpg';
+      fs.writeFileSync(jpgPath, buffer);
+      fs.unlinkSync(filePath);
+      await makeThumb(sharp, buffer, '.jpg', jpgPath);
+      return path.basename(jpgPath);
+    }
     // пережатая версия больше оригинала (бывает у уже маленьких картинок) — не перезаписываем
     if (buffer.length < before) fs.writeFileSync(filePath, buffer);
     await makeThumb(sharp, buffer, ext, filePath);
   } catch (e) { /* сжатие — бонус, не должно ломать саму загрузку файла */ }
+  return path.basename(filePath);
 }
 
 // ==================== WHATSAPP WEBHOOK (Meta) ====================
@@ -339,7 +392,14 @@ async function buildPublicSettings() {
   return {
     blocks: s.blocks || {}, filters: s.filters || {},
     compare: s.compare !== false, favorites: s.favorites !== false,
-    quiz: s.quiz || {}, contacts: s.contacts || {}, bonus: s.bonus || {}, kp: s.kp || {}
+    quiz: s.quiz || {}, contacts: s.contacts || {}, bonus: s.bonus || {}, kp: s.kp || {},
+    // Сумма бонуса за отзыв — отдельный ключ настроек (не внутри bonus{}: админка там
+    // сохраняет весь объект целиком, см. saveEngage(), ключ бы затирался). Редактируется
+    // прямо в окне публикации отзыва (только superadmin), см. PUT /api/admin/reviews/:id.
+    review_bonus_amount: Number(s.review_bonus_amount) || 500,
+    // Только то, что безопасно отдавать на фронт — username публичный (виден всем в
+    // Telegram), сам токен бота (TELEGRAM_BOT_TOKEN) остаётся только в окружении сервера.
+    telegram: { enabled: !!(s.telegram && s.telegram.enabled), bot_username: (s.telegram && s.telegram.bot_username) || '' },
   };
 }
 app.get('/api/settings', async (req, res) => {
@@ -373,6 +433,21 @@ app.get('/api/products', async (req, res) => {
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
+});
+
+// Живые подсказки при наборе в поиске шапки — лёгкий ответ (без фасетов/пагинации), не
+// логируем как полноценный поисковый запрос в статистику (иначе там будет запись на
+// каждую напечатанную букву, см. logStat('search', ...) чуть выше).
+app.get('/api/products/suggest', async (req, res) => {
+  try {
+    const search = String(req.query.q || '').trim();
+    if (search.length < 2) return res.json([]);
+    const { products } = await queryProducts({ search, limit: 6, page: 1 });
+    res.json(products.map(p => ({
+      id: p.id, name: p.name, icon: p.icon,
+      price: p.price, price_on_request: p.price_on_request,
+    })));
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // Подбор оборудования (квиз)
@@ -532,12 +607,13 @@ app.get('/api/products/:id', async (req, res) => {
               sc.name as subcategory_name, sc.slug as subcategory_slug
        FROM products p JOIN categories c ON p.category_id = c.id
        LEFT JOIN subcategories sc ON p.subcategory_id = sc.id
-       WHERE p.id = ?`,
+       WHERE p.id = ? AND p.published = 1`,
       [req.params.id]
     );
 
     if (!product) return res.status(404).json({ error: 'Товар не найден' });
     if (product.specs) { try { product.specs = JSON.parse(product.specs); } catch {} }
+    applyDiscount(product);
 
     // готовые SEO-мета (единый источник — seo.js); клиент их берёт при SPA-навигации
     product.seo = seo.productMeta(product);
@@ -554,18 +630,21 @@ app.get('/api/products/:id', async (req, res) => {
 
     const s = await getSettings();
     const blocks = s.blocks || {};
-    const briefCols = `p.id, p.name, p.article, p.brand, p.price, p.price_on_request, p.icon,
-                       p.subtype, p.perf, p.perf_unit, c.slug as category_slug`;
+    const briefCols = `p.id, p.name, p.slug, p.article, p.brand, p.price, p.price_on_request, p.icon,
+                       p.subtype, p.perf, p.perf_unit, p.discount_percent, p.discount_until, p.discount_price, c.slug as category_slug`;
     const byIds = async (raw) => {
       let ids = []; try { ids = JSON.parse(raw || '[]'); } catch {}
       ids = ids.filter(Boolean).slice(0, 8);
       if (!ids.length) return [];
       const rows = await db.allAsync(
         `SELECT ${briefCols} FROM products p JOIN categories c ON p.category_id=c.id
-         WHERE p.id IN (${ids.map(() => '?').join(',')})`, ids);
+         WHERE p.id IN (${ids.map(() => '?').join(',')}) AND p.published = 1`, ids);
+      rows.forEach(applyDiscount);
       return ids.map(id => rows.find(r => r.id === id)).filter(Boolean);
     };
 
+    // similar-блок ищет по уже уценённой цене product.price (видна покупателю), поэтому
+    // диапазон считается от неё же — иначе товар со скидкой мог бы не найти похожие рядом.
     product.related = blocks.accessories !== false ? await byIds(product.related_ids) : [];
     product.bundle  = blocks.bundle      !== false ? await byIds(product.bundle_ids)  : [];
     product.similar = [];
@@ -579,6 +658,7 @@ app.get('/api/products/:id', async (req, res) => {
          ORDER BY (p.featured IS NOT NULL AND p.featured != '[]') DESC, ABS(COALESCE(p.perf,0) - ?) ASC, p.id LIMIT 4`,
         product.price ? [product.category_id, product.id, lo, hi, product.perf || 0]
                       : [product.category_id, product.id, product.perf || 0]);
+      product.similar.forEach(applyDiscount);
     }
     res.json(product);
   } catch (e) {
@@ -607,6 +687,34 @@ app.get('/api/articles/:slug', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// ==================== КОММЕНТАРИИ К СТАТЬЯМ ====================
+app.get('/api/articles/:id/comments', async (req, res) => {
+  try {
+    const rows = await db.allAsync(
+      `SELECT id, name, text, reply, created_at FROM article_comments
+       WHERE article_id = ? AND status = 'approved' ORDER BY id DESC`,
+      [req.params.id]
+    );
+    res.json({ rows });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post('/api/articles/:id/comments', async (req, res) => {
+  try {
+    const articleId = Number(req.params.id);
+    const article = await db.getAsync('SELECT id FROM articles WHERE id = ?', [articleId]);
+    if (!article) return res.status(404).json({ error: 'Статья не найдена' });
+
+    const name = String((req.body && req.body.name) || '').trim().slice(0, 100);
+    const text = String((req.body && req.body.text) || '').trim().slice(0, 2000);
+    if (!name || !text) return res.status(400).json({ error: 'Укажите имя и текст комментария' });
+    await db.runAsync(
+      `INSERT INTO article_comments (article_id, name, text) VALUES (?,?,?)`,
+      [articleId, name, text]
+    );
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // ==================== СКАЧИВАНИЕ КП (мгновенно, по номеру телефона) ====================
 // Включается в админке → Вовлечённость → КП («Мгновенное скачивание»). Пока выключено —
 // кнопка на сайте работает как раньше, через обычную заявку (requestModal), сюда не попадает.
@@ -615,6 +723,7 @@ app.post('/api/kp/download', async (req, res) => {
   try {
     // Та же ловушка, что и в форме заказа — см. #kpWebsite в header.html.
     if (req.body && req.body.website) {
+      logHoneypot(req, 'kp');
       return res.status(400).json({ error: 'Некорректный номер телефона' });
     }
     const phone = String((req.body && req.body.phone) || '').replace(/\D/g, '');
@@ -623,7 +732,16 @@ app.post('/api/kp/download', async (req, res) => {
     const product = await db.getAsync('SELECT * FROM products WHERE id = ?', [productId]);
     if (!product) return res.status(404).json({ error: 'Товар не найден' });
 
-    await db.runAsync('INSERT INTO kp_leads (product_id, phone) VALUES (?, ?)', [productId, phone]);
+    // На мобильной сети соединение иногда рвётся уже ПОСЛЕ того, как сервер успел
+    // записать лид, но ДО того как клиент получил PDF — человек видит "Ошибка сети" и
+    // жмёт кнопку ещё раз, а лид на самом деле уже был записан. Чтобы не плодить дубли
+    // одного и того же обращения, не создаём новую запись, если такой же телефон уже
+    // скачивал КП по этому товару в последние 10 минут — просто отдаём PDF повторно.
+    const recentDup = await db.getAsync(
+      `SELECT id FROM kp_leads WHERE product_id = ? AND phone = ? AND created_at >= datetime('now', '-10 minutes')`,
+      [productId, phone]
+    );
+    if (!recentDup) await db.runAsync('INSERT INTO kp_leads (product_id, phone) VALUES (?, ?)', [productId, phone]);
     const s = await getSettings();
     await kp.buildProductKpPdf(res, product, s.kp || {});
   } catch (e) {
@@ -651,13 +769,18 @@ app.post('/api/products/:id/reviews', async (req, res) => {
     const product = await db.getAsync('SELECT id FROM products WHERE id = ?', [productId]);
     if (!product) return res.status(404).json({ error: 'Товар не найден' });
 
+    // Отзыв можно оставить только вошедшим в аккаунт — форма на фронте уже это требует
+    // (см. loadProductReviews в product.js), здесь проверяем на случай прямого запроса
+    // в обход интерфейса.
+    const customer = await getCustomerByToken(req);
+    if (!customer) return res.status(401).json({ error: 'Войдите в аккаунт, чтобы оставить отзыв' });
+
     const name = String((req.body && req.body.name) || '').trim().slice(0, 100);
     const rating = Math.round(Number(req.body && req.body.rating));
     const text = String((req.body && req.body.text) || '').trim().slice(0, 2000);
     if (!name || !(rating >= 1 && rating <= 5)) {
       return res.status(400).json({ error: 'Укажите имя и оценку от 1 до 5' });
     }
-    const customer = await getCustomerByToken(req);
     await db.runAsync(
       `INSERT INTO reviews (product_id, name, rating, text, customer_id) VALUES (?,?,?,?,?)`,
       [productId, name, rating, text, customer ? customer.id : null]
@@ -696,9 +819,17 @@ app.post('/api/reviews', async (req, res) => {
 });
 
 // ==================== ORDERS ====================
+// Варианты способа оплаты на шаге оформления заказа в корзине — публичный чекаут
+// не проводит настоящую онлайн-оплату (каталог с индивидуальным расчётом цены), но должен
+// быть полноценным оформлением заказа с явным выбором способа оплаты и доставки, а не просто
+// формой "оставьте телефон" — см. public/index.html #cartPanel .order-form.
+const CHECKOUT_PAYMENT_METHODS = ['Оплата по счёту (для юр. лиц)', 'POS-Терминал(Visa/MasterCard) или QR', 'Наличными'];
+const CHECKOUT_DELIVERY_METHODS = ['Доставка по Казахстану', 'Самовывоз'];
 app.post('/api/orders', async (req, res) => {
   try {
     const { name, phone, email, city, message, items } = req.body;
+    const paymentMethod = CHECKOUT_PAYMENT_METHODS.includes(req.body.paymentMethod) ? req.body.paymentMethod : CHECKOUT_PAYMENT_METHODS[0];
+    const deliveryMethod = CHECKOUT_DELIVERY_METHODS.includes(req.body.deliveryMethod) ? req.body.deliveryMethod : CHECKOUT_DELIVERY_METHODS[0];
     // Антибот: скрытое поле "website" реальный человек не видит и не заполняет — его
     // трогают только боты, читающие форму по коду страницы (см. #oWebsite в index.html).
     // Ответ намеренно такой же, как у обычной валидации — чтобы по тексту ошибки нельзя
@@ -706,7 +837,22 @@ app.post('/api/orders', async (req, res) => {
     // Проверку "слишком быстро заполнили" убрали — автозаполнение браузера подставляет
     // имя/телефон мгновенно, и живого клиента с автозаполнением она бы тоже отклоняла.
     if (req.body.website) {
+      logHoneypot(req, 'orders');
       return res.status(400).json({ error: 'Заполните обязательные поля' });
+    }
+    // Антиспам от ботов, бьющих ПРЯМО в этот API (минуя форму и ловушку website выше —
+    // та спасает только от ботов, читающих HTML-страницу): не больше 5 заказов с одного
+    // IP за 15 минут. Живой клиент столько заказов подряд не оформит, а флуд-бот — обрежет.
+    const reqIp = clientIp(req);
+    const recentFromIp = (await db.getAsync(
+      `SELECT COUNT(*) AS c FROM orders WHERE ip = ? AND created_at >= datetime('now', '-15 minutes')`, [reqIp]
+    )).c;
+    if (recentFromIp >= 5) {
+      db.runAsync(
+        `INSERT INTO client_errors (message, context, url, ip) VALUES (?,?,?,?)`,
+        [`Превышен лимит заказов с одного IP (${recentFromIp} за 15 минут)`, 'orders_rate_limit', req.originalUrl || '', reqIp]
+      ).catch(() => {});
+      return res.status(429).json({ error: 'Слишком много заказов подряд. Попробуйте позже.' });
     }
     if (!name || !phone || !items) {
       return res.status(400).json({ error: 'Заполните обязательные поля' });
@@ -733,35 +879,30 @@ app.post('/api/orders', async (req, res) => {
     itemsStr = JSON.stringify(parsedItems);
     total = parsedItems.reduce((sum, item) => sum + (item.price || 0) * (item.qty || 1), 0);
 
-    // Бонусы: если оформляет вошедший клиент, спишем запрошенную сумму
-    // (не больше остатка и не больше суммы заказа) и запомним, кто оформил.
+    // Бонусы: если оформляет вошедший клиент, уменьшаем сумму к оплате на запрошенную
+    // сумму (не больше остатка и не больше суммы заказа) прямо сейчас — это то, сколько
+    // клиент реально должен заплатить. Но со счёта клиента её пока НЕ списываем (см.
+    // bonus_requested в database.js) — реальное списание и уведомление об этом будет
+    // только когда заказ подтвердят выполненным (см. /api/admin/orders/:id/complete):
+    // если заказ отменят, бонус останется нетронутым, его не придётся вручную возвращать.
     const customer = await getCustomerByToken(req);
     const s = await getSettings();
     const bonusCfg = s.bonus || {};
     let usedBonus = 0;
     if (customer && bonusCfg.enabled) {
       usedBonus = Math.max(0, Math.min(Number(req.body.useBonus) || 0, customer.bonus_balance, total));
-      if (usedBonus > 0) {
-        total -= usedBonus;
-        await db.runAsync('UPDATE customers SET bonus_balance = bonus_balance - ? WHERE id = ?', [usedBonus, customer.id]);
-        await db.runAsync('INSERT INTO bonus_log (customer_id, delta, reason) VALUES (?, ?, ?)', [customer.id, -usedBonus, 'order_redeem']);
-      }
+      if (usedBonus > 0) total -= usedBonus;
     }
 
     const result = await db.runAsync(
-      `INSERT INTO orders (name, phone, email, city, message, items, total, customer_id, ip)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [name, phone, email || '', city || '', message || '', itemsStr, total, customer ? customer.id : null, clientIp(req)]
+      `INSERT INTO orders (name, phone, email, city, message, items, total, customer_id, ip, payment_method, delivery_method, bonus_requested)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [name, phone, email || '', city || '', message || '', itemsStr, total, customer ? customer.id : null, clientIp(req), paymentMethod, deliveryMethod, usedBonus]
     );
 
-    // Начисление бонусов за заказ — процент от суммы к оплате
-    if (customer && bonusCfg.enabled && bonusCfg.earn_percent > 0 && total > 0) {
-      const earned = Math.round(total * bonusCfg.earn_percent / 100);
-      if (earned > 0) {
-        await db.runAsync('UPDATE customers SET bonus_balance = bonus_balance + ? WHERE id = ?', [earned, customer.id]);
-        await db.runAsync('INSERT INTO bonus_log (customer_id, delta, reason, order_id) VALUES (?, ?, ?, ?)', [earned, customer.id, 'order_earn', result.lastID]);
-      }
-    }
+    // Бонус за заказ начисляется НЕ здесь — только когда заказ подтверждён менеджером
+    // (см. /api/admin/orders/:id/complete). Раньше начислялся сразу тут и ЕЩЁ РАЗ при
+    // завершении заказа — клиент получал бонус дважды за один и тот же заказ.
 
     // Bitrix24 + WhatsApp/Email — не блокируем ответ клиенту; ошибки только логируем
     getSettings().then(s => {
@@ -773,7 +914,7 @@ app.post('/api/orders', async (req, res) => {
         }).then(id => console.log('Bitrix24: лид создан #' + id))
           .catch(e => console.error('Bitrix24 lead failed:', e.message));
       }
-      notify.notifyOrder({ id: result.lastID, name, phone, email, city, message, items: itemsStr, total })
+      notify.notifyOrder({ id: result.lastID, name, phone, email, city, message, items: itemsStr, total, paymentMethod, deliveryMethod })
         .catch(e => console.error('Order notify failed:', e.message));
     }).catch(() => {});
 
@@ -825,7 +966,8 @@ app.post('/api/track-click', async (req, res) => {
     const kind = String((req.body && req.body.kind) || '');
     const path = String((req.body && req.body.path) || '').slice(0, 500);
     const productId = Number(req.body && req.body.productId) || null;
-    if (CTA_KINDS.has(kind)) logStat('cta_click', path, kind, productId, clientIp(req), req.headers['user-agent']);
+    const phone = String((req.body && req.body.phone) || '').slice(0, 40);
+    if (CTA_KINDS.has(kind)) logStat('cta_click', path, kind, productId, clientIp(req), req.headers['user-agent'], null, null, phone);
   } catch { /* статистика не должна ронять страницу */ }
   res.json({ ok: true });
 });
@@ -854,7 +996,18 @@ async function customerAuth(req, res, next) {
   next();
 }
 function customerPublic(c) {
-  return { id: c.id, name: c.name, phone: c.phone, email: c.email, company: c.company || '', bonusBalance: c.bonus_balance, avatar: c.avatar || null };
+  // Телефон-заглушка у клиентов, вошедших через Telegram и ещё не указавших настоящий
+  // (см. 'tg_' + telegramId в /api/auth/telegram/callback) — на фронте показываем как
+  // "не указан", а не саму заглушку.
+  const phone = /^tg_/.test(c.phone || '') ? '' : c.phone;
+  return { id: c.id, clientNo: c.client_no, name: c.name, phone, email: c.email, company: c.company || '', corpPhone: c.corp_phone || '', extraPhone: c.extra_phone || '', bonusBalance: c.bonus_balance, avatar: c.avatar || null };
+}
+// Следующий свободный "номер клиента" (видимый в админке/личном кабинете вместо
+// внутреннего id, см. миграцию client_no в database.js) — просто MAX+1, с нижней
+// границей 2261 на случай, если бэкфилл почему-то ещё не отработал.
+async function nextClientNo() {
+  const row = await db.getAsync('SELECT MAX(client_no) AS m FROM customers');
+  return Math.max(2261, (row.m || 0) + 1);
 }
 // Уведомление в личный кабинет клиента («Мои уведомления») — сейчас используется для
 // начисления бонуса при регистрации и при выполнении заказа.
@@ -863,50 +1016,163 @@ async function notifyCustomer(customerId, message) {
   catch (e) { /* уведомление не должно ломать основной запрос */ }
 }
 
-// Вход без пароля: код на телефон (WhatsApp, если нет — SMS) → подтверждение.
-app.post('/api/auth/request-code', async (req, res) => {
+// Начисление бонуса за регистрацию + уведомление в личный кабинет — общее для email- и
+// Telegram-регистрации (раньше было только в одном месте, см. старый /api/auth/verify-code).
+async function awardRegisterBonus(customerId) {
+  const s = await getSettings();
+  const bonusCfg = s.bonus || {};
+  if (bonusCfg.enabled && bonusCfg.register_bonus > 0) {
+    await db.runAsync('UPDATE customers SET bonus_balance = bonus_balance + ? WHERE id = ?', [bonusCfg.register_bonus, customerId]);
+    await db.runAsync('INSERT INTO bonus_log (customer_id, delta, reason) VALUES (?, ?, ?)', [customerId, bonusCfg.register_bonus, 'register']);
+    await notifyCustomer(customerId, `Добро пожаловать в SIGMA MARKET! Вам начислено ${bonusCfg.register_bonus} ₸ бонусами за регистрацию.`);
+  }
+}
+async function issueSession(customerId) {
+  const token = crypto.randomBytes(24).toString('base64url');
+  await db.runAsync('INSERT INTO customer_sessions (token, customer_id) VALUES (?, ?)', [token, customerId]);
+  return token;
+}
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+// Шаг 1: ввели email. Уже зарегистрирован (есть пароль) — просим сразу пароль, без кода.
+// Новый — шлём код на почту для подтверждения перед тем, как дать задать пароль.
+app.post('/api/auth/email/request-code', async (req, res) => {
   try {
-    const phone = String((req.body && req.body.phone) || '').replace(/\D/g, '');
-    if (!/^[78]\d{10}$/.test(phone)) return res.status(400).json({ error: 'Некорректный номер телефона' });
-    const result = await otp.requestCode(phone);
-    res.json(result);
+    // Та же ловушка, что в форме заказа — см. #accWebsite в header.html.
+    if (req.body && req.body.website) { logHoneypot(req, 'email_code'); return res.status(400).json({ error: 'Некорректный email' }); }
+    const email = String((req.body && req.body.email) || '').trim().toLowerCase();
+    if (!EMAIL_RE.test(email)) return res.status(400).json({ error: 'Некорректный email' });
+    const existing = await db.getAsync('SELECT id, password_hash FROM customers WHERE email = ?', [email]);
+    if (existing && existing.password_hash) return res.json({ needPassword: true });
+    await auth.requestEmailCode(email);
+    res.json({ sent: true });
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
-app.post('/api/auth/verify-code', async (req, res) => {
+// Шаг 2: код подтверждён → одноразовый regToken на шаг "телефон + пароль" (чтобы не
+// слать код ещё раз).
+app.post('/api/auth/email/verify-code', async (req, res) => {
   try {
-    const phone = String((req.body && req.body.phone) || '').replace(/\D/g, '');
+    const email = String((req.body && req.body.email) || '').trim().toLowerCase();
     const code = String((req.body && req.body.code) || '').trim();
-    const name = String((req.body && req.body.name) || '').trim();
-    if (!phone || !code) return res.status(400).json({ error: 'Укажите телефон и код' });
-    let customer = await db.getAsync('SELECT * FROM customers WHERE phone = ?', [phone]);
-    // Новому клиенту без имени код пока не «сжигаем» — понадобится повторно с именем.
-    try { await otp.verifyCode(phone, code, !!customer || !!name); }
-    catch (e) { return res.status(400).json({ error: e.message }); }
+    if (!email || !code) return res.status(400).json({ error: 'Укажите email и код' });
+    const regToken = await auth.verifyEmailCode(email, code);
+    res.json({ regToken });
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
 
+// Шаг 3: телефон (для бонусов — они начисляются именно по номеру) + пароль → аккаунт создан.
+app.post('/api/auth/email/complete-registration', async (req, res) => {
+  try {
+    if (req.body && req.body.website) { logHoneypot(req, 'email_register'); return res.status(400).json({ error: 'Заполните обязательные поля' }); }
+    const email = String((req.body && req.body.email) || '').trim().toLowerCase();
+    const regToken = String((req.body && req.body.regToken) || '').trim();
+    const phone = String((req.body && req.body.phone) || '').replace(/\D/g, '');
+    const password = String((req.body && req.body.password) || '');
+    if (!/^[78]\d{10}$/.test(phone)) return res.status(400).json({ error: 'Некорректный номер телефона' });
+    if (password.length < 6) return res.status(400).json({ error: 'Пароль должен быть не короче 6 символов' });
+    await auth.consumeRegToken(email, regToken);
+
+    const passwordHash = auth.hashPassword(password);
+    // На этот телефон уже могла быть запись (гость оформлял заказ, бонус начислился
+    // автоматически) — довершаем её email/паролем вместо дубликата. Бонус за
+    // регистрацию в этом случае не положен — как и раньше для "доросших" до
+    // регистрации гостевых записей (см. старый /api/auth/verify-code).
+    let customer = await db.getAsync('SELECT * FROM customers WHERE phone = ?', [phone]);
+    const isNew = !customer;
+    if (customer) {
+      if (customer.password_hash) return res.status(400).json({ error: 'Этот номер телефона уже привязан к другому аккаунту' });
+      await db.runAsync(`UPDATE customers SET email = ?, password_hash = ?, registered_at = COALESCE(registered_at, datetime('now')) WHERE id = ?`, [email, passwordHash, customer.id]);
+    } else {
+      const name = email.split('@')[0];
+      const r = await db.runAsync(`INSERT INTO customers (name, phone, email, password_hash, registered_at, client_no) VALUES (?, ?, ?, ?, datetime('now'), ?)`, [name, phone, email, passwordHash, await nextClientNo()]);
+      customer = { id: r.lastID };
+    }
+    if (isNew) await awardRegisterBonus(customer.id);
+    customer = await db.getAsync('SELECT * FROM customers WHERE id = ?', [customer.id]);
+    const token = await issueSession(customer.id);
+    res.json({ token, customer: customerPublic(customer), isNew });
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+// Забыли пароль: шлём код на email уже зарегистрированного клиента (в отличие от
+// request-code на шаге входа, здесь код нужен именно для сброса, а не "нет пароля").
+app.post('/api/auth/email/request-reset-code', async (req, res) => {
+  try {
+    const email = String((req.body && req.body.email) || '').trim().toLowerCase();
+    if (!EMAIL_RE.test(email)) return res.status(400).json({ error: 'Некорректный email' });
+    const existing = await db.getAsync('SELECT id FROM customers WHERE email = ? AND password_hash IS NOT NULL', [email]);
+    if (!existing) return res.status(400).json({ error: 'Аккаунт с таким email не найден' });
+    await auth.requestEmailCode(email);
+    res.json({ sent: true });
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+// Код подтверждён (тем же /api/auth/email/verify-code) → задаём новый пароль по regToken.
+app.post('/api/auth/email/reset-password', async (req, res) => {
+  try {
+    const email = String((req.body && req.body.email) || '').trim().toLowerCase();
+    const regToken = String((req.body && req.body.regToken) || '').trim();
+    const password = String((req.body && req.body.password) || '');
+    if (password.length < 6) return res.status(400).json({ error: 'Пароль должен быть не короче 6 символов' });
+    await auth.consumeRegToken(email, regToken);
+    const customer = await db.getAsync('SELECT * FROM customers WHERE email = ?', [email]);
+    if (!customer) return res.status(400).json({ error: 'Аккаунт с таким email не найден' });
+    await db.runAsync('UPDATE customers SET password_hash = ? WHERE id = ?', [auth.hashPassword(password), customer.id]);
+    const token = await issueSession(customer.id);
+    res.json({ token, customer: customerPublic(customer), isNew: false });
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+// Обычный вход для уже зарегистрированных по email.
+app.post('/api/auth/email/login', async (req, res) => {
+  try {
+    const email = String((req.body && req.body.email) || '').trim().toLowerCase();
+    const password = String((req.body && req.body.password) || '');
+    const customer = await db.getAsync('SELECT * FROM customers WHERE email = ?', [email]);
+    if (!customer || !auth.verifyPassword(password, customer.password_hash)) {
+      return res.status(400).json({ error: 'Неверный email или пароль' });
+    }
+    const token = await issueSession(customer.id);
+    res.json({ token, customer: customerPublic(customer), isNew: false });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ---- Telegram Login Widget (https://core.telegram.org/widgets/login) ----
+// Токен бота — TELEGRAM_BOT_TOKEN в deploy/ecosystem.config.js, как и META_WA_TOKEN;
+// username бота — в настройках админки (Вовлечённость → Вход клиентов), публичный,
+// нужен виджету на фронте. Пока бот не создан — просто вернёт понятную ошибку.
+app.post('/api/auth/telegram/callback', async (req, res) => {
+  try {
+    const data = req.body || {};
+    auth.verifyTelegramAuth(data, process.env.TELEGRAM_BOT_TOKEN);
+    const telegramId = String(data.id);
+    let customer = await db.getAsync('SELECT * FROM customers WHERE telegram_id = ?', [telegramId]);
     let isNew = false;
     if (!customer) {
-      if (!name) return res.status(400).json({ error: 'Укажите имя', needName: true });
-      const r = await db.runAsync(`INSERT INTO customers (name, phone, registered_at) VALUES (?, ?, datetime('now'))`, [name, phone]);
+      const name = [data.first_name, data.last_name].filter(Boolean).join(' ') || data.username || 'Клиент Telegram';
+      // Настоящий телефон ещё не известен — временная уникальная заглушка (нужна из-за
+      // NOT NULL UNIQUE на phone), донесём его отдельным шагом сразу после входа (needPhone).
+      const r = await db.runAsync(`INSERT INTO customers (name, phone, telegram_id, registered_at, client_no) VALUES (?, ?, ?, datetime('now'), ?)`, [name, 'tg_' + telegramId, telegramId, await nextClientNo()]);
       isNew = true;
-      const s = await getSettings();
-      const bonusCfg = s.bonus || {};
-      if (bonusCfg.enabled && bonusCfg.register_bonus > 0) {
-        await db.runAsync('UPDATE customers SET bonus_balance = bonus_balance + ? WHERE id = ?', [bonusCfg.register_bonus, r.lastID]);
-        await db.runAsync('INSERT INTO bonus_log (customer_id, delta, reason) VALUES (?, ?, ?)', [r.lastID, bonusCfg.register_bonus, 'register']);
-        await notifyCustomer(r.lastID, `Добро пожаловать в SIGMA MARKET! Вам начислено ${bonusCfg.register_bonus} ₸ бонусами за регистрацию.`);
-      }
       customer = await db.getAsync('SELECT * FROM customers WHERE id = ?', [r.lastID]);
-    } else if (!customer.registered_at) {
-      // Запись уже была (например, создалась автоматически при начислении бонуса
-      // к заказу), но сам клиент входит по коду впервые — вот это и есть регистрация.
-      await db.runAsync(`UPDATE customers SET registered_at = datetime('now') WHERE id = ?`, [customer.id]);
-      customer.registered_at = new Date().toISOString();
+      await awardRegisterBonus(customer.id);
     }
+    const token = await issueSession(customer.id);
+    res.json({ token, customer: customerPublic(customer), isNew, needPhone: /^tg_/.test(customer.phone) });
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
 
-    const token = crypto.randomBytes(24).toString('base64url');
-    await db.runAsync('INSERT INTO customer_sessions (token, customer_id) VALUES (?, ?)', [token, customer.id]);
-    res.json({ token, customer: customerPublic(customer), isNew });
+// После входа через Telegram без телефона — донести настоящий номер (для бонусов,
+// они начисляются именно по нему).
+app.post('/api/me/phone', customerAuth, async (req, res) => {
+  try {
+    const phone = String((req.body && req.body.phone) || '').replace(/\D/g, '');
+    if (!/^[78]\d{10}$/.test(phone)) return res.status(400).json({ error: 'Некорректный номер телефона' });
+    const existing = await db.getAsync('SELECT id FROM customers WHERE phone = ? AND id != ?', [phone, req.customer.id]);
+    if (existing) return res.status(400).json({ error: 'Этот номер уже используется другим аккаунтом' });
+    await db.runAsync('UPDATE customers SET phone = ? WHERE id = ?', [phone, req.customer.id]);
+    res.json({ success: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -938,8 +1204,12 @@ app.put('/api/me', customerAuth, async (req, res) => {
   const name = String((req.body && req.body.name) || '').trim().slice(0, 100);
   const email = String((req.body && req.body.email) || '').trim().slice(0, 150);
   const company = String((req.body && req.body.company) || '').trim().slice(0, 150);
+  // Корпоративный и доп. номер — просто ещё одни контакты клиента, не для входа, без
+  // проверки на уникальность/занятость (в отличие от основного телефона в /api/me/phone).
+  const corpPhone = String((req.body && req.body.corpPhone) || '').replace(/\D/g, '').slice(0, 15);
+  const extraPhone = String((req.body && req.body.extraPhone) || '').replace(/\D/g, '').slice(0, 15);
   if (!name) return res.status(400).json({ error: 'Укажите имя' });
-  await db.runAsync('UPDATE customers SET name = ?, email = ?, company = ? WHERE id = ?', [name, email, company, req.customer.id]);
+  await db.runAsync('UPDATE customers SET name = ?, email = ?, company = ?, corp_phone = ?, extra_phone = ? WHERE id = ?', [name, email, company, corpPhone, extraPhone, req.customer.id]);
   const customer = await db.getAsync('SELECT * FROM customers WHERE id = ?', [req.customer.id]);
   res.json({ customer: customerPublic(customer) });
 });
@@ -977,12 +1247,82 @@ app.get('/api/me/reviews', customerAuth, async (req, res) => {
   res.json({ reviews: rows });
 });
 
+// Товары из выполненных заказов клиента, на которые он ещё не оставил отзыв — карточки
+// с кнопкой "Оставить отзыв" на вкладке "Мои отзывы" (см. acctReviewPrompts в account.js).
+// Берём актуальные название/фото/цену из products (а не из снимка в orders.items —
+// он мог устареть), поэтому отдельный запрос, а не просто поле из /api/me/orders.
+app.get('/api/me/review-prompts', customerAuth, async (req, res) => {
+  try {
+    const orders = await db.allAsync(
+      `SELECT items FROM orders WHERE (customer_id = ? OR ${phoneNormSql('phone')} = ${phoneNormSql('?')}) AND status = 'done'`,
+      [req.customer.id, req.customer.phone]
+    );
+    const ids = new Set();
+    orders.forEach(o => {
+      let items = [];
+      try { items = typeof o.items === 'string' ? JSON.parse(o.items) : (o.items || []); } catch {}
+      items.forEach(i => { if (i && i.id) ids.add(Number(i.id)); });
+    });
+    if (!ids.size) return res.json({ products: [] });
+    const reviewed = await db.allAsync(
+      `SELECT DISTINCT product_id FROM reviews WHERE customer_id = ? AND product_id IS NOT NULL`,
+      [req.customer.id]
+    );
+    reviewed.forEach(r => ids.delete(r.product_id));
+    if (!ids.size) return res.json({ products: [] });
+    const idList = Array.from(ids);
+    const rows = await db.allAsync(
+      `SELECT id, name, icon, price, price_on_request FROM products WHERE id IN (${idList.map(() => '?').join(',')})`,
+      idList
+    );
+    res.json({ products: rows });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.get('/api/me/notifications', customerAuth, async (req, res) => {
   const rows = await db.allAsync(
-    `SELECT id, message, created_at FROM notifications WHERE customer_id = ? ORDER BY id DESC LIMIT 50`,
+    `SELECT id, message, created_at, read_at FROM notifications WHERE customer_id = ? ORDER BY id DESC LIMIT 50`,
     [req.customer.id]
   );
   res.json({ notifications: rows });
+});
+// Отмечаем все уведомления прочитанными — зовётся при открытии вкладки "Мои
+// уведомления" в личном кабинете (см. acctShowTab в account.js), чтобы красный
+// счётчик непрочитанных погас.
+app.put('/api/me/notifications/read', customerAuth, async (req, res) => {
+  await db.runAsync(`UPDATE notifications SET read_at = datetime('now') WHERE customer_id = ? AND read_at IS NULL`, [req.customer.id]);
+  res.json({ success: true });
+});
+
+// ---- Чат с нами (личный кабинет) ----
+app.get('/api/me/chat', customerAuth, async (req, res) => {
+  const rows = await db.allAsync(
+    `SELECT id, sender, admin, text, attachment, created_at, read_at FROM chat_messages WHERE customer_id = ? ORDER BY id ASC LIMIT 200`,
+    [req.customer.id]
+  );
+  res.json({ messages: rows });
+});
+app.post('/api/me/chat', customerAuth, async (req, res) => {
+  try {
+    const text = String((req.body && req.body.text) || '').trim().slice(0, 2000);
+    const attachment = (req.body && req.body.attachment) || null;
+    if (attachment && !/^\/chat-uploads\/[\w.-]+$/.test(attachment)) return res.status(400).json({ error: 'Некорректное вложение' });
+    if (!text && !attachment) return res.status(400).json({ error: 'Введите сообщение' });
+    const r = await db.runAsync(
+      `INSERT INTO chat_messages (customer_id, sender, text, attachment) VALUES (?, 'customer', ?, ?)`,
+      [req.customer.id, text, attachment]
+    );
+    res.json({ success: true, id: r.lastID });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// Отмечаем прочитанными ответы админа — зовётся при открытии вкладки "Чат с нами"
+// (см. acctShowTab в account.js), как и у /api/me/notifications/read.
+app.put('/api/me/chat/read', customerAuth, async (req, res) => {
+  await db.runAsync(
+    `UPDATE chat_messages SET read_at = datetime('now') WHERE customer_id = ? AND sender = 'admin' AND read_at IS NULL`,
+    [req.customer.id]
+  );
+  res.json({ success: true });
 });
 
 app.post('/api/logout', customerAuth, async (req, res) => {
@@ -1000,6 +1340,12 @@ async function adminAuth(req, res, next) {
     const p = sep >= 0 ? auth.slice(sep + 1) : '';
     const admin = u ? await db.getAsync('SELECT * FROM admins WHERE username = ?', [u]) : null;
     if (!admin || p !== admin.password) {
+      // Саму попытку чтения (GET) не пишем в журнал — это обычный фон (истёкший токен,
+      // открытая вторая вкладка и т.п.), а вот попытка изменить/удалить что-то без
+      // доступа — уже стоит внимания, пишем логин (без пароля) и что пытались сделать.
+      if (req.method !== 'GET') {
+        logAdmin(req, 'unauthorized', `Попытка без доступа: ${req.method} ${req.originalUrl}`, u ? `логин в токене: ${u}` : 'токен не передан');
+      }
       return res.status(401).json({ error: 'Нет доступа' });
     }
     req.admin = admin;
@@ -1015,24 +1361,38 @@ function clientIp(req) {
     .split(',')[0].trim().replace(/^::ffff:/, '');
 }
 
+// Отдельная запись в "Ошибки сайта" на каждое срабатывание ловушки от ботов (поле
+// "website", см. #oWebsite/#kpWebsite/#accWebsite) — раньше такой отказ ничем не
+// отличался от обычной ошибки валидации, по логам нельзя было понять, бот это или
+// просто пользователь что-то не так заполнил. User-Agent — чтобы отличить реального
+// спам-бота от, например, краулера Google Merchant Center (вдруг это он задевает
+// скрытое поле и поэтому не может "оформить заказ" — тогда ловушку надо переделать).
+function logHoneypot(req, context) {
+  const ua = String(req.headers['user-agent'] || '(нет User-Agent)').slice(0, 300);
+  db.runAsync(
+    `INSERT INTO client_errors (message, context, url, ip) VALUES (?,?,?,?)`,
+    [`Сработала ловушка от ботов. User-Agent: ${ua}`, 'honeypot_' + context, req.originalUrl || '', clientIp(req)]
+  ).catch(() => {});
+}
+
 // ---- Статистика сайта (для админки — просмотры, поисковые запросы, товары) ----
 // По просьбе Миры боты (включая Яндекс/Google) из статистики не исключаются —
 // пусть пишется всё подряд, без фильтрации.
-async function logStat(type, path, value, refId, ip, ua, ref, entryQuery) {
+async function logStat(type, path, value, refId, ip, ua, ref, entryQuery, phone) {
   try {
     await db.runAsync(
-      `INSERT INTO stats_events (type, path, value, ref_id, ip, ua, ref, entry_query) VALUES (?,?,?,?,?,?,?,?)`,
+      `INSERT INTO stats_events (type, path, value, ref_id, ip, ua, ref, entry_query, phone) VALUES (?,?,?,?,?,?,?,?,?)`,
       [type, path || null, value || null, refId || null, ip || null, (ua || '').slice(0, 300) || null,
-       (ref || '').slice(0, 500) || null, (entryQuery || '').slice(0, 500) || null]
+       (ref || '').slice(0, 500) || null, (entryQuery || '').slice(0, 500) || null, (phone || '').slice(0, 40) || null]
     );
     await db.runAsync(`DELETE FROM stats_events WHERE id <= (SELECT MAX(id) - 200000 FROM stats_events)`);
   } catch { /* статистика не должна ломать основной запрос */ }
 }
-async function logAdmin(req, action, label, detail, orderId, customerId) {
+async function logAdmin(req, action, label, detail, orderId, customerId, attachment) {
   try {
     await db.runAsync(
-      `INSERT INTO admin_log (admin, action, label, detail, ip, order_id, customer_id) VALUES (?,?,?,?,?,?,?)`,
-      [(req.admin && req.admin.username) || req._logUser || '—', action, label || null, detail || null, clientIp(req), orderId || null, customerId || null]
+      `INSERT INTO admin_log (admin, action, label, detail, ip, order_id, customer_id, attachment) VALUES (?,?,?,?,?,?,?,?)`,
+      [(req.admin && req.admin.username) || req._logUser || '—', action, label || null, detail || null, clientIp(req), orderId || null, customerId || null, attachment || null]
     );
     await db.runAsync(`DELETE FROM admin_log WHERE id <= (SELECT MAX(id) - 10000 FROM admin_log)`);
   } catch { /* журнал не должен ломать основной запрос */ }
@@ -1076,6 +1436,7 @@ function adminActionLabel(req) {
     [/\/customers\/\d+$/,      { PUT: ['update', 'Изменён клиент'] }],
     [/\/customers\/\d+\/deduct-bonus$/, { PUT: ['update', 'Списан бонус клиенту'] }],
     [/\/reviews\/\d+$/,        { PUT: ['update', (req.body && req.body.status) ? `Отзыв #${id}: ${req.body.status}` : `Изменён отзыв #${id}`], DELETE: ['delete', `Удалён отзыв #${id}`] }],
+    [/\/article-comments\/\d+$/, { PUT: ['update', (req.body && req.body.status) ? `Комментарий к статье #${id}: ${req.body.status}` : `Изменён комментарий к статье #${id}`], DELETE: ['delete', `Удалён комментарий к статье #${id}`] }],
     [/\/settings\/reset-quiz$/,{ POST: ['update', 'Сброс квиза к стандартному'] }],
     [/\/settings$/,            { PUT: ['update', 'Изменены настройки сайта'] }],
     [/\/upload-/,              { POST: ['update', 'Загрузка файлов'] }],
@@ -1108,8 +1469,9 @@ const DIFF_FIELDS = {
   subcategories: { category_id: 'Категория (id)', name: 'Название', slug: 'Slug', description: 'Описание', sort: 'Порядок', icon: 'Иконка', seo_title: 'SEO-заголовок', seo_description: 'SEO-описание' },
   articles: { title: 'Заголовок', slug: 'Slug', excerpt: 'Краткое описание', content: 'Текст', cover: 'Обложка', seo_title: 'SEO-заголовок', seo_description: 'SEO-описание', published: { label: 'Опубликовано', bool: true } },
   orders: { name: 'Имя', phone: 'Телефон', email: 'Email', city: 'Город', company: 'Компания', message: 'Комментарий', total: 'Сумма' },
-  customers: { name: 'Имя', phone: 'Телефон', email: 'Email', city: 'Город', company: 'Компания', bonus_balance: { label: 'Бонусы', bodyKey: 'bonusBalance' } },
+  customers: { name: 'Имя', phone: 'Телефон', email: 'Email', city: 'Город', company: 'Компания', comment: 'Комментарий', bonus_balance: { label: 'Бонусы', bodyKey: 'bonusBalance' } },
   reviews: { status: 'Статус', product_id: 'Товар (id)', name: 'Имя', phone: 'Телефон', company: 'Компания', rating: 'Оценка', text: 'Текст', reply: 'Ответ', created_at: 'Дата' },
+  article_comments: { status: 'Статус', article_id: 'Статья (id)', name: 'Имя', text: 'Текст', reply: 'Ответ', created_at: 'Дата' },
 };
 function diffEntity(u) {
   if (/\/products\/\d+$/.test(u)) return 'products';
@@ -1119,6 +1481,7 @@ function diffEntity(u) {
   if (/\/orders\/\d+$/.test(u)) return 'orders';
   if (/\/customers\/\d+$/.test(u)) return 'customers';
   if (/\/reviews\/\d+$/.test(u)) return 'reviews';
+  if (/\/article-comments\/\d+$/.test(u)) return 'article_comments';
   return null;
 }
 async function snapshotBefore(req) {
@@ -1186,6 +1549,9 @@ function diffDetail(req) {
     if (!cfg.bool && ov !== '' && nv !== '' && !isNaN(ov) && !isNaN(nv) && Number(ov) === Number(nv)) continue;
     parts.push(`${label}: ${shortVal(ov)} → ${shortVal(nv)}`);
   }
+  // Бонус за отзыв (см. PUT /api/admin/reviews/:id) — отдельной строкой рядом с обычным
+  // "Статус: pending → approved", а не вместо него.
+  if (ent === 'reviews' && req._logReviewBonus > 0) parts.push(`Начислено за отзыв: ${req._logReviewBonus} ₸`);
   // \n, не "; " — иначе если в самом значении (например, в описании) встретится "; ",
   // модальное окно в журнале не сможет надёжно разбить текст обратно на поля.
   return parts.length ? parts.join('\n') : 'поля не изменились';
@@ -1200,7 +1566,7 @@ app.use('/api/admin', async (req, res, next) => {
   res.on('finish', () => {
     if (res.statusCode < 200 || res.statusCode >= 300) return;
     const { action, label } = adminActionLabel(req);
-    logAdmin(req, action, label, diffDetail(req), extractOrderId(req), extractCustomerId(req));
+    logAdmin(req, action, label, diffDetail(req), extractOrderId(req), extractCustomerId(req), req._logAttachment || null);
   });
   next();
 });
@@ -1292,18 +1658,24 @@ app.get('/api/admin/stats', adminAuth, async (req, res) => {
     const isToday = req.query.days === '0';
     const isYesterday = req.query.days === '-1';
     const days = isToday || isYesterday ? 0 : Math.min(365, Math.max(1, Number(req.query.days) || 30));
-    const since = isYesterday ? `datetime('now','-1 days','start of day')`
-      : isToday ? `datetime('now','start of day')` : `datetime('now','-${days} days')`;
+    // "Сегодня"/"Вчера" — границы суток считаем по времени Алматы (almatyStartOfDay),
+    // а не datetime('now','start of day') у SQLite (это UTC) — иначе ночью, пока в
+    // Алматы уже новый день, а в UTC ещё старый, "Сегодня" показывало вчерашние данные.
+    const since = isYesterday ? `'${almatyStartOfDay(1)}'`
+      : isToday ? `'${almatyStartOfDay(0)}'` : `datetime('now','-${days} days')`;
     // Верхняя граница нужна только у «Вчера» — иначе за «вчера» попадали бы и
     // сегодняшние события (since у остальных периодов не ограничен сверху, там and всегда true).
-    const until = isYesterday ? `datetime('now','start of day')` : `datetime('now','+1000 years')`;
+    const until = isYesterday ? `'${almatyStartOfDay(0)}'` : `datetime('now','+1000 years')`;
 
     const totalViews = (await db.getAsync(
       `SELECT COUNT(*) AS c FROM stats_events WHERE type IN ('pageview','product_view') AND ts >= ${since} AND ts < ${until}`
     )).c;
 
     const byDay = await db.allAsync(
-      `SELECT substr(ts,1,10) AS date, COUNT(*) AS count
+      // date(ts,'+5 hours') — группируем по календарной дате в Алматы (UTC+5), а не по
+      // дате хранения в UTC: иначе события вечером по Алматы (после ~19:00) уезжали
+      // в график следующего дня.
+      `SELECT date(ts,'+5 hours') AS date, COUNT(*) AS count
        FROM stats_events WHERE type IN ('pageview','product_view') AND ts >= ${since} AND ts < ${until}
        GROUP BY date ORDER BY date`
     );
@@ -1346,6 +1718,18 @@ app.get('/api/admin/stats', adminAuth, async (req, res) => {
     // и по тому, с какого сайта пришли (referrer). Если ни то, ни другое не указывает на
     // конкретный источник — считаем прямым заходом (по ссылке в закладках/мессенджере
     // или человек напечатал адрес сам: тогда referrer у браузера пустой).
+    // Название кампании по её id (campaignid из ValueTrack, см. trafficSource) — сам Google
+    // Ads название в адрес не подставляет, только числовой id, поэтому сопоставляем вручную.
+    // Id виден в адресной строке Google Ads на странице кампании (...campaignId=XXXXXXXXXX).
+    // Добавляйте сюда новые кампании по мере создания — иначе в отчёте будет просто id.
+    const CAMPAIGN_NAMES = {
+      '24355949514': 'Shopping',
+      '24201786142': 'Campaign #1',
+      '24350189447': 'АВД — КМС',
+      '24297996137': 'Поломоечные машины — поиск',
+      '24294096679': 'Робот мойки — КМС',
+      '24238032205': 'Sigma Trade',
+    };
     function trafficSource(ref, entryQuery) {
       const q = String(entryQuery || '');
       const r = String(ref || '');
@@ -1356,7 +1740,16 @@ app.get('/api/admin/stats', adminAuth, async (req, res) => {
         const nwM = q.match(/[?&](?:network|nw)=([^&]+)/i);
         const NETWORKS = { g: 'Поиск', s: 'Партнёр поиска', d: 'КМС (баннеры)', ytv: 'YouTube' };
         const nw = nwM && NETWORKS[decodeURIComponent(nwM[1]).toLowerCase()];
-        return nw ? `Google Ads (реклама) — ${nw}` : 'Google Ads (реклама)';
+        // Название кампании — так же, только если в суффиксе есть campaignid={campaignid}
+        // (или cid={campaignid}); если id неизвестен (новая кампания, ещё не внесли в
+        // CAMPAIGN_NAMES выше) — показываем хотя бы сам id, не теряя информацию молча.
+        const cidM = q.match(/[?&](?:campaignid|cid)=([^&]+)/i);
+        const cid = cidM && decodeURIComponent(cidM[1]);
+        const campaignLabel = cid && (CAMPAIGN_NAMES[cid] || `кампания ${cid}`);
+        let label = 'Google Ads (реклама)';
+        if (nw) label += ` — ${nw}`;
+        if (campaignLabel) label += ` — ${campaignLabel}`;
+        return label;
       }
       if (/[?&](yclid|ysclid)=/i.test(q)) return 'Яндекс.Директ (реклама)';
       if (/[?&]utm_source=/i.test(q)) {
@@ -1364,16 +1757,45 @@ app.get('/api/admin/stats', adminAuth, async (req, res) => {
         return 'Метка utm: ' + decodeURIComponent((m && m[1]) || '');
       }
       if (!r) return '';
-      if (/google\./i.test(r)) return 'Google (поиск)';
-      if (/yandex\./i.test(r)) return 'Яндекс (поиск)';
-      if (/2gis\./i.test(r)) return '2ГИС';
-      if (/instagram\.com/i.test(r)) return 'Instagram';
-      if (/facebook\.com/i.test(r)) return 'Facebook';
-      if (/vk\.com/i.test(r)) return 'ВКонтакте';
-      if (/t\.me|telegram/i.test(r)) return 'Telegram';
-      if (/whatsapp/i.test(r)) return 'WhatsApp';
-      if (/b2btech\.kz/i.test(r)) return 'Другая страница сайта';
-      try { return new URL(r).hostname; } catch { return 'Переход по ссылке'; }
+      // Переходы из приложений Android иногда приходят как "android-app://<пакет>/",
+      // а не обычной ссылкой — у них нет домена, зато имя пакета само по себе похоже на
+      // домен в обратном порядке (com.google.android.youtube). Раньше это ловилось
+      // как "google." простым поиском подстроки где угодно в строке — и приложение
+      // YouTube (com.google.android.YOUTUBE) ошибочно считалось Google-поиском, хотя
+      // "google." там — случайная часть имени пакета, а не сам сервис. Разбираем такие
+      // ссылки отдельно, по конкретному пакету, до общей проверки по домену.
+      if (/^android-app:\/\//i.test(r)) {
+        const pkg = r.replace(/^android-app:\/\//i, '').replace(/\/$/, '');
+        const APPS = {
+          'com.google.android.youtube': 'YouTube (приложение)',
+          'com.google.android.googlequicksearchbox': 'Google (приложение)',
+          'com.google.android.gm': 'Gmail (приложение)',
+          'com.google.android.apps.maps': 'Google Карты (приложение)',
+          'com.android.chrome': 'Chrome (приложение)',
+          'com.instagram.android': 'Instagram (приложение)',
+          'com.facebook.katana': 'Facebook (приложение)',
+          'com.vkontakte.android': 'ВКонтакте (приложение)',
+          'org.telegram.messenger': 'Telegram (приложение)',
+          'com.whatsapp': 'WhatsApp (приложение)',
+        };
+        return APPS[pkg] || `Приложение: ${pkg}`;
+      }
+      // Для обычных ссылок сравниваем именно хост (через URL), а не подстроку где
+      // попало в строке — иначе, например, у yandex.ru/clck/... с параметром
+      // "...&url=https://google.com/..." в адресе ошибочно сработал бы "Google".
+      let host = '';
+      try { host = new URL(r).hostname.toLowerCase(); } catch { host = ''; }
+      const hostIs = (domain) => host === domain || host.endsWith('.' + domain);
+      if (hostIs('google.com') || /^google\.[a-z.]+$/.test(host)) return 'Google (поиск)';
+      if (hostIs('yandex.ru') || hostIs('yandex.com') || hostIs('yandex.kz')) return 'Яндекс (поиск)';
+      if (hostIs('2gis.ru') || hostIs('2gis.kz') || hostIs('2gis.com')) return '2ГИС';
+      if (hostIs('instagram.com')) return 'Instagram';
+      if (hostIs('facebook.com')) return 'Facebook';
+      if (hostIs('vk.com')) return 'ВКонтакте';
+      if (hostIs('t.me') || host.includes('telegram')) return 'Telegram';
+      if (host.includes('whatsapp')) return 'WhatsApp';
+      if (hostIs('b2btech.kz')) return 'Другая страница сайта';
+      return host || 'Переход по ссылке';
     }
     recentViews.forEach(r => { r.traffic_source = trafficSource(r.ref, r.entry_query); });
     // Честные боты сами представляются в User-Agent — так помечаем их в отчёте. Это не
@@ -1443,7 +1865,16 @@ app.get('/api/admin/stats', adminAuth, async (req, res) => {
     const ctaByProduct = Object.values(ctaByProductMap)
       .sort((a, b) => (b.offer + b.call + b.whatsapp) - (a.offer + a.call + a.whatsapp));
 
-    res.json({ days, totalViews, byDay, topSearches, topProducts, recentViews, ctaClicks, ctaByProduct, ipCountsFull });
+    // Последние клики по кнопкам (звонок/WhatsApp/КП/подбор) с IP и номером, по
+    // которому звонили/писали — Мира попросила видеть это, а не только суммы по товарам.
+    const recentClicks = await db.allAsync(
+      `SELECT s.ts, s.value AS kind, s.ref_id, s.phone, s.ip, p.name AS product_name
+       FROM stats_events s LEFT JOIN products p ON p.id = s.ref_id
+       WHERE s.type = 'cta_click' AND s.ts >= ${since} AND s.ts < ${until}
+       ORDER BY s.id DESC LIMIT 300`
+    );
+
+    res.json({ days, totalViews, byDay, topSearches, topProducts, recentViews, ctaClicks, ctaByProduct, recentClicks, ipCountsFull });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -1517,8 +1948,18 @@ app.get('/api/admin/reviews', adminAuth, async (req, res) => {
     const status = req.query.status || '';
     const where = status ? 'WHERE r.status = ?' : '';
     const params = status ? [status] : [];
+    // reviewBonusThisMonth — сколько отзывов этого клиента уже принесли бонус в текущем
+    // календарном месяце по времени Алматы (+5 часов к UTC, см. almatyStartOfDay выше) —
+    // показываем в админке при публикации, чтобы было видно лимит (3 в месяц) ДО того,
+    // как начислять ещё один (см. PUT /api/admin/reviews/:id). NULL — отзыв гостя без
+    // аккаунта, бонус в принципе не положен, считать нечего.
     const rows = await db.allAsync(
-      `SELECT r.*, p.name AS product_name FROM reviews r
+      `SELECT r.*, p.name AS product_name,
+        (CASE WHEN r.customer_id IS NOT NULL THEN (
+          SELECT COUNT(*) FROM bonus_log b WHERE b.customer_id = r.customer_id AND b.reason = 'review'
+            AND strftime('%Y-%m', b.created_at, '+5 hours') = strftime('%Y-%m','now','+5 hours')
+        ) ELSE NULL END) AS reviewBonusThisMonth
+       FROM reviews r
        LEFT JOIN products p ON p.id = r.product_id
        ${where} ORDER BY r.id DESC LIMIT 300`, params);
     res.json({ rows });
@@ -1547,12 +1988,81 @@ app.put('/api/admin/reviews/:id', adminAuth, async (req, res) => {
       created_at: v => v || cur.created_at,
     }, b);
     if (sets.length) await db.runAsync(`UPDATE reviews SET ${sets.join(', ')} WHERE id = ?`, [...params, req.params.id]);
-    res.json({ success: true });
+    // Бонус за отзыв — только при публикации (approved), только если отзыв оставил
+    // вошедший клиент (customer_id), только один раз на отзыв (bonus_awarded_at) и не
+    // больше 3 отзывов с бонусом в месяц на клиента (считаем по bonus_log, см. выше в
+    // /api/admin/reviews). Сумму и подтверждение даёт сама админка (окно при публикации,
+    // см. awardBonus/bonusAmount) — здесь только проверяем условия и начисляем.
+    let bonusResult = null;
+    if (b.status === 'approved' && b.awardBonus && !cur.bonus_awarded_at) {
+      if (!cur.customer_id) {
+        bonusResult = { awarded: false, reason: 'Отзыв оставлен без аккаунта — начислять некуда' };
+      } else {
+        const countRow = await db.getAsync(
+          `SELECT COUNT(*) AS c FROM bonus_log WHERE customer_id = ? AND reason = 'review'
+           AND strftime('%Y-%m', created_at, '+5 hours') = strftime('%Y-%m','now','+5 hours')`,
+          [cur.customer_id]
+        );
+        if (countRow.c >= 3) {
+          bonusResult = { awarded: false, reason: 'У клиента уже 3 отзыва с бонусом в этом месяце' };
+        } else {
+          const amount = Math.max(1, Math.round(Number(b.bonusAmount) || 0));
+          await db.runAsync('UPDATE customers SET bonus_balance = bonus_balance + ? WHERE id = ?', [amount, cur.customer_id]);
+          await db.runAsync('INSERT INTO bonus_log (customer_id, delta, reason) VALUES (?, ?, ?)', [cur.customer_id, amount, 'review']);
+          await db.runAsync('UPDATE reviews SET bonus_awarded_at = datetime(\'now\') WHERE id = ?', [req.params.id]);
+          req._logReviewBonus = amount;
+          // Чтобы запись попала не только в общий "Журнал", но и в "Историю изменений
+          // клиента" (см. extractCustomerId/GET /api/admin/customers/:id/log) — сама
+          // ссылка в URL (/reviews/:id) клиента не содержит, иначе её было бы не найти.
+          req._logCustomerId = cur.customer_id;
+          bonusResult = { awarded: true, amount };
+          await notifyCustomer(cur.customer_id, `Спасибо за отзыв! Вам начислено ${amount} ₸ бонусами.`);
+        }
+      }
+    }
+    res.json({ success: true, bonus: bonusResult });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.delete('/api/admin/reviews/:id', adminAuth, async (req, res) => {
   try {
     await db.runAsync('DELETE FROM reviews WHERE id = ?', [req.params.id]);
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/admin/article-comments', adminAuth, async (req, res) => {
+  try {
+    const status = req.query.status || '';
+    const where = status ? 'WHERE c.status = ?' : '';
+    const params = status ? [status] : [];
+    const rows = await db.allAsync(
+      `SELECT c.*, a.title AS article_title, a.slug AS article_slug FROM article_comments c
+       LEFT JOIN articles a ON a.id = c.article_id
+       ${where} ORDER BY c.id DESC LIMIT 300`, params);
+    res.json({ rows });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.put('/api/admin/article-comments/:id', adminAuth, async (req, res) => {
+  try {
+    const b = req.body || {};
+    if ('status' in b && !['pending', 'approved', 'rejected'].includes(b.status)) {
+      return res.status(400).json({ error: 'Некорректный статус' });
+    }
+    const cur = await db.getAsync('SELECT * FROM article_comments WHERE id = ?', [req.params.id]);
+    if (!cur) return res.status(404).json({ error: 'Не найдено' });
+    const { sets, params } = partialUpdate({
+      status: null,
+      name: v => (v || '').trim() || cur.name,
+      text: v => (v || '').trim() || cur.text,
+      reply: v => (v || '').trim() || null,
+    }, b);
+    if (sets.length) await db.runAsync(`UPDATE article_comments SET ${sets.join(', ')} WHERE id = ?`, [...params, req.params.id]);
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.delete('/api/admin/article-comments/:id', adminAuth, async (req, res) => {
+  try {
+    await db.runAsync('DELETE FROM article_comments WHERE id = ?', [req.params.id]);
     res.json({ success: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -1570,8 +2080,8 @@ app.get('/api/admin/products', adminAuth, async (req, res) => {
         where.push('(p.id = ? OR p.name LIKE ? OR p.article LIKE ?)');
         params.push(Number(search), `%${search}%`, `%${search}%`);
       } else {
-        where.push('(p.name LIKE ? OR p.article LIKE ?)');
-        params.push(`%${search}%`, `%${search}%`);
+        where.push('(p.name LIKE ? OR p.article LIKE ? OR p.brand LIKE ?)');
+        params.push(`%${search}%`, `%${search}%`, `%${search}%`);
       }
     }
     // Товар виден в категории/подкатегории либо как в своей "родной" (category_id/
@@ -1645,6 +2155,20 @@ app.put('/api/admin/products/reorder', adminAuth, async (req, res) => {
 
 const jsonArr = (v) => { try { return JSON.stringify(Array.isArray(v) ? v : JSON.parse(v || '[]')); } catch { return '[]'; } };
 
+// Галерея фото/видео проектов подкатегории — массив { type:'photo', file } | { type:'video', url };
+// отбрасываем всё, что не похоже на такую пару (битый JSON/чужая структура от клиента).
+const jsonGallery = (v) => {
+  let arr;
+  try { arr = Array.isArray(v) ? v : JSON.parse(v || '[]'); } catch { return '[]'; }
+  if (!Array.isArray(arr)) return '[]';
+  return JSON.stringify(arr.map(it => {
+    if (!it || typeof it !== 'object') return null;
+    if (it.type === 'photo' && typeof it.file === 'string' && it.file.trim()) return { type: 'photo', file: it.file.trim() };
+    if (it.type === 'video' && typeof it.url === 'string' && it.url.trim()) return { type: 'video', url: it.url.trim() };
+    return null;
+  }).filter(Boolean));
+};
+
 // Технические характеристики — объект { "Характеристика": "Значение" }; админка теперь
 // собирает его из строк-полей (не просит писать JSON руками), сюда может прийти и объект,
 // и готовая строка — отбрасываем пустые/битые пары, как jsonFaq делает для FAQ.
@@ -1698,21 +2222,53 @@ async function saveExtraCategories(productId, list) {
   }
 }
 
+// Отдельная от публичной /api/products/:id — та фильтрует скрытые (published=0) товары,
+// а форма редактирования в админке должна открывать и их тоже (иначе скрытый товар
+// нельзя будет открыть, чтобы снова включить галочку "Показывать на сайте").
+app.get('/api/admin/products/:id', adminAuth, async (req, res) => {
+  try {
+    const product = await db.getAsync(
+      `SELECT p.*, c.name as category_name, c.slug as category_slug,
+              sc.name as subcategory_name, sc.slug as subcategory_slug
+       FROM products p JOIN categories c ON p.category_id = c.id
+       LEFT JOIN subcategories sc ON p.subcategory_id = sc.id
+       WHERE p.id = ?`,
+      [req.params.id]
+    );
+    if (!product) return res.status(404).json({ error: 'Товар не найден' });
+    applyDiscount(product);   // для old_price при активной скидке — форма всегда должна показывать базовую цену
+    product.extra_categories = await db.allAsync(
+      'SELECT category_id, subcategory_id FROM product_extra_categories WHERE product_id = ?', [product.id]);
+    res.json(product);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.post('/api/admin/products', adminAuth, async (req, res) => {
   try {
     const b = req.body;
+    // slug для URL (/product/{id}-{slug}) задаётся один раз, здесь, при создании (вручную,
+    // если ввели в форме, иначе из названия) — и дальше сам не меняется при переименовании
+    // (см. PUT ниже: пустое значение там оставляет прежний slug), иначе переименование
+    // товара меняло бы уже проиндексированный Google/Яндексом адрес и плодило бы в Search
+    // Console «дубли с другим canonical».
     const result = await db.runAsync(
-      `INSERT INTO products (category_id, name, article, brand, description, price, price_on_request, icon, in_stock, featured, specs,
+      `INSERT INTO products (category_id, name, slug, article, brand, description, price, price_on_request, icon, in_stock, featured, specs,
                              subtype, perf, perf_unit, related_ids, bundle_ids, youtube, subtitle, images, subcategory_id,
-                             seo_title, seo_description, contact_primary, in_feed)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [b.category_id, b.name, b.article || '', b.brand || '', b.description || '', b.price || 0,
+                             seo_title, seo_description, contact_primary, in_feed, discount_percent, discount_until, discount_price, published)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [b.category_id, b.name, slugify(b.slug || b.name), b.article || '', b.brand || '', b.description || '', b.price || 0,
        b.price_on_request ? 1 : 0, b.icon || null, b.in_stock ? 1 : 0, jsonArr(b.featured), jsonSpecs(b.specs),
        b.subtype || null, b.perf || null, b.perf_unit || 'ед./час', jsonArr(b.related_ids), jsonArr(b.bundle_ids),
        b.youtube || null, b.subtitle || null, jsonArr(b.images), b.subcategory_id || null,
        (b.seo_title || '').trim() || null, (b.seo_description || '').trim() || null,
        (b.contact_primary === '1' || b.contact_primary === '2') ? b.contact_primary : null,
-       b.in_feed === false ? 0 : 1]
+       b.in_feed === false ? 0 : 1,
+       Math.max(0, Math.min(100, Math.round(Number(b.discount_percent) || 0))),
+       /^\d{4}-\d{2}-\d{2}$/.test(b.discount_until) ? b.discount_until : null,
+       Number(b.discount_price) > 0 ? Number(b.discount_price) : null,
+       b.published === false ? 0 : 1]
     );
     if (b.extra_categories !== undefined) await saveExtraCategories(result.lastID, b.extra_categories);
     res.json({ success: true, id: result.lastID });
@@ -1724,12 +2280,17 @@ app.post('/api/admin/products', adminAuth, async (req, res) => {
 app.put('/api/admin/products/:id', adminAuth, async (req, res) => {
   try {
     const b = req.body || {};
-    const cur = await db.getAsync('SELECT id FROM products WHERE id = ?', [req.params.id]);
+    const cur = await db.getAsync('SELECT id, slug FROM products WHERE id = ?', [req.params.id]);
     if (!cur) return res.status(404).json({ error: 'Товар не найден' });
     const { sets, params } = partialUpdate({
       category_id: null,
       subcategory_id: v => v || null,
       name: null,
+      // slug обычно "заморожен" (см. POST выше) и в форму его трогать не нужно — но если
+      // всё же пришло непустое значение (админ сам вписал), используем его. Пустое — оставляем
+      // прежний slug как есть, а не пересчитываем из названия, иначе переименование товара
+      // опять бы меняло уже проиндексированную ссылку.
+      slug: v => (v ? slugify(v) : cur.slug),
       article: v => v || '',
       brand: v => v || '',
       description: v => v || '',
@@ -1751,6 +2312,10 @@ app.put('/api/admin/products/:id', adminAuth, async (req, res) => {
       seo_description: v => (v || '').trim() || null,
       contact_primary: v => (v === '1' || v === '2') ? v : null,
       in_feed: v => (v ? 1 : 0),
+      published: v => (v ? 1 : 0),
+      discount_percent: v => Math.max(0, Math.min(100, Math.round(Number(v) || 0))),
+      discount_until: v => /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : null,
+      discount_price: v => Number(v) > 0 ? Number(v) : null,
     }, b);
     if (sets.length) await db.runAsync(`UPDATE products SET ${sets.join(', ')} WHERE id = ?`, [...params, req.params.id]);
     if (b.extra_categories !== undefined) await saveExtraCategories(req.params.id, b.extra_categories);
@@ -1819,10 +2384,10 @@ app.post('/api/admin/categories', adminAuth, async (req, res) => {
     if (!name) return res.status(400).json({ error: 'Укажите название' });
     const slug = req.body.slug ? slugify(req.body.slug) : slugify(name);
     const r = await db.runAsync(
-      `INSERT INTO categories (name, slug, description, icon, seo_title, seo_description, faq, in_feed) VALUES (?,?,?,?,?,?,?,?)`,
+      `INSERT INTO categories (name, slug, description, icon, seo_title, seo_description, faq, in_feed, published) VALUES (?,?,?,?,?,?,?,?,?)`,
       [name, slug, description || '', icon || null,
        (req.body.seo_title || '').trim() || null, (req.body.seo_description || '').trim() || null,
-       jsonFaq(req.body.faq), req.body.in_feed === false ? 0 : 1]);
+       jsonFaq(req.body.faq), req.body.in_feed === false ? 0 : 1, req.body.published === false ? 0 : 1]);
     res.json({ success: true, id: r.lastID });
   } catch (e) { res.status(500).json({ error: /UNIQUE/.test(e.message) ? 'Такой slug уже есть' : e.message }); }
 });
@@ -1840,6 +2405,7 @@ app.put('/api/admin/categories/:id', adminAuth, async (req, res) => {
       seo_description: v => (v || '').trim() || null,
       faq: v => jsonFaq(v),
       in_feed: v => (v ? 1 : 0),
+      published: v => (v ? 1 : 0),
     }, b);
     if (sets.length) await db.runAsync(`UPDATE categories SET ${sets.join(', ')} WHERE id = ?`, [...params, req.params.id]);
     // Галочка "Рекламировать" у категории — это не постоянный фильтр, а разовое массовое
@@ -1855,6 +2421,15 @@ app.put('/api/admin/categories/:id', adminAuth, async (req, res) => {
         // категорией), и все товары.
         await db.runAsync('UPDATE subcategories SET in_feed = ? WHERE category_id = ?', [next, req.params.id]);
         await db.runAsync('UPDATE products SET in_feed = ? WHERE category_id = ?', [next, req.params.id]);
+      }
+    }
+    // Та же разовая каскадная логика — для "Показывать на сайте" (published). Выключили —
+    // пропадает и сама категория из навигации/каталога, и все её подкатегории и товары.
+    if ('published' in b) {
+      const next = b.published ? 1 : 0;
+      if (next !== cur.published) {
+        await db.runAsync('UPDATE subcategories SET published = ? WHERE category_id = ?', [next, req.params.id]);
+        await db.runAsync('UPDATE products SET published = ? WHERE category_id = ?', [next, req.params.id]);
       }
     }
     res.json({ success: true });
@@ -1875,6 +2450,21 @@ const slugify = (s) => String(s || '').toLowerCase().trim()
   .replace(/[а-яё]/g, ch => ({а:'a',б:'b',в:'v',г:'g',д:'d',е:'e',ё:'e',ж:'zh',з:'z',и:'i',й:'y',к:'k',л:'l',м:'m',н:'n',о:'o',п:'p',р:'r',с:'s',т:'t',у:'u',ф:'f',х:'h',ц:'c',ч:'ch',ш:'sh',щ:'sch',ъ:'',ы:'y',ь:'',э:'e',ю:'yu',я:'ya'}[ch] || ch))
   .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || ('sc-' + Date.now().toString(36));
 
+// Список характеристик (ключей из поля "Характеристики"), которые реально встречаются
+// у товаров этой подкатегории — чтобы в форме подкатегории можно было выбрать любую из
+// них фильтром, не вспоминая точное название вручную. С count — сколько товаров её
+// заполнили (подсказка, насколько фильтр будет полезен — мало товаров, мало смысла).
+app.get('/api/admin/subcategories/:id/spec-keys', adminAuth, async (req, res) => {
+  try {
+    const rows = await db.allAsync(
+      `SELECT je.key as k, COUNT(*) as cnt
+       FROM products p, json_each(p.specs) je
+       WHERE p.subcategory_id = ? AND json_valid(p.specs)
+       GROUP BY je.key ORDER BY cnt DESC, je.key`,
+      [req.params.id]);
+    res.json(rows.map(r => ({ key: r.k, count: r.cnt })));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 app.get('/api/admin/subcategories', adminAuth, async (req, res) => {
   try {
     res.json(await db.allAsync(
@@ -1896,10 +2486,12 @@ app.post('/api/admin/subcategories', adminAuth, async (req, res) => {
     if (!category_id || !name) return res.status(400).json({ error: 'Укажите категорию и название' });
     const slug = req.body.slug ? slugify(req.body.slug) : slugify(name);
     const r = await db.runAsync(
-      `INSERT INTO subcategories (category_id, name, slug, description, sort, icon, seo_title, seo_description, parent_id, faq, in_feed) VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+      `INSERT INTO subcategories (category_id, name, slug, description, sort, icon, seo_title, seo_description, parent_id, faq, in_feed, filter_specs, google_category, gallery, published) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [category_id, name, slug, description || '', sort || 0, icon || null,
        (req.body.seo_title || '').trim() || null, (req.body.seo_description || '').trim() || null,
-       req.body.parent_id || null, jsonFaq(req.body.faq), req.body.in_feed === false ? 0 : 1]);
+       req.body.parent_id || null, jsonFaq(req.body.faq), req.body.in_feed === false ? 0 : 1,
+       jsonArr(req.body.filter_specs), (req.body.google_category || '').trim() || null, jsonGallery(req.body.gallery),
+       req.body.published === false ? 0 : 1]);
     res.json({ success: true, id: r.lastID });
   } catch (e) { res.status(500).json({ error: /UNIQUE/.test(e.message) ? 'Такой slug уже есть в этой категории' : e.message }); }
 });
@@ -1920,6 +2512,10 @@ app.put('/api/admin/subcategories/:id', adminAuth, async (req, res) => {
       parent_id: v => (v && Number(v) !== Number(req.params.id) ? Number(v) : null),
       faq: v => jsonFaq(v),
       in_feed: v => (v ? 1 : 0),
+      filter_specs: v => jsonArr(v),
+      google_category: v => (v || '').trim() || null,
+      gallery: v => jsonGallery(v),
+      published: v => (v ? 1 : 0),
     }, b);
     if (sets.length) await db.runAsync(`UPDATE subcategories SET ${sets.join(', ')} WHERE id = ?`, [...params, req.params.id]);
     // Та же разовая массовая логика, что у категории (см. PUT /api/admin/categories/:id) —
@@ -1936,6 +2532,20 @@ app.put('/api/admin/subcategories/:id', adminAuth, async (req, res) => {
         const ids = idRows.map(r => r.id);
         const inList = ids.map(() => '?').join(',');
         await db.runAsync(`UPDATE products SET in_feed = ? WHERE subcategory_id IN (${inList})`, [next, ...ids]);
+      }
+    }
+    if ('published' in b) {
+      const next = b.published ? 1 : 0;
+      if (next !== cur.published) {
+        const idRows = await db.allAsync(
+          `WITH RECURSIVE tree(id) AS (
+             SELECT id FROM subcategories WHERE id = ?
+             UNION ALL SELECT s.id FROM subcategories s JOIN tree t ON s.parent_id = t.id
+           ) SELECT id FROM tree`, [req.params.id]);
+        const ids = idRows.map(r => r.id);
+        const inList = ids.map(() => '?').join(',');
+        await db.runAsync(`UPDATE subcategories SET published = ? WHERE id IN (${inList})`, [next, ...ids]);
+        await db.runAsync(`UPDATE products SET published = ? WHERE subcategory_id IN (${inList})`, [next, ...ids]);
       }
     }
     res.json({ success: true });
@@ -2022,13 +2632,28 @@ app.delete('/api/admin/products/:id', adminAuth, async (req, res) => {
 // ==================== ADMIN ORDERS ====================
 app.get('/api/admin/orders', adminAuth, async (req, res) => {
   try {
-    const { page = 1, limit = 30, status, search, sort } = req.query;
+    const { page = 1, limit = 30, status, search, sort, dateFrom, dateTo } = req.query;
     const offset = (page - 1) * limit;
     const statuses = status ? String(status).split(',').filter(Boolean) : [];
     const clauses = [], params = [];
     if (statuses.length) { clauses.push(`status IN (${statuses.map(() => '?').join(',')})`); params.push(...statuses); }
     const q = String(search || '').trim();
-    if (q) { clauses.push('(name LIKE ? OR phone LIKE ? OR company LIKE ?)'); params.push(`%${q}%`, `%${q}%`, `%${q}%`); }
+    if (q) {
+      // Телефон могут искать и как "77027900709", и отформатированным — "+7 (702)
+      // 790-07-09" — обычный LIKE по сырому номеру такое не найдёт (нет пробелов/скобок
+      // в базе), поэтому отдельно сравниваем нормализованный номер с цифрами из запроса.
+      const qDigits = q.replace(/\D/g, '').slice(-10); // та же нормализация, что у phoneNormSql — иначе "+7..." (11 цифр с кодом страны) не совпадёт с усечёнными до 10 цифр номерами в базе
+      const parts = ['name LIKE ?', 'phone LIKE ?', 'company LIKE ?', 'email LIKE ?', 'city LIKE ?', 'message LIKE ?', 'items LIKE ?'];
+      params.push(`%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`);
+      if (qDigits.length >= 3) { parts.push(`${phoneNormSql('phone')} LIKE ?`); params.push(`%${qDigits}%`); }
+      if (/^\d+$/.test(q)) { parts.push('id = ?'); params.push(Number(q)); }
+      clauses.push('(' + parts.join(' OR ') + ')');
+    }
+    // Фильтр «дата закрытия» — по completed_at (когда статус реально стал "Выполнена"),
+    // не по дате поступления заявки. У незакрытых заявок completed_at пустой, поэтому
+    // они сами отсеются, если задан хотя бы один из dateFrom/dateTo.
+    if (/^\d{4}-\d{2}-\d{2}$/.test(String(dateFrom || ''))) { clauses.push('completed_at >= ?'); params.push(dateFrom + ' 00:00:00'); }
+    if (/^\d{4}-\d{2}-\d{2}$/.test(String(dateTo || ''))) { clauses.push('completed_at <= ?'); params.push(dateTo + ' 23:59:59'); }
     const where = clauses.length ? 'WHERE ' + clauses.join(' AND ') : '';
     // белый список колонок — sort приходит из URL, нельзя подставлять как есть в ORDER BY.
     // Формат: "колонка:направление,колонка2:направление2" — сортировка сразу по нескольким полям
@@ -2048,7 +2673,8 @@ app.get('/api/admin/orders', adminAuth, async (req, res) => {
     const rows = await db.allAsync(
       `SELECT o.*, (SELECT COUNT(*) FROM order_notes n WHERE n.order_id = o.id) AS notesCount,
        (SELECT text FROM order_notes n WHERE n.order_id = o.id ORDER BY n.id DESC LIMIT 1) AS lastNote,
-       (SELECT remind_at FROM order_notes n WHERE n.order_id = o.id ORDER BY n.id DESC LIMIT 1) AS nextReminder
+       (SELECT remind_at FROM order_notes n WHERE n.order_id = o.id ORDER BY n.id DESC LIMIT 1) AS nextReminder,
+       COALESCE((SELECT SUM(delta) FROM bonus_log WHERE order_id = o.id AND reason = 'order_earn'), 0) AS bonus_earned
        FROM orders o ${where} ORDER BY ${orderBy} LIMIT ? OFFSET ?`,
       [...params, Number(limit), Number(offset)]
     );
@@ -2061,7 +2687,10 @@ app.get('/api/admin/orders', adminAuth, async (req, res) => {
 app.put('/api/admin/orders/:id/status', adminAuth, async (req, res) => {
   try {
     const { status } = req.body;
-    await db.runAsync('UPDATE orders SET status=? WHERE id=?', [status, req.params.id]);
+    // completed_at — только пока статус реально "Выполнена"; если статус поменяли
+    // обратно, заявка больше не закрыта, и в фильтре по дате закрытия её быть не должно.
+    const completedAtSql = status === 'done' ? "datetime('now')" : 'NULL';
+    await db.runAsync(`UPDATE orders SET status=?, completed_at=${completedAtSql} WHERE id=?`, [status, req.params.id]);
     res.json({ success: true });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -2072,7 +2701,7 @@ app.put('/api/admin/orders/:id/status', adminAuth, async (req, res) => {
 // source='manual' отличает его от заявок с сайта; без CRM/WhatsApp-уведомления — она и так знает.
 app.post('/api/admin/orders', adminAuth, async (req, res) => {
   try {
-    const { name, phone, email, city, company, message, items, total } = req.body;
+    const { name, phone, email, city, company, message, items, total, customerId } = req.body;
     if (!name || !phone) return res.status(400).json({ error: 'Укажите имя и телефон' });
     let itemsStr = typeof items === 'string' ? items : JSON.stringify(items || []);
     let computedTotal = Number(total) || 0;
@@ -2082,10 +2711,16 @@ app.post('/api/admin/orders', adminAuth, async (req, res) => {
         computedTotal = parsed.reduce((sum, item) => sum + (item.price || 0) * (item.qty || 1), 0);
       } catch {}
     }
+    // Клиент найден поиском/автоподстановкой по телефону в форме "Новый заказ" — сразу
+    // привязываем заказ к его аккаунту (customer_id), а не только по совпадению
+    // телефона (иначе он не попадёт в "Заказы клиента" при смене клиентом телефона —
+    // та же история, что и с /api/admin/customers/:id, см. там подробный комментарий).
+    // Проверяем, что такой клиент правда существует — customerId пришёл с фронта.
+    const customer = customerId ? await db.getAsync('SELECT id FROM customers WHERE id = ?', [customerId]) : null;
     const result = await db.runAsync(
-      `INSERT INTO orders (name, phone, email, city, company, message, items, total, source)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'manual')`,
-      [name, phone, email || '', city || '', company || '', message || '', itemsStr, computedTotal]
+      `INSERT INTO orders (name, phone, email, city, company, message, items, total, source, customer_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'manual', ?)`,
+      [name, phone, email || '', city || '', company || '', message || '', itemsStr, computedTotal, customer ? customer.id : null]
     );
     req._logOrderId = result.lastID;   // в URL id ещё нет — заявка только что создана
     res.json({ success: true, orderId: result.lastID });
@@ -2100,11 +2735,19 @@ app.get('/api/admin/orders/:id', adminAuth, async (req, res) => {
     if (!order) return res.status(404).json({ error: 'Не найдено' });
     const history = await db.allAsync(
       `SELECT id, items, total, status, created_at,
-         COALESCE((SELECT SUM(delta) FROM bonus_log WHERE order_id = orders.id AND reason = 'order_earn'), 0) AS bonus_earned
+         COALESCE((SELECT SUM(delta) FROM bonus_log WHERE order_id = orders.id AND reason = 'order_earn'), 0) AS bonus_earned,
+         (SELECT text FROM order_notes n WHERE n.order_id = orders.id ORDER BY n.id DESC LIMIT 1) AS lastNote,
+         (SELECT remind_at FROM order_notes n WHERE n.order_id = orders.id ORDER BY n.id DESC LIMIT 1) AS nextReminder
        FROM orders WHERE ${phoneNormSql('phone')} = ${phoneNormSql('?')} AND id != ? ORDER BY id DESC`,
       [order.phone, order.id]
     );
-    res.json({ order, history });
+    // Если заказ привязан к аккаунту клиента (customer_id) — отдаём его текущие имя/
+    // телефон/номер клиента отдельно: они могут отличаться от того, что сохранено в
+    // самом заказе (имя/телефон заказа — снимок на момент оформления, не обновляется).
+    const linkedCustomer = order.customer_id
+      ? await db.getAsync('SELECT id, name, phone, client_no FROM customers WHERE id = ?', [order.customer_id])
+      : null;
+    res.json({ order, history, linkedCustomer });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -2120,9 +2763,17 @@ app.put('/api/admin/orders/:id', adminAuth, async (req, res) => {
     const message = req.body.message != null ? String(req.body.message).trim() : cur.message;
     const items = req.body.items != null ? JSON.stringify(req.body.items) : cur.items;
     const total = req.body.total != null ? (Number(req.body.total) || 0) : cur.total;
+    // Привязка к аккаунту клиента (customer_id) — пришла из "Найти клиента" в карточке
+    // заказа (текущую привязку фронт присылает как есть, если её не меняли, см.
+    // odFoundCustomerId). Проверяем, что такой клиент правда существует.
+    let customerId = cur.customer_id;
+    if (req.body.customerId !== undefined) {
+      const customer = req.body.customerId ? await db.getAsync('SELECT id FROM customers WHERE id = ?', [req.body.customerId]) : null;
+      customerId = customer ? customer.id : null;
+    }
     await db.runAsync(
-      'UPDATE orders SET name=?, phone=?, email=?, city=?, company=?, message=?, items=?, total=? WHERE id=?',
-      [name, phone, email, city, company, message, items, total, req.params.id]
+      'UPDATE orders SET name=?, phone=?, email=?, city=?, company=?, message=?, items=?, total=?, customer_id=? WHERE id=?',
+      [name, phone, email, city, company, message, items, total, customerId, req.params.id]
     );
     res.json({ success: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -2147,17 +2798,86 @@ app.get('/api/admin/kp-leads', adminAuth, async (req, res) => {
 
 // Баланс бонусов клиента по телефону — для окна завершения заказа (только просмотр,
 // без создания: заводится клиент только при реальном начислении, см. ниже).
+// ---- Чат с клиентами (вкладка "Чат" в админке) ----
+// Список диалогов: только клиенты, у которых есть хоть одно сообщение, последнее
+// сообщение + сколько непрочитанных от клиента — по этому списку строится и сам
+// пункт меню (суммарный бейдж), и десктоп-уведомление при появлении нового диалога/
+// сообщения (см. chatPollAll() в admin.html — опрашивает этот же эндпоинт).
+app.get('/api/admin/chats', adminAuth, async (req, res) => {
+  try {
+    const rows = await db.allAsync(`
+      SELECT c.id AS customer_id, c.name, c.phone,
+        (SELECT text FROM chat_messages m WHERE m.customer_id = c.id ORDER BY m.id DESC LIMIT 1) AS lastText,
+        (SELECT attachment FROM chat_messages m WHERE m.customer_id = c.id ORDER BY m.id DESC LIMIT 1) AS lastAttachment,
+        (SELECT sender FROM chat_messages m WHERE m.customer_id = c.id ORDER BY m.id DESC LIMIT 1) AS lastSender,
+        (SELECT created_at FROM chat_messages m WHERE m.customer_id = c.id ORDER BY m.id DESC LIMIT 1) AS lastAt,
+        (SELECT COUNT(*) FROM chat_messages m WHERE m.customer_id = c.id AND m.sender = 'customer' AND m.read_at IS NULL) AS unread
+      FROM customers c
+      WHERE EXISTS (SELECT 1 FROM chat_messages m WHERE m.customer_id = c.id)
+      ORDER BY lastAt DESC
+      LIMIT 200
+    `);
+    res.json({ chats: rows });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// Открыть диалог с конкретным клиентом — заодно отмечаем его сообщения прочитанными
+// (как и у клиента в /api/me/chat/read), чтобы бейдж непрочитанных погас.
+app.get('/api/admin/chats/:customerId', adminAuth, async (req, res) => {
+  try {
+    const customer = await db.getAsync('SELECT id, name, phone, email FROM customers WHERE id = ?', [req.params.customerId]);
+    if (!customer) return res.status(404).json({ error: 'Клиент не найден' });
+    const rows = await db.allAsync(
+      `SELECT id, sender, admin, text, attachment, created_at, read_at FROM chat_messages WHERE customer_id = ? ORDER BY id ASC LIMIT 200`,
+      [req.params.customerId]
+    );
+    await db.runAsync(
+      `UPDATE chat_messages SET read_at = datetime('now') WHERE customer_id = ? AND sender = 'customer' AND read_at IS NULL`,
+      [req.params.customerId]
+    );
+    res.json({ customer, messages: rows });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post('/api/admin/chats/:customerId', adminAuth, async (req, res) => {
+  try {
+    const customer = await db.getAsync('SELECT id FROM customers WHERE id = ?', [req.params.customerId]);
+    if (!customer) return res.status(404).json({ error: 'Клиент не найден' });
+    const text = String((req.body && req.body.text) || '').trim().slice(0, 2000);
+    const attachment = (req.body && req.body.attachment) || null;
+    if (attachment && !/^\/chat-uploads\/[\w.-]+$/.test(attachment)) return res.status(400).json({ error: 'Некорректное вложение' });
+    if (!text && !attachment) return res.status(400).json({ error: 'Введите сообщение' });
+    const r = await db.runAsync(
+      `INSERT INTO chat_messages (customer_id, sender, admin, text, attachment) VALUES (?, 'admin', ?, ?, ?)`,
+      [req.params.customerId, req.admin.username, text, attachment]
+    );
+    res.json({ success: true, id: r.lastID });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 app.get('/api/admin/customers', adminAuth, async (req, res) => {
   try {
     const page = Math.max(1, Number(req.query.page) || 1);
     const limit = Math.min(100, Number(req.query.limit) || 30);
     const q = String(req.query.search || '').trim();
-    const where = q ? 'WHERE (name LIKE ? OR phone LIKE ? OR email LIKE ?)' : '';
-    const params = q ? [`%${q}%`, `%${q}%`, `%${q}%`] : [];
+    // Та же история, что и с поиском по заявкам (см. /api/admin/orders) — номер могут
+    // ввести отформатированным, сравниваем ещё и по нормализованным цифрам. Ищем и по
+    // основному телефону, и по двум доп. номерам (corp_phone/extra_phone), и по номеру
+    // клиента (client_no — видимый, его и будет вводить админ) и, на всякий случай, по
+    // внутреннему id, если запрос — просто число.
+    const qDigits = q.replace(/\D/g, '').slice(-10); // та же нормализация, что у phoneNormSql — иначе "+7..." (11 цифр с кодом страны) не совпадёт с усечёнными до 10 цифр номерами в базе
+    const parts = [], params = [];
+    if (q) {
+      parts.push('name LIKE ?', 'phone LIKE ?', 'email LIKE ?', 'corp_phone LIKE ?', 'extra_phone LIKE ?', 'company LIKE ?', 'city LIKE ?', 'comment LIKE ?');
+      params.push(`%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`);
+      if (/^\d+$/.test(q)) { parts.push('id = ?', 'client_no = ?'); params.push(Number(q), Number(q)); }
+      if (qDigits.length >= 3) {
+        parts.push(`${phoneNormSql('phone')} LIKE ?`, `${phoneNormSql('corp_phone')} LIKE ?`, `${phoneNormSql('extra_phone')} LIKE ?`);
+        params.push(`%${qDigits}%`, `%${qDigits}%`, `%${qDigits}%`);
+      }
+    }
+    const where = q ? `WHERE (${parts.join(' OR ')})` : '';
     const total = (await db.getAsync(`SELECT COUNT(*) AS c FROM customers ${where}`, params)).c;
     const rows = await db.allAsync(
       `SELECT c.*, (SELECT COUNT(*) FROM orders o
-         WHERE ${phoneNormSql('o.phone')} = ${phoneNormSql('c.phone')}
+         WHERE o.customer_id = c.id OR ${phoneNormSql('o.phone')} = ${phoneNormSql('c.phone')}
        ) AS ordersCount
        FROM customers c ${where} ORDER BY c.id DESC LIMIT ? OFFSET ?`,
       [...params, limit, (page - 1) * limit]
@@ -2166,19 +2886,23 @@ app.get('/api/admin/customers', adminAuth, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// Карточка клиента + все его заказы (по телефону, та же нормализация, что и в списке) —
-// видно, что купил (статус «Выполнена»), что отменилось, что ещё в работе.
+// Карточка клиента + все его заказы — по customer_id (заказы, оформленные вошедшим
+// клиентом или привязанные админом) ИЛИ по телефону (более старые гостевые заказы,
+// ещё не привязанные к аккаунту) — если смотреть только по телефону, после смены
+// номера клиенту все его уже привязанные заказы пропадали бы из карточки.
 app.get('/api/admin/customers/:id', adminAuth, async (req, res) => {
   try {
     const customer = await db.getAsync('SELECT * FROM customers WHERE id = ?', [req.params.id]);
     if (!customer) return res.status(404).json({ error: 'Не найдено' });
     const orders = await db.allAsync(
       `SELECT id, items, total, status, created_at,
-         COALESCE((SELECT SUM(delta) FROM bonus_log WHERE order_id = orders.id AND reason = 'order_earn'), 0) AS bonus_earned
+         COALESCE((SELECT SUM(delta) FROM bonus_log WHERE order_id = orders.id AND reason = 'order_earn'), 0) AS bonus_earned,
+         (SELECT text FROM order_notes n WHERE n.order_id = orders.id ORDER BY n.id DESC LIMIT 1) AS lastNote,
+         (SELECT remind_at FROM order_notes n WHERE n.order_id = orders.id ORDER BY n.id DESC LIMIT 1) AS nextReminder
        FROM orders
-       WHERE ${phoneNormSql('phone')} = ${phoneNormSql('?')}
+       WHERE customer_id = ? OR ${phoneNormSql('phone')} = ${phoneNormSql('?')}
        ORDER BY id DESC`,
-      [customer.phone]
+      [customer.id, customer.phone]
     );
     res.json({ customer, orders });
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -2193,13 +2917,27 @@ app.put('/api/admin/customers/:id', adminAuth, async (req, res) => {
     const email = req.body.email != null ? String(req.body.email).trim() : cur.email;
     const city = req.body.city != null ? String(req.body.city).trim() : cur.city;
     const company = req.body.company != null ? String(req.body.company).trim() : cur.company;
+    const corpPhone = req.body.corpPhone != null ? String(req.body.corpPhone).replace(/\D/g, '') : cur.corp_phone;
+    const extraPhone = req.body.extraPhone != null ? String(req.body.extraPhone).replace(/\D/g, '') : cur.extra_phone;
+    // Комментарий — внутренняя заметка админа о клиенте, клиент её нигде не видит.
+    const comment = req.body.comment != null ? String(req.body.comment).trim() : cur.comment;
     // Бонусы клиента правит только superadmin — остальным поле в интерфейсе недоступно,
     // но на всякий случай проверяем и на сервере, а не только прячем в вёрстке.
     const isSuperadmin = (req.admin.role || 'admin') === 'superadmin';
     const bonusBalance = isSuperadmin && req.body.bonusBalance != null
       ? Math.max(0, Math.round(Number(req.body.bonusBalance) || 0)) : cur.bonus_balance;
+    // Номер меняется — пока не поздно, привязываем к этому клиенту его старые гостевые
+    // заказы (customer_id ещё NULL), которые до сих пор находились только по старому
+    // номеру: иначе после смены телефона они отвалятся из карточки клиента насовсем
+    // (карточка и список показывают заказы по customer_id ИЛИ по текущему телефону).
+    if (phone !== cur.phone) {
+      await db.runAsync(
+        `UPDATE orders SET customer_id = ? WHERE customer_id IS NULL AND ${phoneNormSql('phone')} = ${phoneNormSql('?')}`,
+        [req.params.id, cur.phone]
+      );
+    }
     try {
-      await db.runAsync('UPDATE customers SET name=?, phone=?, email=?, city=?, company=?, bonus_balance=? WHERE id=?', [name, phone, email, city, company, bonusBalance, req.params.id]);
+      await db.runAsync('UPDATE customers SET name=?, phone=?, email=?, city=?, company=?, comment=?, corp_phone=?, extra_phone=?, bonus_balance=? WHERE id=?', [name, phone, email, city, company, comment, corpPhone, extraPhone, bonusBalance, req.params.id]);
     } catch { return res.status(400).json({ error: 'Клиент с таким телефоном уже есть' }); }
     const delta = bonusBalance - cur.bonus_balance;
     if (delta !== 0) {
@@ -2222,6 +2960,10 @@ app.put('/api/admin/customers/:id/deduct-bonus', adminAuth, requireSuperadmin, a
     await db.runAsync('UPDATE customers SET bonus_balance = ? WHERE id = ?', [bonusBalance, req.params.id]);
     await db.runAsync('INSERT INTO bonus_log (customer_id, delta, reason) VALUES (?, ?, ?)', [req.params.id, -amount, 'admin_deduct']);
     req._logDeductAmount = amount;
+    // Чек/квитанция (необязательно) — путь уже получен заранее через POST
+    // /api/admin/upload-receipt; проверяем, что это именно оттуда, а не что попало.
+    const attachment = req.body && req.body.attachment;
+    if (attachment && /^\/receipts\/[\w.-]+$/.test(attachment)) req._logAttachment = attachment;
     res.json({ success: true, bonusBalance });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -2243,6 +2985,11 @@ app.put('/api/admin/orders/:id/complete', adminAuth, async (req, res) => {
   try {
     const order = await db.getAsync('SELECT * FROM orders WHERE id = ?', [req.params.id]);
     if (!order) return res.status(404).json({ error: 'Не найдено' });
+    // Бонус (и начисление, и списание) применяется только один раз — при ПЕРВОМ переводе
+    // заказа в статус "выполнен". Если его потом отметят выполненным ещё раз (например,
+    // статус меняли туда-обратно), completed_at уже стоит — второй раз не начисляем и не
+    // списываем, иначе клиент получал бы бонус за один заказ несколько раз.
+    const firstTimeCompleting = !order.completed_at;
     const items = req.body.items || [];
     const itemsStr = JSON.stringify(items);
     const total = Number(req.body.total) || 0;
@@ -2252,15 +2999,20 @@ app.put('/api/admin/orders/:id/complete', adminAuth, async (req, res) => {
     const isSuperadmin = (req.admin.role || 'admin') === 'superadmin';
     const bonusCfg = (await getSettings()).bonus || {};
     const autoBonus = bonusCfg.enabled && bonusCfg.earn_percent ? Math.round(total * bonusCfg.earn_percent / 100) : 0;
-    const bonusAward = isSuperadmin ? Math.max(0, Math.round(Number(req.body.bonusAward) || 0)) : autoBonus;
+    const bonusAward = firstTimeCompleting ? (isSuperadmin ? Math.max(0, Math.round(Number(req.body.bonusAward) || 0)) : autoBonus) : 0;
     req._logBonusAward = bonusAward;   // для журнала — реально применённая сумма, не то, что просто прислали
 
-    await db.runAsync('UPDATE orders SET items=?, total=?, status=? WHERE id=?', [itemsStr, total, 'done', req.params.id]);
+    await db.runAsync("UPDATE orders SET items=?, total=?, status=?, completed_at=COALESCE(completed_at, datetime('now')) WHERE id=?", [itemsStr, total, 'done', req.params.id]);
 
     const phone = String(order.phone || '').replace(/\D/g, '');
-    let customer = phone ? await db.getAsync('SELECT * FROM customers WHERE phone = ?', [phone]) : null;
+    // Если заказ привязан к аккаунту (customer_id) — бонус идёт именно туда, по ID, а не
+    // по телефону в заказе: иначе, если в заказе потом поменяли телефон (см. PUT .../:id),
+    // бонус ушёл бы не тому клиенту (или создал бы левую новую запись на новый номер)
+    // вместо того, к кому заказ реально привязан.
+    let customer = order.customer_id ? await db.getAsync('SELECT * FROM customers WHERE id = ?', [order.customer_id]) : null;
+    if (!customer && phone) customer = await db.getAsync('SELECT * FROM customers WHERE phone = ?', [phone]);
     if (!customer && phone) {
-      const r = await db.runAsync('INSERT INTO customers (name, phone) VALUES (?, ?)', [order.name, phone]);
+      const r = await db.runAsync('INSERT INTO customers (name, phone, client_no) VALUES (?, ?, ?)', [order.name, phone, await nextClientNo()]);
       customer = await db.getAsync('SELECT * FROM customers WHERE id = ?', [r.lastID]);
     }
     if (customer) req._logCustomerId = customer.id;   // чтобы это попало и в историю клиента
@@ -2269,14 +3021,44 @@ app.put('/api/admin/orders/:id/complete', adminAuth, async (req, res) => {
     if (bonusAward > 0 && customer) {
       await db.runAsync('UPDATE customers SET bonus_balance = bonus_balance + ? WHERE id = ?', [bonusAward, customer.id]);
       await db.runAsync('INSERT INTO bonus_log (customer_id, delta, reason, order_id) VALUES (?, ?, ?, ?)', [customer.id, bonusAward, 'order_earn', order.id]);
-      // Уведомление в личный кабинет — только зарегистрированным (иначе им негде его увидеть,
-      // войти в аккаунт по этому номеру они не смогут). Бонус при этом всё равно начислен.
-      if (customer.registered_at) {
-        await notifyCustomer(customer.id, `Заказ №${order.id} выполнен. Вам начислено ${bonusAward} ₸ бонусами.`);
-      }
       bonusBalance = customer.bonus_balance + bonusAward;
     }
-    res.json({ success: true, bonusBalance, bonusAwarded: bonusAward });
+
+    // Списание бонуса, который клиент попросил при оформлении (см. bonus_requested в
+    // database.js) — только сейчас, когда заказ подтверждён, и только один раз
+    // (firstTimeCompleting — не списываем повторно, если заказ зачем-то отметят
+    // выполненным ещё раз). Остаток на счету мог измениться с момента заказа (например,
+    // уже потрачен на другой заказ) — списываем не больше того, что есть сейчас.
+    // Клиент мог и передумать уже после оформления — тогда админ снимает галочку в
+    // форме завершения (coApplyBonusRedeem), applyBonusRedeem приходит false, и запрос
+    // на списание просто снимается с заказа, бонус остаётся у клиента нетронутым.
+    let bonusRedeemed = 0;
+    const applyBonusRedeem = req.body.applyBonusRedeem !== false;
+    if (firstTimeCompleting && customer && order.bonus_requested > 0) {
+      if (applyBonusRedeem) {
+        bonusRedeemed = Math.max(0, Math.min(order.bonus_requested, bonusBalance || 0));
+        if (bonusRedeemed > 0) {
+          await db.runAsync('UPDATE customers SET bonus_balance = bonus_balance - ? WHERE id = ?', [bonusRedeemed, customer.id]);
+          await db.runAsync('INSERT INTO bonus_log (customer_id, delta, reason, order_id) VALUES (?, ?, ?, ?)', [customer.id, -bonusRedeemed, 'order_redeem', order.id]);
+          bonusBalance -= bonusRedeemed;
+        }
+        await db.runAsync("UPDATE orders SET bonus_redeemed_at = datetime('now') WHERE id = ?", [order.id]);
+      } else {
+        await db.runAsync('UPDATE orders SET bonus_requested = 0 WHERE id = ?', [order.id]);
+      }
+    }
+
+    // Уведомление в личный кабинет — только зарегистрированным (иначе им негде его увидеть,
+    // войти в аккаунт по этому номеру они не смогут). Бонусы при этом всё равно
+    // начислены/списаны — уведомление лишь информирует. Одно сообщение на оба события,
+    // чтобы не присылать два подряд за один и тот же заказ.
+    if (customer && customer.registered_at && (bonusAward > 0 || bonusRedeemed > 0)) {
+      const parts = [`Заказ №${order.id} выполнен.`];
+      if (bonusAward > 0) parts.push(`Начислено ${bonusAward} ₸ бонусами.`);
+      if (bonusRedeemed > 0) parts.push(`Списано ${bonusRedeemed} ₸ бонусами.`);
+      await notifyCustomer(customer.id, parts.join(' '));
+    }
+    res.json({ success: true, bonusBalance, bonusAwarded: bonusAward, bonusRedeemed });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -2307,33 +3089,62 @@ const mw = (multerMiddleware) => (req, res, next) =>
 
 app.post('/api/admin/upload-icon', adminAuth, mw(upload.single('icon')), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'Файл не загружен' });
-  await compressUploadedImage(req.file.path);
-  res.json({ filename: req.file.filename });
+  const filename = await compressUploadedImage(req.file.path);
+  res.json({ filename });
+});
+
+// Загрузка фото для чата — отдельным запросом (и для клиента, и для админа),
+// путь потом прикладывается к самому сообщению через POST /api/me/chat или
+// POST /api/admin/chats/:customerId (поле attachment).
+app.post('/api/me/chat-upload', customerAuth, mw(uploadChat.single('photo')), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'Файл не получен' });
+  res.json({ path: '/chat-uploads/' + req.file.filename });
+});
+app.post('/api/admin/chat-upload', adminAuth, mw(uploadChat.single('photo')), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'Файл не получен' });
+  res.json({ path: '/chat-uploads/' + req.file.filename });
+});
+
+// Квитанция/чек — отдаём готовый путь, дальше его прикладывают к конкретному действию
+// (сейчас только списание бонуса, см. PUT /api/admin/customers/:id/deduct-bonus).
+// Не через compressUploadedImage — она умеет только растровые форматы, а тут бывает PDF.
+app.post('/api/admin/upload-receipt', adminAuth, mw(uploadReceipt.single('receipt')), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'Файл не загружен' });
+  res.json({ path: '/receipts/' + req.file.filename });
 });
 
 // Несколько изображений сразу
 app.post('/api/admin/upload-images', adminAuth, mw(upload.array('images', 12)), async (req, res) => {
   if (!req.files || !req.files.length) return res.status(400).json({ error: 'Файлы не загружены' });
-  await Promise.all(req.files.map(f => compressUploadedImage(f.path)));
-  res.json({ filenames: req.files.map(f => f.filename) });
+  const filenames = await Promise.all(req.files.map(f => compressUploadedImage(f.path)));
+  res.json({ filenames });
 });
 
 // Фото профиля клиента (личный кабинет)
 app.post('/api/me/avatar', customerAuth, mw(upload.single('avatar')), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'Файл не получен' });
-  await compressUploadedImage(req.file.path);
-  await db.runAsync('UPDATE customers SET avatar = ? WHERE id = ?', ['/icons/' + req.file.filename, req.customer.id]);
-  res.json({ avatar: '/icons/' + req.file.filename });
+  const filename = await compressUploadedImage(req.file.path);
+  await db.runAsync('UPDATE customers SET avatar = ? WHERE id = ?', ['/icons/' + filename, req.customer.id]);
+  res.json({ avatar: '/icons/' + filename });
 });
 
 // ==================== UPLOAD ZIP (иконки) ====================
 const multerZip = multer({ dest: '/tmp/' });
-app.post('/api/admin/upload-icons-zip', adminAuth, multerZip.single('zip'), (req, res) => {
+app.post('/api/admin/upload-icons-zip', adminAuth, multerZip.single('zip'), async (req, res) => {
   const { execSync } = require('child_process');
   const zipPath = req.file.path;
   const outDir = path.join(__dirname, 'public/icons');
   try {
+    // Список файлов — до распаковки, той же командой unzip (не fs.readdirSync после:
+    // в outDir уже лежат все остальные иконки сайта, нельзя пережимать их все заново
+    // при каждой загрузке нового ZIP).
+    const names = execSync(`unzip -Z1 "${zipPath}"`).toString().split('\n').map(s => s.trim()).filter(Boolean);
     execSync(`unzip -o "${zipPath}" -d "${outDir}"`);
+    // Та же пережимка/конвертация (BMP/TIFF → JPEG и т.д.), что и при обычной загрузке
+    // одной иконки — иначе товары, добавленные через ZIP, остаются с необработанными,
+    // "сырыми" картинками (замечено на BMP-иконках — отдавались с неверным Content-Type
+    // и проваливали оценку производительности в PageSpeed).
+    await Promise.all(names.map(name => compressUploadedImage(path.join(outDir, name))));
     res.json({ success: true, message: 'Иконки загружены' });
   } catch (e) {
     res.status(500).json({ error: 'Ошибка при распаковке' });
@@ -2360,6 +3171,74 @@ app.get(/.*/, async (req, res) => {
   const code = (isAdmin || req.path === '/') ? 200 : 404;
   res.status(code).type('html').send(html);
 });
+
+// Просьба оставить отзыв (WhatsApp) — раз в сутки в 10:00 по Алматы, без выходных
+// (суббота/воскресенье пропускаем — клиентов не трогаем, когда никто не ответит).
+// Берём заказы со статусом "done", выполненные 3+ дня назад, которым ещё не
+// отправляли эту просьбу (review_requested_at NULL — см. database.js).
+function almatyNow() {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Almaty', weekday: 'short', hour: 'numeric', hourCycle: 'h23',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(new Date());
+  const get = t => (parts.find(p => p.type === t) || {}).value;
+  return { hour: parseInt(get('hour'), 10), weekday: get('weekday'), dateKey: `${get('year')}-${get('month')}-${get('day')}` };
+}
+// Начало суток (00:00) по времени Алматы (UTC+5, без перехода на летнее) — но в UTC,
+// потому что именно в UTC хранятся все ts/created_at в базе (datetime('now') у SQLite
+// всегда возвращает UTC). Используется статистикой для "Сегодня"/"Вчера" — раньше там
+// был datetime('now','start of day'), а это начало суток по UTC, а не по Алматы: ночью,
+// пока в Алматы уже новый день, а в UTC (на 5 часов позади) ещё старый, "Сегодня"
+// показывало данные за вчера.
+function almatyStartOfDay(daysAgo) {
+  const ALMATY_OFFSET_MS = 5 * 60 * 60 * 1000;
+  const shifted = new Date(Date.now() + ALMATY_OFFSET_MS);   // "который час в Алматы", представленный как UTC-время
+  shifted.setUTCDate(shifted.getUTCDate() - (daysAgo || 0));
+  shifted.setUTCHours(0, 0, 0, 0);                            // начало суток по Алматы (в той же "сдвинутой" шкале)
+  const utcInstant = new Date(shifted.getTime() - ALMATY_OFFSET_MS); // обратно в настоящий UTC-момент
+  return utcInstant.toISOString().slice(0, 19).replace('T', ' ');   // формат как у datetime('now') в SQLite
+}
+let lastReviewRunDate = null;
+async function runReviewRequestsIfDue() {
+  const { hour, weekday, dateKey } = almatyNow();
+  if (hour !== 10 || lastReviewRunDate === dateKey) return;
+  if (weekday === 'Sat' || weekday === 'Sun') { lastReviewRunDate = dateKey; return; }
+  lastReviewRunDate = dateKey;
+  // Переключатель в админке — Вовлечённость → Отзывы (по умолчанию включено,
+  // пока админ явно не выключил).
+  const revCfg = (await getSettings()).reviews_followup;
+  if (revCfg && revCfg.enabled === false) return;
+  try {
+    const rows = await db.allAsync(
+      `SELECT * FROM orders WHERE status = 'done' AND completed_at IS NOT NULL
+       AND completed_at <= datetime('now', '-3 days') AND review_requested_at IS NULL
+       ORDER BY id LIMIT 200`
+    );
+    for (const order of rows) {
+      try {
+        const sent = await notify.sendReviewRequest(order);
+        await db.runAsync(`UPDATE orders SET review_requested_at = datetime('now') WHERE id = ?`, [order.id]);
+        console.log('Отзыв: запрос отправлен по заказу №' + order.id);
+        // Журнал действий — кому и что отправили (видно в карточке заказа и в общем
+        // журнале, admin='система', т.к. это фоновая задача, а не действие человека).
+        const productLabel = sent && sent.productName ? `${sent.productName} — ` : '';
+        await db.runAsync(
+          `INSERT INTO admin_log (admin, action, label, detail, order_id) VALUES (?,?,?,?,?)`,
+          ['система', 'notify', `Отзыв: запрос отправлен — ${order.name || ''} (${order.phone})`,
+           `WhatsApp review_request: ${productLabel}${sent && sent.link}`, order.id]
+        );
+      } catch (e) {
+        notify.logFail('review_request', 'заказ №' + order.id + ': ' + e.message);
+      }
+    }
+  } catch (e) {
+    notify.logFail('review_request_batch', e.message);
+  }
+}
+// Проверяем раз в час, не наступило ли 10:00 — не раз в сутки таймером, чтобы
+// не потерять запуск при перезапуске сервера (pm2) ровно в этот час.
+setInterval(() => { runReviewRequestsIfDue().catch(() => {}); }, 60 * 60 * 1000);
+runReviewRequestsIfDue().catch(() => {});
 
 app.listen(PORT, () => {
   console.log(`✅ SIGMA MARKET Shop запущен: http://localhost:${PORT}`);

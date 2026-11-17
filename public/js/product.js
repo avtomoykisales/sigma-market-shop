@@ -33,6 +33,9 @@ const PV_ICON_HEART = '<svg viewBox="0 0 24 24" width="20" height="20" fill="non
 const PV_ICON_COMPARE = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="6" y1="20" x2="6" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="18" y1="20" x2="18" y2="14"/></svg>';
 
 async function showProduct(id) {
+  // Якорь вроде #reviews (см. ниже) нужно запомнить ДО setUrl() — она переписывает
+  // URL через pushState и стирает hash, если его не передать явно.
+  const initialHash = location.hash;
   state.view = 'product';
   state.productId = id;
   setUrl('/product/' + id);
@@ -104,8 +107,15 @@ async function showProduct(id) {
 
   pvGallery = (p.gallery && p.gallery.length) ? p.gallery.slice() : [];
   pvIdx = 0;
-  const pvBadgesHtml = window.featuredBadgesHtml ? window.featuredBadgesHtml(p) : '';
-  const galleryHtml = pvGallery.length
+  const pvIsRibbon = p.discount_mode === 'price';
+  const pvExtraBadge = (window.discountBadgeHtml ? window.discountBadgeHtml(p) : '')
+    + (pvIsRibbon ? '' : (window.countdownHtml ? window.countdownHtml(p, 'pv-countdown') : ''));
+  const pvBadgesHtml = (window.featuredBadgesHtml ? window.featuredBadgesHtml(p, pvExtraBadge) : '')
+    + (pvIsRibbon && window.countdownHtml ? window.countdownHtml(p, 'pv-countdown card-countdown-corner') : '');
+  // Лента — вне .pv-img (своей overflow:hidden-рамки у картинки), отдельным элементом
+  // в .pv-gallery: иначе её 3D-тень и уголки обрезались бы по рамке картинки.
+  const pvRibbonHtml = (pvIsRibbon && window.discountRibbonHtml) ? window.discountRibbonHtml(p) : '';
+  const galleryHtml = (pvGallery.length
     ? `<div class="pv-img">
          ${pvBadgesHtml}
          <img id="pvMainImg" src="/icons/${pvGallery[0]}" alt="${p.name}" fetchpriority="high" onerror="this.style.visibility='hidden'">
@@ -116,12 +126,20 @@ async function showProduct(id) {
        ${pvGallery.length > 1 ? `<div class="pv-thumbs" id="pvThumbs">
          ${pvGallery.map((fn, i) => `<button class="pv-thumb${i === 0 ? ' active' : ''}" type="button" onclick="pvSetImg(${i})"><img src="${thumbIconUrl(fn)}" alt="" onerror="this.onerror=function(){this.style.opacity=.2};this.src='/icons/${fn}'"></button>`).join('')}
        </div>` : ''}`
-    : `<div class="pv-img">${pvBadgesHtml}<span style="font-size:90px">${getCatEmoji(p.category_slug)}</span></div>`;
+    : `<div class="pv-img">${pvBadgesHtml}<span style="font-size:90px">${getCatEmoji(p.category_slug)}</span></div>`)
+    + pvRibbonHtml;
 
   const pvBonus = window.bonusForPrice(p.price);
+  const pvSaveHtml = window.savePillHtml ? window.savePillHtml(p, 'pv-save-pill') : '';
   const priceHtml = p.price_on_request
     ? `<div class="pv-price-req">Цена по запросу — итоговая стоимость зависит от комплектации</div>`
-    : p.price ? `<div class="pv-price">${formatPrice(p.price)}</div>${pvBonus ? `<div class="pv-bonus">+${pvBonus.toLocaleString('ru-KZ')} ₸ бонусов на счёт</div>` : ''}` : '';
+    : p.price ? `<div class="pv-price-block">
+        ${p.old_price ? `<div class="pv-price-old">${formatPrice(p.old_price)}</div>` : ''}
+        <div class="pv-price-row">
+          <span class="pv-price${p.old_price ? ' pv-price-sale' : ''}">${formatPrice(p.price)}</span>
+          ${pvSaveHtml}
+        </div>
+      </div>${pvBonus ? `<div class="pv-bonus">+${pvBonus.toLocaleString('ru-KZ')} ₸ бонусов на счёт</div>` : ''}` : '';
 
   // Блок покупки — две крупные кнопки (В корзину / КП), две второстепенные (WhatsApp/
   // Позвонить, нейтральные) и компактные текстовые действия (избранное/сравнить) без
@@ -131,7 +149,13 @@ async function showProduct(id) {
   const offerBtn = kpInstant
     ? `<button type="button" class="pv-cta pv-cta-kp" onclick="openKpModal(${p.id})"><span class="pv-cta-icon">${PV_ICON_KP}</span><span class="pv-cta-text"><b>Скачать КП</b><small>Коммерческое предложение</small></span></button>`
     : `<button type="button" class="pv-cta pv-cta-kp" onclick="requestModal(${p.id})"><span class="pv-cta-icon">${PV_ICON_KP}</span><span class="pv-cta-text"><b>Запросить КП</b><small>Коммерческое предложение</small></span></button>`;
-  const buyBtn = p.price_on_request ? '' : `<button type="button" class="pv-cta pv-cta-cart" onclick="buyNow(${p.id})"><span class="pv-cta-icon">${PV_ICON_CART}</span><span class="pv-cta-text"><b>Добавить в корзину</b></span></button>`;
+  // Товары "по запросу" тоже можно класть в корзину — итог там считается отдельно
+  // ("+ по запросу"), а цену можно узнать, оформив заявку из корзины.
+  // Эта главная кнопка на странице товара — с переключением (В корзину ⇄ В корзине) и
+  // открытием самой корзины сразу по клику (см. pvToggleCart); та же логика теперь и
+  // в каталоге/мини-карточках (см. catalogToggleCart в index.html) — отдельного попапа
+  // "Товар добавлен" (buyNow/addedCartOverlay) в проекте больше нет.
+  const buyBtn = pvCartBtnHtml(p);
   // contactActions живёт в /js/site.js — на медленном мобильном интернете этот файл
   // иногда ещё не успевает выполниться к этому моменту (та же природа, что и у
   // openModal/trackView), и кнопки связи молча не появляются до перезагрузки страницы.
@@ -269,6 +293,14 @@ async function showProduct(id) {
   pushRecent(p.id);   // сама уже вызывает renderRecent() — второй раз звать не нужно
   loadProductReviews(p.id);
   window.trackView(productUrl(p), p.id);
+
+  // Прямая ссылка вида /product/38#reviews (например, из просьбы оставить отзыв в
+  // WhatsApp после выполнения заказа) — сразу открываем вкладку "Отзывы" и скроллим к ней.
+  if (initialHash === '#reviews') {
+    pvSwitchTab('reviews');
+    const tabsEl = document.querySelector('.pv-tabs');
+    if (tabsEl) setTimeout(() => tabsEl.scrollIntoView({ block: 'start' }), 400);
+  }
 }
 
 // ---- отзывы на товар ----
@@ -324,20 +356,31 @@ async function loadProductReviews(id) {
         </article>`).join('')}</div>`
     : `<p class="pv-review-empty">Отзывов пока нет — будьте первым!</p>`;
 
+  // Отзыв может оставить только вошедший в аккаунт клиент (см. проверку в POST
+  // /api/products/:id/reviews) — анонимам вместо формы показываем приглашение войти.
+  const loggedIn = !!(window.custState && window.custState.customer);
+  const formHtml = loggedIn
+    ? `<div class="review-form pv-review-form">
+        <h4>Оставить отзыв</h4>
+        <input type="text" id="rvpName" placeholder="Ваше имя *" value="${pvEsc(window.custState.customer.name || '')}">
+        <label class="stars-input-label">Ваша оценка *</label>
+        <div class="stars-input" id="rvpStars" data-rating="0" onmouseleave="pvHoverStars(this,0)">
+          ${[1, 2, 3, 4, 5].map(v => `<span class="si-star" data-v="${v}" onclick="pvSetStars(this)" onmouseenter="pvHoverStars(this.closest('.stars-input'),${v})">★</span>`).join('')}
+        </div>
+        <textarea id="rvpText" placeholder="Ваш отзыв (необязательно)"></textarea>
+        <button type="button" class="btn-primary" onclick="submitProductReview(${id})">Оставить отзыв</button>
+      </div>`
+    : `<div class="review-form pv-review-form">
+        <h4>Оставить отзыв</h4>
+        <p class="pv-review-empty">Чтобы оставить отзыв, нужно войти в личный кабинет.</p>
+        <button type="button" class="btn-primary" onclick="openAccountModal()">Войти</button>
+      </div>`;
+
   wrap.innerHTML = `
     <h3>Отзывы</h3>
     ${summaryHtml}
     ${listHtml}
-    <div class="review-form pv-review-form">
-      <h4>Оставить отзыв</h4>
-      <input type="text" id="rvpName" placeholder="Ваше имя *">
-      <label class="stars-input-label">Ваша оценка *</label>
-      <div class="stars-input" id="rvpStars" data-rating="0" onmouseleave="pvHoverStars(this,0)">
-        ${[1, 2, 3, 4, 5].map(v => `<span class="si-star" data-v="${v}" onclick="pvSetStars(this)" onmouseenter="pvHoverStars(this.closest('.stars-input'),${v})">★</span>`).join('')}
-      </div>
-      <textarea id="rvpText" placeholder="Ваш отзыв (необязательно)"></textarea>
-      <button type="button" class="btn-primary" onclick="submitProductReview(${id})">Оставить отзыв</button>
-    </div>`;
+    ${formHtml}`;
 }
 
 // Подсветка звёзд при наведении (до клика) — иначе непонятно, что по ним можно кликать.
@@ -412,12 +455,14 @@ function miniCard(p, isFirst, withBuyBtn) {
         ? `<img src="${thumbIconUrl(p.icon)}" alt="${p.name}" fetchpriority="high" onerror="this.onerror=function(){this.style.display='none'};this.src='/icons/${p.icon}'">`
         : `<img src="${thumbIconUrl(p.icon)}" alt="${p.name}" loading="lazy" onerror="this.onerror=function(){this.style.display='none'};this.src='/icons/${p.icon}'">`)
     : `<span>${getCatEmoji(p.category_slug)}</span>`;
-  const price = p.price_on_request ? 'По запросу' : (p.price ? formatPrice(p.price) : '—');
-  const badgesHtml = window.featuredBadgesHtml ? window.featuredBadgesHtml(p) : '';
+  const price = p.price_on_request ? 'По запросу' : (p.price ? (p.old_price ? `<span class="mini-price-old">${formatPrice(p.old_price)}</span>` : '') + formatPrice(p.price) : '—');
+  const badgesHtml = window.featuredBadgesHtml ? window.featuredBadgesHtml(p, window.discountBadgeHtml ? window.discountBadgeHtml(p) : '') : '';
+  // Та же кнопка/логика, что в каталоге (см. cardHtml/catalogToggleCart в index.html) —
+  // не в корзине добавляет и сразу открывает корзину, уже в корзине просто открывает её;
+  // .btn-buy[data-id] нужен, чтобы removeFromCart() мог синхронизировать и эту кнопку.
+  const inCartNow = typeof state !== 'undefined' && state.cart && state.cart.some(i => i.id === p.id);
   const buyHtml = withBuyBtn
-    ? (p.price_on_request
-        ? `<button type="button" class="mini-buy-btn" onclick="event.preventDefault();event.stopPropagation();requestModal(${p.id})">Запросить цену</button>`
-        : `<button type="button" class="mini-buy-btn" onclick="event.preventDefault();event.stopPropagation();buyNow(${p.id})">В корзину</button>`)
+    ? `<button type="button" class="mini-buy-btn btn-buy${inCartNow ? ' in-cart' : ''}" data-id="${p.id}" onclick="event.preventDefault();event.stopPropagation();catalogToggleCart(${p.id})">${inCartNow ? '✅ В корзине' : 'В корзину'}</button>`
     : '';
   return `<a class="mini-card" href="${productUrl(p)}" onclick="showProduct(${p.id});return false;">
     <div class="mini-img">${badgesHtml}${img}</div>
@@ -442,12 +487,24 @@ function closeKpModal() { document.getElementById('kpOverlay').classList.remove(
 async function kpDownload() {
   const phone = document.getElementById('kpPhone').value.trim();
   if (!window.isValidPhone(phone)) { showToast('⚠️ Введите корректный номер телефона'); return; }
+  // Пока запрос выполняется — кнопка заблокирована и меняет текст, иначе непонятно,
+  // сработало ли нажатие вообще (особенно на медленной сети, пока идёт повтор при
+  // обрыве — см. ниже), и человек нажимает ещё раз, не дожидаясь ответа.
+  const btn = document.getElementById('kpDownloadBtn');
+  if (btn && btn.disabled) return;   // уже выполняется — повторное нажатие игнорируем
+  const btnText = btn ? btn.textContent : null;
+  if (btn) { btn.disabled = true; btn.textContent = 'Скачивается…'; }
   try {
     const websiteEl = document.getElementById('kpWebsite');
-    const r = await fetch('/api/kp/download', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ phone, productId: kpProductId, website: websiteEl ? websiteEl.value : '' }),
-    });
+    const body = JSON.stringify({ phone, productId: kpProductId, website: websiteEl ? websiteEl.value : '' });
+    const doFetch = () => fetch('/api/kp/download', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
+    // На мобильной сети первый запрос иногда рвётся ("Failed to fetch") — пробуем ещё
+    // раз один раз, та же причина и то же решение, что у apiFetch (см. site.js). Теперь
+    // это безопасно: сервер сам не даст повторному запросу создать дублирующий лид
+    // (см. комментарий у /api/kp/download).
+    let r;
+    try { r = await doFetch(); }
+    catch (e) { await new Promise(res => setTimeout(res, 600)); r = await doFetch(); }
     if (!r.ok) {
       const data = await r.json().catch(() => null);
       if (r.status >= 500) window.logClientError('kp/download ' + r.status + ': ' + ((data && data.error) || ''), 'kpDownload');
@@ -467,28 +524,75 @@ async function kpDownload() {
   } catch (e) {
     window.logClientError(e && (e.message || e), 'kpDownload');
     showToast('❌ Ошибка сети. Попробуйте ещё раз.');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = btnText; }
   }
 }
 
-function buyNow(id) {
+// Главная кнопка "В корзину" на странице товара — рисует её в зависимости от того,
+// лежит ли товар в корзине уже сейчас (например, если вернулись на страницу позже).
+function pvCartBtnHtml(p) {
+  const inCart = typeof state !== 'undefined' && state.cart && state.cart.some(i => i.id === p.id);
+  return `<button type="button" class="pv-cta pv-cta-cart${inCart ? ' in-cart' : ''}" id="pvCtaCart" onclick="pvToggleCart(${p.id})">` +
+    (inCart
+      ? `<span class="pv-cta-icon">✅</span><span class="pv-cta-text"><b>В корзине</b></span>`
+      : `<span class="pv-cta-icon">${PV_ICON_CART}</span><span class="pv-cta-text"><b>Добавить в корзину</b></span>`) +
+    `</button>`;
+}
+// Клик по ней же: не в корзине — добавляет и сразу открывает корзину (как у конкурентов —
+// видно, что реально добавилось, без отдельного попапа); уже в корзине — товар не трогаем,
+// просто открываем корзину (например, посмотреть/изменить количество), раз кнопка и так
+// говорит "В корзине" — убирать товар отсюда неожиданно для пользователя.
+// Состояние кнопки меняем сразу по направлению действия, не дожидаясь async addToCart
+// (он кладёт товар в state.cart только в колбэке fetch — проверять state.cart тут же
+// после вызова было бы рано).
+function pvToggleCart(id) {
+  // На медленном/нестабильном мобильном интернете кнопка (она в HTML сразу, см. seo.js)
+  // может быть нажата раньше, чем выполнится большой инлайн-скрипт ниже на странице,
+  // где определены addToCart/toggleCart/state — до этого момента клик тут молча ничего
+  // не делал (ни ошибки, ни реакции на экране), что выглядело как "сломанная кнопка"
+  // и для живых посетителей, и для автоматической проверки Google Merchant Center.
+  // Вместо тишины — предупреждаем и сами повторяем попытку, как только всё догрузится.
+  if (typeof addToCart !== 'function' || typeof toggleCart !== 'function' || typeof state === 'undefined') {
+    if (window.showToast) window.showToast('⏳ Страница ещё загружается, секунду…');
+    pvRetryToggleCart(id, 0);
+    return;
+  }
+  const btn = document.getElementById('pvCtaCart');
+  const inCart = typeof state !== 'undefined' && state.cart && state.cart.some(i => i.id === id);
+  const panel = document.getElementById('cartPanel');
+  if (inCart) {
+    if (panel && !panel.classList.contains('open') && typeof toggleCart === 'function') toggleCart();
+    return;
+  }
   if (typeof addToCart === 'function') addToCart(id);
-  document.getElementById('addedCartOverlay').classList.add('open');
+  if (panel && !panel.classList.contains('open') && typeof toggleCart === 'function') toggleCart();
+  if (btn) {
+    btn.classList.add('in-cart');
+    btn.innerHTML = `<span class="pv-cta-icon">✅</span><span class="pv-cta-text"><b>В корзине</b></span>`;
+  }
 }
-function closeAddedCart() { document.getElementById('addedCartOverlay').classList.remove('open'); }
-function goToCheckout() {
-  closeAddedCart();
-  if (!document.getElementById('cartPanel').classList.contains('open')) toggleCart();
+function pvRetryToggleCart(id, attempt) {
+  if (attempt >= 15) return; // ~3 секунды (15 × 200мс) — дальше тост уже показан, сдаёмся молча
+  setTimeout(function () {
+    if (typeof addToCart === 'function' && typeof toggleCart === 'function' && typeof state !== 'undefined') {
+      pvToggleCart(id);
+    } else {
+      pvRetryToggleCart(id, attempt + 1);
+    }
+  }, 200);
 }
-
 function requestModal(id) {
   window.trackClick('offer', id);
   // Кладём товар в корзину по-настоящему (не только текстом в сообщении) — так видно,
   // на что именно запрашивают КП. После успешной отправки заявки корзина и так
-  // очищается целиком (см. submitOrder), отдельно убирать не нужно.
+  // очищается целиком, отдельно убирать не нужно.
   if (typeof addToCart === 'function') addToCart(id);
-  if (!document.getElementById('cartPanel').classList.contains('open')) toggleCart();
   const url = location.origin + '/product/' + id;
-  document.getElementById('oMessage').value = `Прошу предоставить коммерческое предложение на товар #${id}\n${url}`;
+  // Комментарий заполняется уже на странице /checkout (см. checkout.js) — туда и ведём
+  // сразу, а не в попап корзины, где поля сообщения больше нет.
+  try { localStorage.setItem('checkoutPrefillMessage', `Прошу предоставить коммерческое предложение на товар #${id}\n${url}`); } catch (e) {}
+  location.href = '/checkout';
 }
 
 // ===== СТАТЬИ (список + страница статьи) =====
@@ -584,7 +688,59 @@ async function showArticle(slug) {
     <div class="article-meta">${articleDate(a.created_at)}</div>
     ${coverHtml}
     <div class="article-body catalog-about-text">${a.content || ''}</div>
+    <div class="article-comments" id="articleComments"></div>
     <a class="pv-back" href="/articles" onclick="showArticles();return false;">← Все статьи</a>`;
 
   window.trackView(articleUrl(a));
+  loadArticleComments(a.id);
+}
+
+function acDate(s) {
+  const d = new Date(String(s || '').replace(' ', 'T') + 'Z');
+  return isNaN(d) ? '' : d.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' });
+}
+
+async function loadArticleComments(articleId) {
+  const wrap = document.getElementById('articleComments');
+  if (!wrap) return;
+  let rows = [];
+  try { rows = (await apiFetch(`/api/articles/${articleId}/comments`)).rows || []; }
+  catch (e) { if (window.logClientError) window.logClientError('Не удалось загрузить комментарии статьи #' + articleId + ': ' + (e && (e.message || e)), 'loadArticleComments'); }
+
+  const listHtml = rows.length
+    ? `<div class="pv-review-list">${rows.map(c => `
+        <article class="review-card">
+          <p>${pvEsc(c.text)}</p>
+          <div class="review-author">${pvEsc(c.name)} <span class="pv-review-date">· ${acDate(c.created_at)}</span></div>
+          ${c.reply ? `<div class="review-reply"><b>Ответ SIGMA MARKET:</b> ${pvEsc(c.reply)}</div>` : ''}
+        </article>`).join('')}</div>`
+    : `<p class="pv-review-empty">Комментариев пока нет — поделитесь мнением первым!</p>`;
+
+  wrap.innerHTML = `
+    <h3>Обсуждение</h3>
+    ${listHtml}
+    <div class="review-form pv-review-form">
+      <h4>Оставить комментарий</h4>
+      <input type="text" id="acName" placeholder="Ваше имя *">
+      <textarea id="acText" placeholder="Ваше мнение или вопрос *"></textarea>
+      <button type="button" class="btn-primary" onclick="submitArticleComment(${articleId})">Отправить</button>
+    </div>`;
+}
+
+async function submitArticleComment(articleId) {
+  const nameEl = document.getElementById('acName');
+  const textEl = document.getElementById('acText');
+  if (!nameEl || !textEl) { window.showToast('⚠️ Обновите страницу и попробуйте ещё раз'); return; }
+  const name = nameEl.value.trim();
+  const text = textEl.value.trim();
+  if (!name || !text) { window.showToast('⚠️ Укажите имя и текст комментария'); return; }
+  try {
+    const res = await apiFetch(`/api/articles/${articleId}/comments`, 'POST', { name, text });
+    if (res && res.success) {
+      window.showToast('✅ Спасибо! Комментарий отправлен на модерацию.', 'green');
+      nameEl.value = ''; textEl.value = '';
+    } else {
+      window.showToast('❌ ' + (res && res.error || 'Ошибка. Попробуйте ещё раз.'));
+    }
+  } catch (e) { window.logClientError(e && (e.message || e), 'submitArticleComment'); window.showToast('❌ Ошибка. Попробуйте ещё раз.'); }
 }

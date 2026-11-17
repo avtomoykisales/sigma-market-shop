@@ -72,6 +72,27 @@ db.serialize(async () => {
   // IP отправителя — чтобы по повторным подозрительным заявкам (боты и т.п.) была видна
   // закономерность. У уже существующих старых заявок будет пусто — это нормально.
   try { await db.runAsync(`ALTER TABLE orders ADD COLUMN ip TEXT`); } catch (e) {}
+  // Дата закрытия заявки (когда статус стал "Выполнена") — отдельно от created_at
+  // (даты поступления заявки), чтобы можно было фильтровать именно по тому, когда
+  // сделку реально закрыли, а не когда клиент оставил заявку.
+  try { await db.runAsync(`ALTER TABLE orders ADD COLUMN completed_at TEXT`); } catch (e) {}
+  // Способ оплаты/доставки, выбранные клиентом на шаге оформления заказа в корзине —
+  // нужны, чтобы чекаут был полноценным оформлением заказа (с реальным выбором способа
+  // оплаты), а не просто формой "оставьте телефон", см. CHECKOUT_PAYMENT_METHODS в server.js.
+  try { await db.runAsync(`ALTER TABLE orders ADD COLUMN payment_method TEXT`); } catch (e) {}
+  try { await db.runAsync(`ALTER TABLE orders ADD COLUMN delivery_method TEXT`); } catch (e) {}
+  // Когда клиенту отправили просьбу оставить отзыв (WhatsApp, через 3+ дня после
+  // выполнения заказа) — NULL, пока не отправили; не даёт слать повторно при каждом
+  // прогоне ежедневной задачи (см. runReviewRequestsIfDue в server.js).
+  try { await db.runAsync(`ALTER TABLE orders ADD COLUMN review_requested_at TEXT`); } catch (e) {}
+  // Бонус, который клиент попросил списать при оформлении (см. useBonus в /api/orders) —
+  // с его счёта пока НЕ списывается, только сумма заказа уменьшается сразу. Реально
+  // списываем и уведомляем клиента только когда заказ подтверждён (см. /api/admin/orders/
+  // :id/complete) — если заказ отменят, бонус останется нетронутым, возвращать не придётся.
+  // bonus_redeemed_at пуст, пока не списали — не даёт списать второй раз, если заказ
+  // зачем-то отметят выполненным повторно.
+  try { await db.runAsync(`ALTER TABLE orders ADD COLUMN bonus_requested INTEGER DEFAULT 0`); } catch (e) {}
+  try { await db.runAsync(`ALTER TABLE orders ADD COLUMN bonus_redeemed_at TEXT`); } catch (e) {}
 
   await db.runAsync(`CREATE TABLE IF NOT EXISTS admins (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -98,7 +119,8 @@ db.serialize(async () => {
 
   // ---- Миграции: доп. поля товаров для блоков/фильтров/квиза ----
   const addCol = async (table, col, decl) => {
-    try { await db.runAsync(`ALTER TABLE ${table} ADD COLUMN ${col} ${decl}`); } catch (e) { /* уже есть */ }
+    try { await db.runAsync(`ALTER TABLE ${table} ADD COLUMN ${col} ${decl}`); return true; }
+    catch (e) { return false; /* уже есть */ }
   };
   await addCol('products', 'subtype', 'TEXT');          // тип (Портальная / Туннельная / …) — для фильтра
   await addCol('products', 'perf', 'INTEGER');          // производительность числом — для фильтра-диапазона
@@ -138,6 +160,86 @@ db.serialize(async () => {
   await addCol('categories', 'in_feed', 'INTEGER DEFAULT 1');
   await addCol('subcategories', 'in_feed', 'INTEGER DEFAULT 1');
   await addCol('products', 'in_feed', 'INTEGER DEFAULT 1');
+  // Скидка на товар — процент + необязательная дата окончания (YYYY-MM-DD). Пусто в
+  // discount_until = скидка действует, пока её не уберут вручную в админке. Сама цена
+  // (products.price) при этом остаётся "настоящей"/базовой — скидка считается на лету
+  // при показе (см. applyDiscount в queries.js), чтобы админ в форме товара всегда видел
+  // и правил именно базовую цену, а не уже уценённую.
+  await addCol('products', 'discount_percent', 'INTEGER DEFAULT 0');
+  await addCol('products', 'discount_until', 'TEXT');
+  // Альтернатива проценту — готовая цена со скидкой (вместо "−N%"), для случаев, когда
+  // удобнее просто назначить конечную цену, а не считать процент в уме. Если заполнен
+  // процент — используется он (см. applyDiscount), discount_price игнорируется.
+  await addCol('products', 'discount_price', 'REAL');
+  // Скрыть товар с сайта, не удаляя его — для случаев вроде "этот бренд сейчас снят с
+  // продажи" (товар остаётся в админке и доступен для возврата галочкой назад, но не
+  // показывается в каталоге/поиске/карточке/фиде/sitemap). По умолчанию виден (1).
+  await addCol('products', 'published', 'INTEGER DEFAULT 1');
+
+  // URL товара (/product/{id}-{slug}) раньше всегда собирался на лету из ТЕКУЩЕГО названия —
+  // стоило переименовать товар в админке, и уже проиндексированный Google/Яндексом старый
+  // адрес переставал совпадать с новым canonical (Search Console жаловался на «дубли с другим
+  // canonical»). Теперь slug сохраняется один раз при создании товара и больше не меняется
+  // сам при редактировании названия (см. POST/PUT /api/admin/products в server.js). Здесь —
+  // разовый бэкфилл для уже существующих товаров, чтобы у них тоже появился "замороженный"
+  // slug, сейчас совпадающий с текущим названием (чтобы не менять уже рабочие ссылки).
+  await addCol('products', 'slug', 'TEXT');
+  {
+    const TRANSLIT_RU = { а:'a',б:'b',в:'v',г:'g',д:'d',е:'e',ё:'e',ж:'zh',з:'z',и:'i',й:'y',к:'k',л:'l',м:'m',н:'n',о:'o',п:'p',р:'r',с:'s',т:'t',у:'u',ф:'f',х:'h',ц:'c',ч:'ch',ш:'sh',щ:'sch',ъ:'',ы:'y',ь:'',э:'e',ю:'yu',я:'ya' };
+    const noSlug = await db.allAsync(`SELECT id, name FROM products WHERE slug IS NULL OR slug = ''`);
+    for (const row of noSlug) {
+      const slug = String(row.name || '').toLowerCase()
+        .replace(/[а-яё]/g, (ch) => (TRANSLIT_RU[ch] != null ? TRANSLIT_RU[ch] : ch))
+        .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 70).replace(/-+$/, '');
+      await db.runAsync(`UPDATE products SET slug = ? WHERE id = ?`, [slug, row.id]);
+    }
+  }
+
+  // Универсальный список фильтров по характеристикам — для каждой подкатегории свой,
+  // JSON-массив названий характеристик (как они названы в поле "Характеристики" у
+  // товара), которые включены фильтром именно здесь. Тип фильтра (список значений вроде
+  // "Да/Нет" или диапазон "от-до") определяется на лету по самим данным (см. queries.js,
+  // SPEC_FILTER_IS_NUMERIC) — не нужно отдельно указывать для каждой характеристики.
+  // Раньше тут были 3 отдельные колонки под 3 конкретные характеристики (filter_power/
+  // filter_seat/filter_perfarea) — переносим их значения в новый формат один раз, дальше
+  // этими старыми колонками уже не пользуемся (оставлены в БД просто чтобы не писать
+  // миграцию по удалению столбца).
+  const specFiltersColAdded = await addCol('subcategories', 'filter_specs', "TEXT DEFAULT '[]'");
+  if (specFiltersColAdded) {
+    const hasLegacyCols = await db.allAsync(`PRAGMA table_info(subcategories)`)
+      .then(cols => cols.some(c => c.name === 'filter_power'));
+    if (hasLegacyCols) {
+      const rows = await db.allAsync(`SELECT id, filter_power, filter_seat, filter_perfarea FROM subcategories`);
+      for (const r of rows) {
+        const keys = [];
+        if (r.filter_power) keys.push('Тип питания');
+        if (r.filter_seat) keys.push('Сиденье для оператора');
+        if (r.filter_perfarea) keys.push('Производительность по площади');
+        if (keys.length) await db.runAsync(`UPDATE subcategories SET filter_specs = ? WHERE id = ?`, [JSON.stringify(keys), r.id]);
+      }
+    }
+  }
+
+  // Категория Google Merchant Center для товаров этой подкатегории — вручную, текстом
+  // (как её показывает сама форма Merchant Center, например "Бизнес и промышленность")
+  // или числовым ID из таксономии Google. Если не заполнено — тег google_product_category
+  // в фиде (seo.js/merchantFeed) просто не отправляется, и Google определяет категорию
+  // сам — так Мира попросила вместо того, чтобы всем неизвестным товарам подряд
+  // проставлять общую "Бизнес и промышленность" по умолчанию.
+  await addCol('subcategories', 'google_category', 'TEXT');
+
+  // Скрыть всю категорию/подкатегорию с сайта (навигация, каталог, поиск, фид) — та же
+  // кнопка и тот же разовый каскад в товары, что уже есть у "Рекламировать в Google
+  // Merchant Center" (in_feed): включили/выключили — сразу проставляется всем вложенным
+  // подкатегориям и товарам, дальше можно точечно донастроить отдельный товар отдельно.
+  await addCol('categories', 'published', 'INTEGER DEFAULT 1');
+  await addCol('subcategories', 'published', 'INTEGER DEFAULT 1');
+
+  // Фото/видео реализованных проектов на странице подкатегории (под описанием) — JSON-
+  // массив [{type:'photo', file:'xxx.jpg'}, {type:'video', url:'https://youtube.com/...'}]
+  // в порядке показа. Фото хранятся как файлы в public/icons (как и иконки товаров),
+  // видео — просто ссылкой на YouTube, без хранения самого файла на сервере.
+  await addCol('subcategories', 'gallery', "TEXT DEFAULT '[]'");
 
   // ---- Статьи (экспертный контент: ответы на вопросы покупателей, разборы и сравнения
   // оборудования) — для SEO и ИИ-поисковиков (ChatGPT/Perplexity и т.п.), которым нужен
@@ -167,6 +269,7 @@ db.serialize(async () => {
   await addCol('admin_log', 'order_id', 'INTEGER');   // чтобы показывать журнал конкретной заявки в её карточке
   await db.runAsync(`CREATE INDEX IF NOT EXISTS idx_admin_log_order ON admin_log(order_id)`);
   await addCol('admin_log', 'customer_id', 'INTEGER');   // то же самое, но для карточки клиента
+  await addCol('admin_log', 'attachment', 'TEXT');   // путь к приложенному файлу (напр. чек при списании бонуса), необязательно
   await db.runAsync(`CREATE INDEX IF NOT EXISTS idx_admin_log_customer ON admin_log(customer_id)`);
 
   // ---- Статистика сайта: просмотры страниц, поисковые запросы, просмотры товаров ----
@@ -192,6 +295,10 @@ db.serialize(async () => {
   // исходная строка запроса (там же, где gclid/utm-метки рекламы, если переход с рекламы).
   try { await db.runAsync(`ALTER TABLE stats_events ADD COLUMN ref TEXT`); } catch (e) {}
   try { await db.runAsync(`ALTER TABLE stats_events ADD COLUMN entry_query TEXT`); } catch (e) {}
+  // Номер телефона/WhatsApp, по которому реально кликнули (кнопка "Позвонить"/WhatsApp) —
+  // когда в настройках указано два номера, иначе видно только, что кликнули "звонок",
+  // но не ясно, по какому из них.
+  try { await db.runAsync(`ALTER TABLE stats_events ADD COLUMN phone TEXT`); } catch (e) {}
   await db.runAsync(`CREATE INDEX IF NOT EXISTS idx_stats_events_type_ts ON stats_events(type, ts)`);
 
   // ---- Ошибки на сайте (JS-ошибки у посетителей, видно в админке) ----
@@ -221,6 +328,21 @@ db.serialize(async () => {
   )`);
   await db.runAsync(`CREATE INDEX IF NOT EXISTS idx_reviews_product ON reviews(product_id, status)`);
 
+  // ---- Комментарии к статьям (форма под статьёй), после модерации — тот же принцип, что
+  // и у отзывов на товары выше, но без оценки (звёзд), статья — не товар, тут не рейтинг,
+  // а мнение/обсуждение.
+  await db.runAsync(`CREATE TABLE IF NOT EXISTS article_comments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    article_id INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    text TEXT NOT NULL,
+    status TEXT DEFAULT 'pending',    -- pending | approved | rejected
+    reply TEXT,                       -- официальный ответ администрации, показывается под комментарием
+    created_at TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY (article_id) REFERENCES articles(id)
+  )`);
+  await db.runAsync(`CREATE INDEX IF NOT EXISTS idx_article_comments_article ON article_comments(article_id, status)`);
+
   // ---- Примечания менеджеров к заказам (история обработки) ----
   await db.runAsync(`CREATE TABLE IF NOT EXISTS order_notes (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -243,22 +365,10 @@ db.serialize(async () => {
     bonus_balance INTEGER DEFAULT 0,
     created_at TEXT DEFAULT (datetime('now'))
   )`);
-  // Миграция со старой версии (был пароль) — переносим клиентов в новую схему без password_hash.
-  const custCols = await db.allAsync(`PRAGMA table_info(customers)`);
-  if (custCols.some(c => c.name === 'password_hash')) {
-    await db.runAsync(`ALTER TABLE customers RENAME TO customers_old_pw`);
-    await db.runAsync(`CREATE TABLE customers (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT NOT NULL,
-      phone TEXT NOT NULL UNIQUE,
-      email TEXT,
-      bonus_balance INTEGER DEFAULT 0,
-      created_at TEXT DEFAULT (datetime('now'))
-    )`);
-    await db.runAsync(`INSERT INTO customers (id, name, phone, email, bonus_balance, created_at)
-      SELECT id, name, phone, email, bonus_balance, created_at FROM customers_old_pw`);
-    await db.runAsync(`DROP TABLE customers_old_pw`);
-  }
+  // Раньше тут была обратная миграция (убирали password_hash, переходили на вход по
+  // одноразовому коду без пароля). Теперь вход снова по паролю (email/Telegram) — см.
+  // password_hash/telegram_id ниже через addCol. Саму авто-миграцию убрали: иначе она
+  // бы при каждом запуске сервера тут же стирала password_hash обратно.
   await db.runAsync(`CREATE TABLE IF NOT EXISTS customer_sessions (
     token TEXT PRIMARY KEY,
     customer_id INTEGER NOT NULL,
@@ -304,6 +414,27 @@ db.serialize(async () => {
     FOREIGN KEY (customer_id) REFERENCES customers(id)
   )`);
   await db.runAsync(`CREATE INDEX IF NOT EXISTS idx_notifications_customer ON notifications(customer_id, id DESC)`);
+  // NULL — ещё не прочитано (показываем красным числом рядом с "Мои уведомления" в
+  // личном кабинете); проставляется при открытии вкладки, см. /api/me/notifications/read.
+  await addCol('notifications', 'read_at', 'TEXT');
+
+  // ---- Чат клиент ↔ админ (личный кабинет «Чат с нами» / админка «Чат») ----
+  // sender: 'customer' | 'admin'. admin — логин админа, который ответил (NULL у сообщений
+  // клиента). read_at — когда сообщение прочитала ДРУГАЯ сторона (у сообщений клиента —
+  // когда прочитал админ, у сообщений админа — когда прочитал клиент); NULL — ещё не
+  // прочитано, по нему считаем бейджи непрочитанного с обеих сторон.
+  await db.runAsync(`CREATE TABLE IF NOT EXISTS chat_messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    customer_id INTEGER NOT NULL,
+    sender TEXT NOT NULL,
+    admin TEXT,
+    text TEXT NOT NULL,
+    created_at TEXT DEFAULT (datetime('now')),
+    read_at TEXT,
+    FOREIGN KEY (customer_id) REFERENCES customers(id)
+  )`);
+  await db.runAsync(`CREATE INDEX IF NOT EXISTS idx_chat_messages_customer ON chat_messages(customer_id, id DESC)`);
+  await addCol('chat_messages', 'attachment', 'TEXT');   // путь к приложенному фото, необязательно
 
   // Дата настоящей регистрации (сам вошёл по коду) — отдельно от created_at, который
   // проставляется и когда запись клиента создаётся автоматически при начислении бонуса
@@ -314,8 +445,61 @@ db.serialize(async () => {
   await addCol('customers', 'avatar', 'TEXT');       // путь к загруженному фото профиля
   await addCol('customers', 'company', 'TEXT');       // название компании клиента (заполняет сам в личном кабинете)
   await addCol('customers', 'city', 'TEXT');          // город клиента (заполняется в админке)
+  await addCol('customers', 'comment', 'TEXT');       // внутренняя заметка админа о клиенте — клиент её не видит
+  await addCol('customers', 'corp_phone', 'TEXT');    // корпоративный номер (доп. контакт, не для входа)
+  await addCol('customers', 'extra_phone', 'TEXT');   // ещё один доп. номер (доп. контакт, не для входа)
+
+  // ---- Номер клиента (показывается в админке и личном кабинете вместо внутреннего id) ----
+  // customers.id — чисто внутренний технический ключ (на него ссылаются заказы, бонусы,
+  // чат и т.д.) — его лучше никогда не менять задним числом, иначе придётся вручную
+  // перепривязывать кучу других таблиц. client_no — отдельный, видимый клиенту/админу
+  // номер, им можно управлять свободно (нумерация с 2261 — см. nextClientNo() в server.js).
+  await addCol('customers', 'client_no', 'INTEGER');
+  await db.runAsync(`CREATE UNIQUE INDEX IF NOT EXISTS idx_customers_client_no ON customers(client_no) WHERE client_no IS NOT NULL`);
+  // Бэкфилл для уже существующих клиентов, у которых номера ещё нет — по порядку
+  // регистрации (id), начиная с 2261. Апдейт трогает только NULL, так что безопасно
+  // гонять при каждом запуске сервера — новым клиентам номер уже присваивается при создании.
+  await db.runAsync(`
+    UPDATE customers SET client_no = (
+      SELECT 2260 + COUNT(*) FROM customers c2 WHERE c2.id <= customers.id
+    ) WHERE client_no IS NULL
+  `);
+
+  // ---- Вход по email+паролю и/или Telegram (см. auth.js) ----
+  // password_hash пустой у клиентов, пришедших только через Telegram — вход у них через
+  // виджет, не через пароль. phone остаётся обязательным для начисления бонусов, но
+  // спрашивается отдельным шагом после подтверждения email/Telegram, не как логин.
+  await addCol('customers', 'password_hash', 'TEXT');
+  await addCol('customers', 'telegram_id', 'TEXT');
+  await db.runAsync(`CREATE UNIQUE INDEX IF NOT EXISTS idx_customers_telegram ON customers(telegram_id) WHERE telegram_id IS NOT NULL`);
+  // Email у старых клиентов (регистрировались по телефону) мог не быть уникальным/быть
+  // пустым — уникальный индекс только там, где email реально задан.
+  await db.runAsync(`CREATE UNIQUE INDEX IF NOT EXISTS idx_customers_email ON customers(email) WHERE email IS NOT NULL AND email != ''`);
+
+  // Коды подтверждения email при регистрации — тот же принцип, что раньше был у
+  // otp_codes (для телефона), только по email и с более коротким временем жизни токена
+  // подтверждения (verified_token), который разрешает следующий шаг (телефон+пароль)
+  // без повторного ввода кода.
+  await db.runAsync(`CREATE TABLE IF NOT EXISTS email_codes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    email TEXT NOT NULL,
+    code TEXT NOT NULL,
+    attempts INTEGER DEFAULT 0,
+    expires_at TEXT NOT NULL,
+    created_at TEXT DEFAULT (datetime('now'))
+  )`);
+  // Короткоживущий "билет" на завершение регистрации — выдаётся сразу после верного
+  // кода, чтобы шаг "телефон + пароль" не требовал повторно слать код на почту.
+  await db.runAsync(`CREATE TABLE IF NOT EXISTS email_verified_tokens (
+    token TEXT PRIMARY KEY,
+    email TEXT NOT NULL,
+    expires_at TEXT NOT NULL
+  )`);
   await addCol('reviews', 'customer_id', 'INTEGER'); // кто оставил отзыв, если был вошедшим (для "Мои отзывы")
   await addCol('reviews', 'reply', 'TEXT'); // официальный ответ администрации, показывается под отзывом на сайте
+  // Когда начислен бонус за этот отзыв (при публикации, см. PUT /api/admin/reviews/:id) —
+  // NULL, пока не начислен; не даёт начислить повторно, если отзыв сняли и опубликовали снова.
+  await addCol('reviews', 'bonus_awarded_at', 'TEXT');
   await db.runAsync(`CREATE TABLE IF NOT EXISTS customer_favorites (
     customer_id INTEGER NOT NULL,
     product_id INTEGER NOT NULL,

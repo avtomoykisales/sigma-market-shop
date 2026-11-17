@@ -24,18 +24,29 @@
           </div>
           <div class="acct-head-info">
             <h1 id="acctName"></h1>
+            <div id="acctId"></div>
             <p id="acctPhone"></p>
-            <p>Бонусов на счету: <b id="acctBonus" style="color:var(--accent)">0</b> ₸</p>
+            <p>Бонусов на счету: <b id="acctBonus" style="color:var(--accent)">0</b> ₸ · <a href="/bonus-program">Как это работает →</a></p>
           </div>
         </div>
 
         <div class="acct-wrap">
           <nav class="acct-nav">
+            <button type="button" data-tab="bonus" class="acct-nav-perk acct-nav-perk-bonus" onclick="acctShowTab('bonus')">
+              <span class="acct-nav-perk-icon">🎁</span>
+              <span>Бонусная программа<br><small>Как копить и тратить бонусы</small></span>
+            </button>
+            <button type="button" data-tab="chat" class="acct-nav-perk acct-nav-perk-chat" onclick="acctShowTab('chat')">
+              <span class="acct-nav-perk-icon">💬</span>
+              <span>Чат с нами<br><small>Ответим в рабочее время</small></span>
+              <span class="acct-badge acct-nav-perk-badge" id="acctChatBadge" style="display:none"></span>
+            </button>
+            <div class="acct-nav-sep"></div>
             <button data-tab="data" onclick="acctShowTab('data')">Мои данные</button>
             <button data-tab="orders" onclick="acctShowTab('orders')">Мои заказы</button>
             <button data-tab="favorites" onclick="acctShowTab('favorites')">Избранное</button>
             <button data-tab="reviews" onclick="acctShowTab('reviews')">Мои отзывы</button>
-            <button data-tab="notifications" onclick="acctShowTab('notifications')">Мои уведомления</button>
+            <button data-tab="notifications" onclick="acctShowTab('notifications')">Мои уведомления <span class="acct-badge" id="acctNotifBadge" style="display:none"></span></button>
             <button onclick="custLogout()" style="color:#991b1b;margin-top:6px">Выйти из аккаунта</button>
           </nav>
 
@@ -44,10 +55,18 @@
               <h2>Мои данные</h2>
               <div class="acct-form-row">
                 <div class="form-group"><label>Имя *</label><input type="text" id="acctFormName"></div>
+                <div class="form-group"><label>ID клиента</label><input type="text" id="acctFormClientNo" readonly></div>
+              </div>
+              <div class="acct-form-row">
                 <div class="form-group"><label>Email</label><input type="email" id="acctFormEmail" placeholder="name@example.com"></div>
               </div>
               <div class="acct-form-row">
+                <div class="form-group"><label>Телефон *</label><input type="tel" id="acctFormPhone" placeholder="+7 (___) ___-__-__"></div>
                 <div class="form-group"><label>Компания</label><input type="text" id="acctFormCompany" placeholder="Название компании"></div>
+              </div>
+              <div class="acct-form-row">
+                <div class="form-group"><label>Корпоративный номер</label><input type="tel" id="acctFormCorpPhone" placeholder="+7 (___) ___-__-__"></div>
+                <div class="form-group"><label>Доп. номер</label><input type="tel" id="acctFormExtraPhone" placeholder="+7 (___) ___-__-__"></div>
               </div>
               <button class="btn-primary" onclick="acctSaveProfile()">Сохранить</button>
             </div>
@@ -57,6 +76,52 @@
               <div id="acctOrders" class="acct-empty">Загрузка…</div>
             </div>
 
+            <div class="acct-panel" data-tab="bonus">
+              <h2 style="text-align: center;">Уважаемый клиент!</h2>
+              <div class="prose acct-bonus-prose">
+                <p>Благодарим вас за сотрудничество с нашей компанией! В качестве укрепления
+                лояльности клиентов ТОО «SIGMA MARKET» предлагает принять участие в бонусной
+                программе на сайте b2btech.kz — ниже её условия.</p>
+
+                <h3>1. Начисление бонусов</h3>
+                <p>Каждый пользователь, прошедший регистрацию в личном кабинете (далее — Участник),
+                получает и накапливает кэшбэк от совершённых сделок. Кэшбэк начисляется в бонусных
+                баллах (далее — ББ), 1 ББ = 1 тенге.</p>
+                <p>Начисление ББ происходит автоматически в течение 24 часов с момента завершения
+                сделки вашим менеджером. Заказ может быть оформлен как на сайте, так и вручную
+                менеджером.</p>
+                <p>ББ также могут начисляться за другие активности на сайте: регистрацию,
+                рекомендации, отзывы о товарах, участие в акциях.</p>
+
+                <h3>2. Списание и вывод бонусов</h3>
+                <p>Накопленными ББ можно оплатить до 100% стоимости последующих покупок — при этом
+                бонус от новой покупки всё равно будет начислен на счёт в личном кабинете.
+                Накопленные баллы можно выводить на личные нужды, но не более 50% от накопленной
+                суммы и не чаще одного раза за полугодие.</p>
+
+                <h3>3. Возврат товара</h3>
+                <p>При возврате товара, за который были начислены ББ, соответствующие бонусы
+                аннулируются. Если покупка была частично оплачена бонусами, потраченные баллы
+                возвращаются на счёт Участника.</p>
+
+                <h3>4. Условие сохранения накопленных бонусов</h3>
+                <p>Чтобы накопленный кэшбэк не сгорел, Участнику необходимо совершать не менее 3
+                (трёх) покупок за каждое календарное полугодие (с 1 января по 30 июня и с 1 июля по
+                31 декабря). В зачёт идут только выкупленные и оплаченные заказы на любую сумму —
+                возвращённые заказы не учитываются.</p>
+                <p>Если по итогам полугодия Участник совершил менее 3 покупок, весь накопленный
+                баланс аннулируется в первый день следующего полугодия (1 июля или 1 января
+                соответственно) без возможности восстановления. При выполнении условия (3 и более
+                покупок за полугодие) накопленные бонусы сохраняются и переносятся на следующий
+                период.</p>
+
+                <h3>5. Изменение условий</h3>
+                <p>Организатор программы оставляет за собой право вносить изменения в настоящие
+                условия с предварительным уведомлением Участников в личном кабинете или на сайте
+                b2btech.kz за 7 (семь) календарных дней до вступления изменений в силу.</p>
+              </div>
+            </div>
+
             <div class="acct-panel" data-tab="favorites">
               <h2>Избранное</h2>
               <div id="acctFavorites" class="acct-empty">Загрузка…</div>
@@ -64,12 +129,29 @@
 
             <div class="acct-panel" data-tab="reviews">
               <h2>Мои отзывы</h2>
+              <p id="acctReviewBonusInfo" class="acct-review-bonus-info" style="display:none"></p>
               <div id="acctReviews" class="acct-empty">Загрузка…</div>
+              <div id="acctReviewPrompts" style="display:none"></div>
             </div>
 
             <div class="acct-panel" data-tab="notifications">
               <h2>Мои уведомления</h2>
               <div id="acctNotifications" class="acct-empty">Загрузка…</div>
+            </div>
+
+            <div class="acct-panel" data-tab="chat">
+              <div class="acct-chat-head">
+                <h2>Чат с нами</h2>
+                <button type="button" class="chat-notif-btn" id="acctChatNotifBtn" onclick="acctRequestNotifyPermission()" title="Включить уведомления о новых сообщениях">🔔 Уведомления</button>
+              </div>
+              <div id="acctChatMessages" class="acct-chat-messages"></div>
+              <div id="acctChatAttachPreview" class="acct-chat-attach-preview" style="display:none"></div>
+              <form class="acct-chat-form" onsubmit="acctSendChat();return false">
+                <input type="file" id="acctChatFile" accept="image/*,.pdf,.doc,.docx" style="display:none" onchange="acctShowChatAttachPreview()">
+                <button type="button" class="chat-attach-btn" onclick="document.getElementById('acctChatFile').click()" title="Прикрепить файл">📎</button>
+                <input type="text" id="acctChatInput" placeholder="Напишите сообщение…" maxlength="2000" autocomplete="off">
+                <button type="submit" class="btn-primary">Отправить</button>
+              </form>
             </div>
           </div>
         </div>

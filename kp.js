@@ -14,8 +14,8 @@ const Jimp = require('jimp');
 const FONT_REGULAR = path.join(__dirname, 'fonts/PTSans-Regular.ttf');
 const FONT_BOLD = path.join(__dirname, 'fonts/PTSans-Bold.ttf');
 const LOGO = path.join(__dirname, 'public/assets/icons/logo.png');
-const SIGNATURE = path.join(__dirname, 'public/assets/icons/kp-signature.png');
-const STAMP = path.join(__dirname, 'public/assets/icons/kp-stamp.png');
+// Подпись и печать одним файлом — уже наложены друг на друга, как на бумаге.
+const SIGNATURE_STAMP = path.join(__dirname, 'public/assets/icons/kp-signature-stamp.png');
 
 const ORG = {
   legalName: 'ТОО «SIGMA MARKET»',
@@ -173,10 +173,9 @@ async function buildProductKpPdf(res, product, kpCfg) {
     doc.fontSize(10).fillColor('#555').text('Данное предложение действительно в течение 10 календарных дней.');
     doc.moveDown(1.3);
 
-    // ---- подпись и печать ---- (печать внахлёст поверх подписи, как на бумаге)
+    // ---- подпись и печать ----
     const signY = doc.y;
-    try { doc.image(SIGNATURE, PAGE_LEFT + 20, signY, { width: 120 }); } catch {}
-    try { doc.image(STAMP, PAGE_LEFT + 110, signY - 5, { width: 100 }); } catch {}
+    try { doc.image(SIGNATURE_STAMP, PAGE_LEFT + 20, signY, { width: 140 }); } catch {}
     doc.y = signY + 108;
 
     doc.font('regular').fontSize(9).fillColor('#555');

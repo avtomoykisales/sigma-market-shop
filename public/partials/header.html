@@ -10,22 +10,22 @@
       <a href="/about" class="nav-link" data-nav="about">о нас</a>
       <a href="/delivery" class="nav-link" data-nav="delivery">доставка и оплата</a>
       <a href="/contacts" class="nav-link" data-nav="contacts">контакты</a>
-      <a href="/reviews" class="nav-link" data-nav="reviews">отзывы</a>
+      <a href="/articles" class="nav-link" data-nav="articles">cоветы и обзоры</a>
     </nav>
     <div class="header-right">
       <button class="hdr-search" type="button" onclick="toggleSearch()" aria-label="Поиск">🔍</button>
       <!-- Показ переключается в админке → Вовлечённость → Бонусы клиентов (по умолчанию скрыто) -->
-      <button class="hdr-account" id="hdrAccount" type="button" onclick="openAccountModal()" title="Личный кабинет" style="display:none">
-        <svg class="hdr-account-icon" width="21" height="21" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4.4 3.6-8 8-8s8 3.6 8 8"/></svg>
-        <span class="acc-name">Войти</span>
-      </button>
+      <a class="hdr-consult" href="/contacts" data-nav="contacts">Получить консультацию</a>
       <a class="hdr-fav" href="/#favorites" data-nav="favorites" title="Избранное">
         ♥ <span class="fav-count" style="display:none">0</span>
       </a>
       <button class="hdr-cart" type="button" onclick="handleCart()">
         🛒 <span class="cart-count" id="cartCount">0</span>
       </button>
-      <a class="hdr-consult" href="/contacts" data-nav="contacts">Получить консультацию</a>
+      <button class="hdr-account" id="hdrAccount" type="button" onclick="openAccountModal()" title="Личный кабинет" style="display:none">
+        <svg class="hdr-account-icon" width="21" height="21" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4.4 3.6-8 8-8s8 3.6 8 8"/></svg>
+        <span class="acc-name">Войти</span>
+      </button>
       <button class="hdr-burger" id="hdrBurger" type="button" onclick="toggleDrawer()" aria-label="Меню">
         <span></span><span></span><span></span>
       </button>
@@ -33,10 +33,11 @@
   </div>
   <!-- Search bar (hidden by default) -->
   <div class="search-dropdown" id="searchDropdown" style="display:none">
-    <form class="search-inner" action="/" method="get" role="search">
-      <input type="text" name="q" id="searchInput" placeholder="Поиск по названию, артикулу, бренду…">
+    <form class="search-inner" action="/" method="get" role="search" autocomplete="off">
+      <input type="text" name="q" id="searchInput" placeholder="Поиск по названию, артикулу, бренду…" autocomplete="off">
       <button type="submit">Найти</button>
     </form>
+    <div class="search-suggest" id="searchSuggest" style="display:none"></div>
   </div>
 </header>
 
@@ -58,6 +59,7 @@
     <a href="/delivery" class="drawer-link" data-nav="delivery">доставка и оплата</a>
     <a href="/contacts" class="drawer-link" data-nav="contacts">контакты</a>
     <a href="/reviews" class="drawer-link" data-nav="reviews">отзывы</a>
+    <a href="/articles" class="drawer-link" data-nav="articles">советы и обзоры</a>
   </nav>
 
   <div class="drawer-card">
@@ -98,6 +100,7 @@
       <a href="/about">Проекты</a>
       <a href="/delivery#guarantee">Сервис</a>
       <a href="/reviews">Новости</a>
+      
     </div>
   </div>
   <div class="drawer-group">
@@ -106,7 +109,9 @@
       <a href="/delivery">Доставка и оплата</a>
       <a href="/delivery#guarantee">Гарантия</a>
       <a href="/delivery">Документация</a>
-      <a href="/contacts">FAQ</a>
+      <a href="/articles">Советы и обзоры</a>
+      <a href="/reviews">Отзывы</a>
+      <a href="/contacts">Контакты</a>
     </div>
   </div>
 
@@ -120,24 +125,92 @@
   </div>
 </aside>
 
-<!-- ВХОД ПО КОДУ (WhatsApp, резерв — SMS) -->
+<!-- ВХОД: email (код → телефон+пароль для новых, пароль для уже зарегистрированных)
+     или Telegram (кнопка рендерится только если включена и указан username бота —
+     см. settings.telegram в /api/settings). -->
 <div class="modal-overlay" id="accountOverlay" onclick="if(event.target===this) closeAccountModal()">
   <div class="modal">
     <div class="modal-inner">
       <button class="modal-close" onclick="closeAccountModal()">✕</button>
       <img src="/assets/icons/logo-brand.jpg" alt="SIGMA MARKET" style="display:block;width:120px;height:120px;margin:0 auto 14px;border-radius:12px">
       <h3 style="margin-bottom:14px;text-align:center">Вход в личный кабинет</h3>
-      <div id="acc-step-phone">
-        <div class="form-group"><label for="accPhone">Телефон *</label><input type="tel" id="accPhone" name="tel" autocomplete="tel" placeholder="+7 (___) ___-__-__"></div>
-        <button class="btn-primary" onclick="custRequestCode()">Получить код</button>
+
+      <!-- Все шаги — в одной настоящей <form> (не просто <div>), а не каждый в своей:
+           так браузер видит email и password как единую пару логин+пароль и предлагает
+           автозаполнение/сохранение, даже когда поля показываются по очереди через JS
+           (см. showAccStep в site.js), а не все сразу. -->
+      <form onsubmit="return false" autocomplete="on">
+      <div id="acc-step-email">
+        <div class="form-group"><label for="accEmail">Email *</label><input type="email" id="accEmail" name="email" autocomplete="email" placeholder="you@example.com"></div>
+        <button type="button" class="btn-primary" onclick="custRequestCode()">Получить код</button>
+        <p class="checkout-agree">Нажимая «Получить код», вы соглашаетесь с <a href="/privacy" target="_blank" rel="noopener">Политикой конфиденциальности</a>.</p>
+        <div class="acc-divider" id="accTgDivider" style="display:none">или</div>
+        <div id="accTelegramWrap"></div>
       </div>
+
       <div id="acc-step-code" style="display:none">
         <p id="accCodeSentTo" style="color:var(--text-muted);font-size:13px;margin-bottom:14px;text-align:center"></p>
         <div class="form-group"><label for="accCode">Код из 4 цифр *</label><input type="text" inputmode="numeric" pattern="[0-9]*" id="accCode" autocomplete="one-time-code"></div>
-        <div class="form-group" id="accNameField" style="display:none"><label for="accName">Ваше имя * <span style="font-weight:400">— видим вас первый раз</span></label><input type="text" id="accName" name="name" autocomplete="name"></div>
-        <button class="btn-primary" onclick="custVerifyCode()">Подтвердить</button>
+        <button type="button" class="btn-primary" onclick="custVerifyCode()">Подтвердить</button>
         <button type="button" class="acc-resend" id="accResendBtn" onclick="custRequestCode(true)">Отправить код ещё раз</button>
       </div>
+
+      <div id="acc-step-password" style="display:none">
+        <div class="form-group">
+          <label for="accPassword">Пароль *</label>
+          <div class="pwd-wrap"><input type="password" id="accPassword" autocomplete="current-password"><button type="button" class="pwd-eye" onclick="togglePwd('accPassword',this)">👁</button></div>
+        </div>
+        <p class="acc-forgot"><a href="#" onclick="custForgotPassword();return false">Забыли пароль?</a></p>
+        <label class="acc-remember"><input type="checkbox" id="accRemember" checked> Запомнить меня</label>
+        <button type="button" class="btn-primary" onclick="custLogin()">Войти</button>
+      </div>
+
+      <!-- Сброс пароля: код на тот же email (шаг 1 уже его знает) → новый пароль. -->
+      <div id="acc-step-reset-code" style="display:none">
+        <p id="accResetCodeSentTo" style="color:var(--text-muted);font-size:13px;margin-bottom:14px;text-align:center"></p>
+        <div class="form-group"><label for="accResetCode">Код из 4 цифр *</label><input type="text" inputmode="numeric" pattern="[0-9]*" id="accResetCode" autocomplete="one-time-code"></div>
+        <button type="button" class="btn-primary" onclick="custVerifyResetCode()">Подтвердить</button>
+        <button type="button" class="acc-resend" id="accResetResendBtn" onclick="custForgotPassword(true)">Отправить код ещё раз</button>
+      </div>
+
+      <div id="acc-step-reset-newpass" style="display:none">
+        <div class="form-group">
+          <label for="accResetNewPassword">Новый пароль *</label>
+          <div class="pwd-wrap"><input type="password" id="accResetNewPassword" autocomplete="new-password"><button type="button" class="pwd-eye" onclick="togglePwd('accResetNewPassword',this)">👁</button></div>
+        </div>
+        <button type="button" class="btn-primary" onclick="custResetPassword()">Сохранить пароль</button>
+      </div>
+
+      <div id="acc-step-complete" style="display:none">
+        <div class="form-group">
+          <label for="accPhone2">Номер телефона *</label>
+          <p style="color:var(--text-muted);font-size:12px;margin:-4px 0 6px">Укажите номер телефона для входа в личный кабинет и получения персональных предложений.</p>
+          <input type="tel" id="accPhone2" name="tel" autocomplete="tel" placeholder="+7 (___) ___-__-__">
+        </div>
+        <div class="form-group">
+          <label for="accNewPassword">Создайте пароль *</label>
+          <div class="pwd-wrap"><input type="password" id="accNewPassword" autocomplete="new-password"><button type="button" class="pwd-eye" onclick="togglePwd('accNewPassword',this)">👁</button></div>
+        </div>
+        <label class="acc-remember"><input type="checkbox" id="accRemember2" checked> Запомнить меня</label>
+        <button type="button" class="btn-primary" onclick="custCompleteRegistration()">Зарегистрироваться</button>
+        <p class="checkout-agree">Нажимая «Зарегистрироваться», вы соглашаетесь с <a href="/privacy" target="_blank" rel="noopener">Политикой конфиденциальности</a>.</p>
+      </div>
+
+      <div id="acc-step-tgphone" style="display:none">
+        <p style="color:var(--text-muted);font-size:13px;margin-bottom:14px;text-align:center">Вы вошли через Telegram. Укажите телефон — на него начисляются бонусы.</p>
+        <div class="form-group"><label for="accTgPhone">Телефон *</label><input type="tel" id="accTgPhone" name="tel" autocomplete="tel" placeholder="+7 (___) ___-__-__"></div>
+        <button type="button" class="btn-primary" onclick="custSetTelegramPhone()">Сохранить</button>
+        <button type="button" class="acc-resend" onclick="closeAccountModal()">Пропустить пока</button>
+      </div>
+
+      <!-- Ловушка для ботов — тот же приём, что в заказе/КП (#oWebsite, #kpWebsite):
+           реальный человек это поле не видит и не заполняет, бот, читающий форму по
+           коду страницы, его находит и заполняет. Скрыто классом .hp-field (style.css),
+           не inline-стилем — так не отличить от обычного поля даже по верстке. -->
+      <div class="hp-field" aria-hidden="true">
+        <input type="text" id="accWebsite" name="website" tabindex="-1" autocomplete="off">
+      </div>
+      </form>
     </div>
   </div>
 </div>
@@ -154,7 +227,7 @@
       <div style="position:absolute;left:-9999px" aria-hidden="true">
         <input type="text" id="kpWebsite" name="website" tabindex="-1" autocomplete="off">
       </div>
-      <button class="btn-primary" onclick="kpDownload()">Скачать КП</button>
+      <button class="btn-primary" id="kpDownloadBtn" onclick="kpDownload()">Скачать КП</button>
     </div>
   </div>
 </div>

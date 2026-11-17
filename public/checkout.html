@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Оформление заказа — SIGMA MARKET</title>
+<link rel="stylesheet" href="/style.css?v={{V}}">
+</head>
+<body class="shop subpage">
+
+<!-- partial:header -->
+
+<!-- partial:hero -->
+
+<main>
+  <section class="section">
+    <div class="container">
+      <h1 class="section-title">Оформление заказа</h1>
+
+      <div class="checkout-empty" id="checkoutEmpty" style="display:none">
+        <p>Ваша корзина пуста. Добавьте товары из каталога, чтобы оформить заказ.</p>
+        <a class="btn-primary" href="/catalog" style="display:inline-block;width:auto;padding:12px 28px">Перейти в каталог</a>
+      </div>
+
+      <div class="checkout-grid" id="checkoutGrid">
+        <div class="checkout-main">
+
+          <div class="checkout-block">
+            <h3>Контактные данные</h3>
+            <div class="form-row">
+              <div class="form-group"><label for="coName">Имя *</label><input type="text" id="coName" autocomplete="name" placeholder="Ваше имя" required></div>
+              <div class="form-group"><label for="coPhone">Телефон *</label><input type="tel" id="coPhone" autocomplete="tel" placeholder="+7 (___) ___-__-__" required></div>
+            </div>
+            <div class="form-group"><label for="coEmail">Email</label><input type="email" id="coEmail" autocomplete="email" placeholder="you@example.com"></div>
+          </div>
+
+          <div class="checkout-block">
+            <h3>Доставка</h3>
+            <div class="form-group">
+              <label for="coDelivery">Способ доставки</label>
+              <select id="coDelivery">
+                <option>Доставка по Казахстану</option>
+                <option>Самовывоз</option>
+              </select>
+            </div>
+            <div class="checkout-terms">
+              <p>🚚 Бесплатная доставка по г. Алматы при заказе от 80 000 ₸. Доставка по Казахстану бесплатная от 1 000 000 ₸ — в остальных случаях стоимость рассчитывается индивидуально, транспортной компанией.</p>
+              <p>⏱ Срок доставки: обычно 3–7 дней по Казахстану после подтверждения заказа менеджером.</p>
+              <a href="/delivery" target="_blank" rel="noopener">Подробнее об условиях доставки и оплаты →</a>
+            </div>
+          </div>
+
+          <div class="checkout-block">
+            <h3>Способ оплаты</h3>
+            <div class="payment-methods">
+              <label><input type="radio" name="coPayment" value="Оплата по счёту (для юр. лиц)" checked> Оплата по счёту (для юр. лиц)</label>
+              <label><input type="radio" name="coPayment" value="POS-Терминал(Visa/MasterCard)">POS-Терминал(Visa/MasterCard)</label>
+              <label><input type="radio" name="coPayment" value="Наличными">Наличными</label>
+            </div>
+          </div>
+
+          <div class="checkout-block">
+            <div class="form-group"><label for="coMessage">Комментарий</label><textarea id="coMessage" placeholder="Вопрос или пожелания…"></textarea></div>
+          </div>
+
+          <!-- Ловушка для ботов — см. #oWebsite в cart-panel и проверку в /api/orders.
+               type="hidden" (а не просто спрятано через CSS) — важно: автоматические
+               проверяющие боты (например, сканер Google Merchant Center, который
+               проверяет "может ли пользователь завершить покупку") часто заполняют
+               ВСЕ текстовые поля формы подряд, включая визуально спрятанные через CSS.
+               type="hidden" такие поля не заполняет ни один адекватный бот — это
+               стандартный способ сделать ловушку невидимой и для людей, и для
+               добросовестных автоматических проверок, а не только для спам-ботов. -->
+          <input type="hidden" id="coWebsite" autocomplete="off">
+        </div>
+
+        <aside class="checkout-aside">
+          <h3>Ваш заказ</h3>
+          <div class="checkout-items" id="checkoutItems"></div>
+          <div class="checkout-bonus-row" id="checkoutBonusRow" style="display:none">
+            <label><input type="checkbox" id="coUseBonus"> Списать бонусы (доступно <span id="checkoutBonusAvail">0</span> ₸)</label>
+          </div>
+          <div class="checkout-total" id="checkoutTotal">Итого: 0 ₸</div>
+          <div class="checkout-earn-preview" id="checkoutEarnPreview" style="display:none">
+            🎁 Вы получите <b id="checkoutEarnAmount">0 ₸</b> бонусами с этого заказа
+          </div>
+          <div class="cart-register-nudge" id="checkoutRegisterNudge" style="display:none">
+            🎁 Зарегистрируйтесь — получите <b id="checkoutRegisterAmount">0 ₸</b> бонусами с этого заказа
+            <button type="button" class="cart-register-btn" onclick="openAccountModal()">Войти</button>
+          </div>
+          <button class="btn-primary" onclick="submitCheckout()">✅ Оформить заказ</button>
+          <p class="checkout-agree">Нажимая «Оформить заказ», вы соглашаетесь с <a href="/privacy" target="_blank" rel="noopener">Политикой конфиденциальности</a>.</p>
+        </aside>
+      </div>
+
+      <div class="order-confirm" id="checkoutConfirm" style="display:none;max-width:480px;margin:0 auto">
+        <div class="order-confirm-icon">✅</div>
+        <div class="order-confirm-title">Заказ №<span id="checkoutOrderId"></span> оформлен</div>
+        <p class="order-confirm-text" id="checkoutConfirmText"></p>
+        <a class="btn-primary" href="/catalog" style="display:inline-block;width:auto;padding:12px 28px">Продолжить покупки</a>
+      </div>
+
+    </div>
+  </section>
+</main>
+
+<!-- partial:footer -->
+
+<div class="toast" id="toast"></div>
+<script src="/js/site.js?v={{V}}"></script>
+<script src="/js/checkout.js?v={{V}}"></script>
+</body>
+</html>

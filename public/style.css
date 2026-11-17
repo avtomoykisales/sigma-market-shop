@@ -39,11 +39,14 @@
 
 /* ==================== СБРОС ==================== */
 * { box-sizing: border-box; margin: 0; padding: 0; }
-html { scroll-behavior: smooth; }
+html { scroll-behavior: smooth; overflow-x: hidden; }
 /* Страховка от горизонтальной прокрутки всей страницы — товары заполняют админы
    (не разработчики): где-то в тексте товара может оказаться длинное слово/число без
    пробела (как уже было с характеристикой без пробела после «х»), и без этой страховки
-   оно раздвигает всю страницу вбок на телефоне вместо того, чтобы просто перенестись. */
+   оно раздвигает всю страницу вбок на телефоне вместо того, чтобы просто перенестись.
+   На html и на body сразу — в Safari на iPhone одного body недостаточно: скрытое за
+   экраном боковое меню (.drawer) всё равно расширяло прокручиваемую область страницы,
+   из-за чего контент съезжал и обрезался справа (см. жалобу "поля съехались"). */
 body { overflow-x: hidden; }
 body {
   font-family: 'AvantGardeGothicC', 'Century Gothic', 'Futura', 'Trebuchet MS',
@@ -142,10 +145,14 @@ body.shop .cart-count {
 
 /* SEARCH DROPDOWN */
 body.shop .search-dropdown {
-  background: var(--white); border-top: 1px solid var(--border);
-  box-shadow: 0 6px 24px rgba(0,0,0,0.1); padding: 16px 24px;
+  position: absolute; left: 0; right: 0; top: 100%;
+  padding: 16px 24px;
 }
-body.shop .search-inner { max-width: 680px; margin: 0 auto; display: flex; gap: 10px; }
+body.shop .search-inner {
+  max-width: 680px; margin: 0 auto; display: flex; gap: 10px;
+  background: var(--white); padding: 10px; border-radius: 10px;
+  box-shadow: 0 6px 24px rgba(0,0,0,0.15);
+}
 body.shop .search-inner input {
   flex: 1; padding: 11px 16px; border: 1.5px solid var(--border);
   border-radius: 8px; font-size: 15px; outline: none;
@@ -157,6 +164,29 @@ body.shop .search-inner button {
   border: none; border-radius: 8px; font-size: 15px; font-weight: 600; cursor: pointer;
 }
 body.shop .search-inner button:hover { background: var(--green-dark); }
+body.shop .search-suggest {
+  max-width: 680px; margin: 10px auto 0; background: var(--white);
+  border: 1.5px solid var(--border); border-radius: 8px; overflow: hidden;
+  box-shadow: 0 8px 20px rgba(0,0,0,0.08);
+}
+body.shop .search-suggest-item {
+  display: flex; align-items: center; gap: 12px; padding: 10px 14px;
+  text-decoration: none; color: inherit; border-bottom: 1px solid var(--border);
+  cursor: pointer;
+}
+body.shop .search-suggest-item:last-child { border-bottom: none; }
+body.shop .search-suggest-item:hover, body.shop .search-suggest-item.active { background: #f4f8f4; }
+body.shop .search-suggest-item img {
+  width: 36px; height: 36px; object-fit: contain; flex-shrink: 0; border-radius: 4px; background: #f7f9f7;
+}
+body.shop .search-suggest-item .ssi-name { flex: 1; font-size: 14px; line-height: 1.3; }
+body.shop .search-suggest-item .ssi-price { font-size: 13px; font-weight: 700; color: var(--green-dark); white-space: nowrap; }
+body.shop .search-suggest-more {
+  display: block; text-align: center; padding: 10px; font-size: 13.5px; font-weight: 600;
+  color: var(--green-dark); text-decoration: none; background: #f7f9f7; cursor: pointer;
+}
+body.shop .search-suggest-more:hover { background: #eef3ee; }
+body.shop .search-suggest-empty { padding: 14px; font-size: 14px; color: var(--muted, #888); text-align: center; }
 
 /* ===== HERO ===== */
 body.shop .hero-section {
@@ -369,7 +399,7 @@ body.shop .about-inner {
 body.shop .about-text { display: flex; flex-direction: column; gap: 16px; }
 body.shop .about-text p { font-size: 15px; line-height: 1.7; color: var(--text-muted); }
 body.shop .about-img { border-radius: 14px; overflow: hidden; }
-body.shop .about-img img { width: 100%; height: 420px; object-fit: cover; display: block; border-radius: 14px; }
+body.shop .about-img img { width: 110%; height: 110%; object-fit: fill; display: block; }
 
 /* ===== ПАРТНЁРЫ ===== */
 body.shop .partners-section { background: #fff; padding: 48px 0; }
@@ -414,7 +444,12 @@ body.shop .product-grid {
 }
 body.shop .product-card {
   background: var(--white); border: 1.5px solid var(--border);
-  border-radius: 12px; overflow: hidden;
+  border-radius: 12px;
+  /* overflow:visible (не hidden) — специально, чтобы лента "Акция" (.card-ribbon,
+     см. ниже) могла лежать ПОВЕРХ зелёной рамки картой, а не обрезаться по её
+     скруглённому углу. Саму картинку от квадратных углов спасает не это, а
+     собственный border-radius на .card-img-wrap (у неё свой overflow:hidden). */
+  position: relative; overflow: visible;
   display: flex; flex-direction: column;
   transition: transform .2s, box-shadow .2s, border-color .2s;
   cursor: pointer;
@@ -429,6 +464,7 @@ body.shop .card-img-wrap {
   height: 180px; background: #fff;
   display: flex; align-items: center; justify-content: center;
   position: relative; overflow: hidden; padding: 16px;
+  border-radius: 10.5px 10.5px 0 0;
 }
 body.shop .card-img-wrap img { width: 100%; height: 100%; object-fit: contain; }
 body.shop .card-emoji { font-size: 64px; }
@@ -440,7 +476,7 @@ body.shop .card-badges {
   display: flex; flex-direction: column; align-items: flex-start; gap: 5px;
 }
 body.shop .badge-hit {
-  font-size: 10px; font-weight: 800; padding: 3px 10px; border-radius: 20px;
+  font-size: 10px; font-weight: 800; padding: 5px 10px; border-radius: 17px;
   background: var(--accent); color: #000;   /* цвет по умолчанию — переопределяется ниже */
 }
 /* У каждого вида значка свой цвет, чтобы на карточке с несколькими они не сливались
@@ -449,6 +485,53 @@ body.shop .badge-c-hit { background: var(--accent); color: #000; font-size: 11px
 body.shop .badge-c-best { background: var(--green); color: #fff; font-size: 11px; }
 body.shop .badge-c-recommend { background: #1976D2; color: #fff; font-size: 11px; }
 body.shop .badge-c-deal { background: #E5484D; color: #fff; font-size: 11px; }
+body.shop .badge-discount { background: #E5484D; color: #fff; }
+/* Диагональная лента "Акция" — для скидки, заданной готовой ценой (а не процентом).
+   Лежит прямо на .product-card (он теперь overflow:visible специально ради этого — см.
+   выше), БЕЗ отдельного обрезающего контейнера: более ранняя версия с маленькой
+   overflow:hidden-рамкой вокруг ленты обрубала размытие её же box-shadow прямо по своему
+   краю, и это резкое обрезание размытия выглядело как серый "скол" рядом с лентой —
+   плоский кривой осколок там, где тени просто неоткуда было уже затухать. Без обрезающей
+   рамки такой артефакт физически невозможен; а чтобы лента не доставала до соседней
+   карточки, она просто уменьшена через scale() (подробнее — у самого правила ниже).
+   3D: градиент даёт объём (светлее сверху, темнее снизу, как у тканевой ленты), лёгкая
+   внешняя тень — будто лента приподнята, inset-блик сверху — и тёмные треугольники-
+   "заломы" на обоих концах (::before/::after), там, где лента уходит под угол —
+   классический приём для ribbon-бейджей. */
+body.shop .card-ribbon {
+  /* top/left/width — те самые проверенные числа, при которых лента без зазоров точно
+     закрывает угол по диагонали (их же использует и .pv-gallery .card-ribbon крупнее).
+     Уменьшаем именно scale(), а не ширину/отступы — scale ужимает всё вокруг того же
+     центра вращения, поэтому угол по-прежнему закрыт полностью, просто сама лента
+     короче и не достаёт до соседней карточки. Если поменять только left/width без
+     scale — центр диагонали съезжает, и между лентой и углом карточки остаётся
+     белый зазор (так и получилось в прошлый раз). */
+  position: absolute; top: 14px; left: -38px; width: 150px; z-index: 3;
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  background: linear-gradient(180deg, #ff6166 0%, #E5484D 45%, #c0282e 100%);
+  color: #fff; font-size: 12px; font-weight: 800;
+  text-align: center; padding: 7px 0 6px; transform: rotate(-45deg) scale(.72);
+  box-shadow: 0 3px 6px rgba(0,0,0,.25), inset 0 1px 0 rgba(255,255,255,.4), inset 0 -2px 3px rgba(0,0,0,.25);
+  text-shadow: 0 1px 2px rgba(0,0,0,.25);
+}
+body.shop .card-ribbon-icon {
+  display: flex; align-items: center; justify-content: center;
+  width: 15px; height: 15px; border-radius: 50%;
+  background: rgba(255,255,255,.95); color: #c0282e;
+  font-size: 9px; font-weight: 900; text-shadow: none;
+  box-shadow: 0 1px 2px rgba(0,0,0,.2);
+}
+body.shop .card-ribbon::before,
+body.shop .card-ribbon::after {
+  content: ''; position: absolute; top: 100%; width: 0; height: 0;
+  border-style: solid; border-color: #7a1519 transparent transparent transparent;
+}
+body.shop .card-ribbon::before { left: 0; border-width: 5px 5px 0 0; }
+body.shop .card-ribbon::after { right: 0; border-width: 5px 0 0 5px; }
+/* Когда скидка задана готовой ценой (лента "Акция" в левом углу) — таймер уходит в
+   свободный правый угол, под сердечко «В избранное», чтобы не наезжать на ленту. */
+body.shop .card-countdown-corner { position: absolute; top: 46px; right: 8px; z-index: 2; }
+body.shop .pv-img .card-countdown-corner { top: 54px; right: 16px; }
 body.shop .card-body { padding: 14px 16px; flex: 1; display: flex; flex-direction: column; gap: 5px; }
 body.shop .card-brand { font-size: 11px; color: var(--text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
 body.shop .card-name { display: block; font-size: 14px; font-weight: 700; line-height: 1.4; color: var(--text); text-decoration: none; }
@@ -463,10 +546,36 @@ body.shop .badge-feat {
 }
 body.shop .badge-feat img { width: 13px; height: 13px; object-fit: contain; flex-shrink: 0; }
 body.shop .card-footer-row {
-  display: flex; align-items: center; justify-content: space-between;
+  display: flex; align-items: flex-end; justify-content: space-between;
   padding: 10px 16px; border-top: 1px solid var(--border); gap: 8px;
 }
+body.shop .card-price-block { display: flex; flex-direction: column; gap: 2px; }
 body.shop .card-price { font-size: 17px; font-weight: 800; color: var(--green); }
+body.shop .card-price-sale { color: #E5484D; }
+body.shop .card-price-old, body.shop .pv-price-old, body.shop .mini-price-old {
+  text-decoration: line-through; color: var(--text-muted); font-weight: 600;
+}
+body.shop .card-price-old { font-size: 13px; }
+body.shop .mini-price-old { font-size: 11px; margin-right: 4px; }
+/* Правая колонка футера карточки — "Экономия N ₸" пилюля прямо над кнопкой "Подробнее"
+   (а не рядом с ценой слева), чтобы сразу обе "причины купить сейчас" были на виду. */
+body.shop .card-footer-right { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+/* "Экономия N ₸" — светло-розовая пилюля, показывает абсолютную сумму скидки в деньгах,
+   а не в процентах — так нагляднее для покупателя, чем сам процент. */
+body.shop .card-save-pill, body.shop .pv-save-pill {
+  display: inline-block; font-size: 11px; font-weight: 700; color: #E5484D;
+  background: #FDE8E9; padding: 3px 10px; border-radius: 20px; white-space: nowrap;
+}
+/* Обратный отсчёт до конца скидки — та же розовая пилюля, что "Экономия", но в углу
+   картинки рядом с бейджем/лентой скидки (а не внизу у цены): это одно и то же
+   сообщение "успей, пока скидка не кончилась" (тикает раз в секунду, см. tickCountdowns()
+   в index.html). */
+body.shop .card-countdown, body.shop .pv-countdown {
+  display: inline-block; font-size: 11px; font-weight: 700; color: #E5484D;
+  background: #FDE8E9; padding: 3px 10px; border-radius: 20px; white-space: nowrap;
+  width: fit-content; font-variant-numeric: tabular-nums;
+}
+body.shop .pv-countdown { font-size: 13px; }
 body.shop .card-price-request { font-size: 13px; color: var(--text-muted); font-weight: 600; }
 body.shop .card-bonus { font-size: 12px; font-weight: 600; color: var(--accent); }
 body.shop .btn-detail {
@@ -494,6 +603,9 @@ body.shop .btn-buy {
 }
 body.shop .btn-buy:hover { background: var(--green-dark); }
 body.shop .btn-buy img { width: 15px; height: 15px; object-fit: contain; }
+/* Товар уже в корзине — обводка вместо заливки, как и на странице товара (.pv-cta-cart.in-cart) */
+body.shop .btn-buy.in-cart { background: var(--white); color: var(--green); border: 1.5px solid var(--green); padding: 7.5px; }
+body.shop .btn-buy.in-cart:hover { background: var(--green-light); }
 
 /* КОНТАКТЫ: WhatsApp + позвонить */
 body.shop .contact-actions { display: flex; flex-direction: column; gap: 8px; }
@@ -726,13 +838,30 @@ body.shop .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 body.shop .form-group { display: flex; flex-direction: column; gap: 4px; }
 body.shop .form-group label { font-size: 12px; font-weight: 600; color: var(--text-muted); }
 body.shop .form-group input,
+body.shop .form-group select,
 body.shop .form-group textarea {
   padding: 9px 12px; border: 1.5px solid var(--border);
   border-radius: 8px; font-size: 13px; outline: none; transition: border-color .2s;
+  font-family: inherit; background: var(--white); color: inherit;
 }
 body.shop .form-group textarea { min-height: 90px; resize: vertical; }
 body.shop .form-group input:focus,
+body.shop .form-group select:focus,
 body.shop .form-group textarea:focus { border-color: var(--green); }
+
+/* Способ оплаты в чекауте корзины — см. #cartPanel .order-form в index.html */
+body.shop .payment-methods { display: flex; flex-direction: column; gap: 6px; }
+body.shop .payment-methods label {
+  display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 400;
+  color: var(--black); cursor: pointer; text-transform: none;
+}
+body.shop .payment-methods input[type="radio"] { accent-color: var(--green); width: 15px; height: 15px; flex-shrink: 0; }
+
+/* Экран подтверждения заказа — сменяет форму в корзине после успешного оформления. */
+body.shop .order-confirm { text-align: center; padding: 10px 4px 4px; }
+body.shop .order-confirm-icon { font-size: 34px; margin-bottom: 8px; }
+body.shop .order-confirm-title { font-size: 17px; font-weight: 800; margin-bottom: 8px; }
+body.shop .order-confirm-text { font-size: 13px; color: var(--text-muted); margin-bottom: 16px; line-height: 1.5; }
 body.shop textarea { resize: vertical; min-height: 56px; }
 body.shop .btn-primary {
   width: 100%; padding: 12px; background: var(--green); color: white;
@@ -746,6 +875,68 @@ body.shop .btn-primary:hover { background: var(--green-dark); }
 body.shop #accountOverlay .modal { max-width: 440px; }
 body.shop #accountOverlay .form-group { max-width: 320px; margin: 0 auto 16px; }
 body.shop #accountOverlay .btn-primary { max-width: 320px; margin-left: auto; margin-right: auto; display: block; }
+/* Поле пароля с глазком (показать/скрыть) — вход и регистрация (email/Telegram) */
+body.shop #accountOverlay .pwd-wrap { position: relative; }
+body.shop #accountOverlay .pwd-wrap input { width: 100%; padding-right: 40px; }
+body.shop #accountOverlay .pwd-eye {
+  position: absolute; right: 4px; top: 50%; transform: translateY(-50%);
+  background: none; border: none; cursor: pointer; font-size: 16px; padding: 6px; line-height: 1;
+}
+body.shop #accountOverlay .acc-remember {
+  display: flex; align-items: center; gap: 7px; max-width: 320px; margin: 0 auto 14px;
+  font-size: 13px; color: var(--text-muted); cursor: pointer;
+}
+body.shop #accountOverlay .acc-divider {
+  max-width: 320px; margin: 16px auto; text-align: center; position: relative;
+  color: var(--text-muted); font-size: 12px; text-transform: uppercase;
+}
+body.shop #accountOverlay .acc-divider::before, body.shop #accountOverlay .acc-divider::after {
+  content: ''; position: absolute; top: 50%; width: 42%; height: 1px; background: var(--border);
+}
+body.shop #accountOverlay .acc-divider::before { left: 0; }
+body.shop #accountOverlay .acc-divider::after { right: 0; }
+body.shop #accountOverlay #accTelegramWrap { display: flex; justify-content: center; }
+body.shop #accountOverlay .acc-forgot { text-align: right; margin: -8px 0 14px; font-size: 13px; }
+body.shop #accountOverlay .acc-forgot a { color: var(--text-muted); text-decoration: underline; }
+body.shop #accountOverlay .acc-forgot a:hover { color: var(--green); }
+
+/* Ловушка для ботов в формах (заказ, КП, вход/регистрация) — поле реально в DOM и
+   фокусируемо по Tab (tabindex="-1" снимает его), но спрятано за пределы экрана, так
+   что человек его не видит и не заполняет, а бот, читающий HTML, — заполняет. */
+.hp-field { position: absolute; left: -9999px; }
+
+/* ===== CHECKOUT PAGE (/checkout) ===== */
+body.shop .checkout-grid { display: grid; grid-template-columns: 1fr 360px; gap: 24px; align-items: start; }
+body.shop .checkout-main { display: flex; flex-direction: column; gap: 20px; }
+body.shop .checkout-block { background: var(--white); border: 1px solid var(--border); border-radius: 12px; padding: 20px; }
+body.shop .checkout-block h3 { font-size: 15px; font-weight: 800; margin-bottom: 12px; }
+body.shop .checkout-block .form-row,
+body.shop .checkout-block .form-group { margin-bottom: 10px; }
+body.shop .checkout-block .form-group:last-child { margin-bottom: 0; }
+body.shop .checkout-terms { margin-top: 12px; padding: 12px 14px; background: var(--bg); border-radius: 10px; font-size: 13px; color: var(--text-muted); line-height: 1.6; }
+body.shop .checkout-terms p { margin-bottom: 6px; }
+body.shop .checkout-terms a { color: var(--green); font-weight: 600; }
+body.shop .checkout-aside {
+  background: var(--white); border: 1px solid var(--border); border-radius: 12px;
+  padding: 20px; position: sticky; top: 20px;
+}
+body.shop .checkout-aside h3 { font-size: 15px; font-weight: 800; margin-bottom: 12px; }
+body.shop .checkout-items { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; max-height: 320px; overflow-y: auto; }
+body.shop .checkout-bonus-row { font-size: 13px; margin-bottom: 10px; }
+body.shop .checkout-bonus-row label { display: flex; align-items: center; gap: 7px; cursor: pointer; color: var(--text-muted); }
+body.shop .checkout-total { font-size: 18px; font-weight: 800; margin-bottom: 14px; }
+body.shop .checkout-total span { color: var(--green); }
+/* Сколько бонусов начислится вошедшему клиенту с этого заказа — тот же стиль, что у
+   cart-register-nudge (гостевой стимул зарегистрироваться), но без кнопки "Войти". */
+body.shop .checkout-earn-preview {
+  background: var(--green-light); border-radius: 8px; padding: 10px 12px;
+  font-size: 13px; color: var(--green-dark); margin-bottom: 14px;
+}
+body.shop .checkout-earn-preview b { color: var(--accent); }
+body.shop .checkout-agree { font-size: 12px; color: var(--text-muted); margin-top: 10px; text-align: center; line-height: 1.5; }
+body.shop .checkout-agree a { color: var(--green); }
+body.shop .checkout-empty { text-align: center; padding: 60px 20px; color: var(--text-muted); }
+body.shop .checkout-empty p { margin-bottom: 16px; font-size: 15px; }
 
 /* ===== PRODUCT MODAL ===== */
 body.shop .modal-overlay {
@@ -1062,7 +1253,7 @@ body.shop .pv-thumbs {
   order: -1; max-height: 520px; overflow-y: auto; padding-right: 2px;
 }
 body.shop .pv-img {
-  position: relative; flex: 1; min-width: 0;
+  position: relative; flex: 1; min-width: 0; overflow: hidden;
   background: #fff; border: 1.5px solid var(--border); border-radius: 14px;
   min-height: 440px; display: flex; align-items: center; justify-content: center; padding: 16px;
 }
@@ -1109,8 +1300,17 @@ body.shop .catalog-about-text a:hover,
 body.shop .article-body a:hover { color: var(--green-dark); }
 body.shop .pv-meta { display: flex; flex-wrap: wrap; gap: 8px 18px; font-size: 13px; color: var(--text-muted); margin-bottom: 16px; }
 body.shop .pv-badges { display: flex; flex-direction: column; gap: 8px; margin-bottom: 18px; }
-body.shop .pv-price { font-size: 30px; font-weight: 900; color: var(--green); margin-bottom: 16px;
-  border: 2px solid var(--green-light); border-radius: 40px; padding: 12px 24px; display: inline-block; }
+body.shop .pv-price-block { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; }
+body.shop .pv-price-old { font-size: 17px; margin-left: 4px; }
+body.shop .pv-price-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+body.shop .pv-price {
+  font-size: 30px; font-weight: 900; color: var(--green);
+  border: 2px solid var(--green-light); border-radius: 40px; padding: 12px 24px;
+  display: inline-flex; align-items: center; gap: 10px; flex-wrap: wrap;
+}
+body.shop .pv-price-sale { color: #E5484D; border-color: #FBD5D7; }
+body.shop .pv-save-pill { font-size: 13px; }
+body.shop .pv-gallery .card-ribbon { top: 14px; left: -32px; width: 150px; font-size: 13px; padding: 7px 0 6px; }
 body.shop .pv-price-req {
   font-size: 15px; color: var(--text-muted); font-weight: 600; background: var(--bg);
   padding: 12px 16px; border-radius: 10px; margin-bottom: 16px;
@@ -1148,6 +1348,12 @@ body.shop .pv-cta-text small { font-size: 11.5px; color: var(--text-muted); font
 body.shop .pv-cta-cart { background: var(--green); border-color: var(--green); color: #fff; }
 body.shop .pv-cta-cart .pv-cta-icon { background: rgba(255,255,255,.22); color: #fff; }
 body.shop .pv-cta-cart .pv-cta-text b { color: #fff; }
+/* Товар уже в корзине — та же кнопка, но приглушённая (обводка вместо заливки), чтобы
+   было видно отличие от "ещё не добавлено", и всё ещё понятно, что это кликабельно
+   (повторный клик убирает товар — см. pvToggleCart в product.js). */
+body.shop .pv-cta-cart.in-cart { background: var(--white); border-color: var(--green); color: var(--green); }
+body.shop .pv-cta-cart.in-cart .pv-cta-icon { background: var(--green-light); color: var(--green); }
+body.shop .pv-cta-cart.in-cart .pv-cta-text b { color: var(--green); }
 
 /* Скачать/Запросить КП — акцентная жёлтая */
 body.shop .pv-cta-kp { background: var(--accent); border-color: var(--accent); }
@@ -1187,10 +1393,10 @@ body.shop .pv-mini-compare.on svg { color: var(--green); }
   body.shop .pv-tab-btn { padding: 8px 10px; font-size: 14px; }
 }
 
-body.shop .pv-fulldesc, body.shop .pv-specs, body.shop .pv-block, body.shop .pv-reviews {
+body.shop .pv-fulldesc, body.shop .pv-specs, body.shop .pv-block, body.shop .pv-reviews, body.shop .article-comments {
   margin-top: 32px; padding-top: 24px; border-top: 1px solid var(--border);
 }
-body.shop .pv-fulldesc h3, body.shop .pv-specs h3, body.shop .pv-block h3, body.shop .pv-reviews h3 {
+body.shop .pv-fulldesc h3, body.shop .pv-specs h3, body.shop .pv-block h3, body.shop .pv-reviews h3, body.shop .article-comments h3 {
   font-size: 18px; font-weight: 800; margin-bottom: 14px;
 }
 /* Отзывы на карточке товара */
@@ -1271,12 +1477,12 @@ body.shop .hdr-fav .fav-count {
 
 /* --- Личный кабинет: кнопка в шапке + вкладки входа/регистрации --- */
 body.shop .hdr-account {
-  border: 1.5px solid var(--border); border-radius: 8px; background: none; cursor: pointer;
-  height: 38px; padding: 0 12px; font-size: 14px; color: var(--text);
-  display: flex; align-items: center; gap: 6px; transition: border-color .2s;
+  border: 1.5px solid var(--accent); border-radius: 8px; background: var(--accent); cursor: pointer;
+  height: 38px; padding: 0 12px; font-size: 14px; color: #1a1205; font-weight: 600;
+  display: flex; align-items: center; gap: 6px; transition: opacity .2s;
 }
-body.shop .hdr-account:hover { border-color: var(--green); }
-body.shop .hdr-account-icon { fill: var(--green); flex: none; }
+body.shop .hdr-account:hover { opacity: .88; }
+body.shop .hdr-account-icon { fill: #1a1205; flex: none; }
 body.shop .acc-tabs { display: flex; gap: 6px; margin: 6px 0 20px; }
 body.shop .acc-tab-btn {
   flex: 1; padding: 10px; border: 1.5px solid var(--border); border-radius: 8px;
@@ -1312,6 +1518,10 @@ body.shop .filter-check-child::before { content: '·'; position: absolute; left:
 
 /* --- Раскладка каталога с фильтрами --- */
 body.shop .catalog-layout { display: grid; grid-template-columns: 240px 1fr; gap: 28px; align-items: start; }
+/* без min-width:0 грид-колонка по умолчанию не сжимается уже своего содержимого
+   (товарных карточек) — на телефоне это раздвигало всю колонку (и сетку карточек)
+   шире экрана вместо того, чтобы ужаться в отведённые ей 1fr. */
+body.shop .catalog-main { min-width: 0; }
 /* нет колонки фильтров (избранное, поиск без фасетов) — товары на всю ширину */
 body.shop .catalog-layout:has(> .catalog-filters[style*="display: none"]) { grid-template-columns: 1fr; }
 body.shop .catalog-layout:has(> .catalog-filters[style*="display: none"]) .btn-filters-mobile { display: none; }
@@ -1413,7 +1623,7 @@ body.shop .mini-img {
   display: flex; align-items: center; justify-content: center; font-size: 28px; overflow: hidden;
 }
 body.shop .mini-img .card-badges { top: 5px; left: 5px; gap: 3px; }
-body.shop .mini-img .badge-hit { font-size: 8px; padding: 2px 6px; }
+body.shop .mini-img .badge-hit { font-size: 8px; padding: 3px 6px; }
 body.shop .mini-img img { width: 100%; height: 100%; object-fit: contain; }
 body.shop .mini-name {
   font-size: 12.5px; font-weight: 600; line-height: 1.35; margin-bottom: 4px;
@@ -1462,10 +1672,17 @@ body.shop .catalog-about-title {
 body.shop .catalog-about-text { font-size: 14.5px; line-height: 1.75; color: var(--text-muted); }
 body.shop .catalog-about-text p { margin: 0 0 10px; }
 body.shop .catalog-about-text p:last-child { margin-bottom: 0; }
-body.shop .catalog-about-text h2,
-body.shop .catalog-about-text h3,
+/* Раньше h2/h3/h4 были одного размера (16px — всего на 1.5px крупнее обычного текста 14.5px),
+   из-за чего в длинных статьях заголовок и подзаголовок были неотличимы друг от друга и
+   почти сливались с абзацем. Теперь у каждого уровня свой размер и отступ сверху. */
+body.shop .catalog-about-text h2 {
+  font-size: 21px; font-weight: 800; color: var(--black); margin: 32px 0 10px; line-height: 1.3;
+}
+body.shop .catalog-about-text h3 {
+  font-size: 17px; font-weight: 700; color: var(--black); margin: 22px 0 8px; line-height: 1.35;
+}
 body.shop .catalog-about-text h4 {
-  font-size: 16px; font-weight: 700; color: var(--black); margin: 20px 0 8px; line-height: 1.35;
+  font-size: 15px; font-weight: 700; color: var(--black); margin: 18px 0 6px; line-height: 1.4;
 }
 body.shop .catalog-about-text ul,
 body.shop .catalog-about-text ol { margin: 0 0 10px; padding-left: 22px; }
@@ -1473,6 +1690,47 @@ body.shop .catalog-about-text li { margin: 0 0 4px; }
 body.shop .catalog-about-text a { color: var(--green); text-decoration: underline; }
 body.shop .catalog-about-text strong, body.shop .catalog-about-text b { color: var(--black); font-weight: 700; }
 body.shop .catalog-about-text > *:first-child { margin-top: 0; }
+/* Раньше тут не было стилей для картинок и таблиц внутри статей/описаний — вставленная
+   через админку картинка товара растягивалась на полную естественную ширину (у исходников
+   она может быть 1500px+), а таблица сравнения шла вообще без границ и склеенными ячейками. */
+body.shop .catalog-about-text img { max-width: 100%; height: auto; border-radius: var(--radius); display: block; margin: 6px 0 14px; }
+body.shop .catalog-about-text table { width: 100%; border-collapse: collapse; margin: 0 0 14px; font-size: 13.5px; }
+body.shop .catalog-about-text th, body.shop .catalog-about-text td { border: 1px solid var(--border); padding: 8px 10px; text-align: left; vertical-align: top; }
+body.shop .catalog-about-text th { background: var(--bg); font-weight: 700; color: var(--black); }
+/* Карточка "товар с картинкой" внутри текста статьи (используется в статьях по товарам
+   через класс spec-card) — раньше для неё приходилось вставлять <style> прямо в текст
+   каждой статьи; вынесено сюда один раз, чтобы в новых статьях достаточно было класса. */
+body.shop .catalog-about-text .spec-card { display: flex; gap: 18px; align-items: flex-start; margin: 0 0 16px; flex-wrap: wrap; }
+body.shop .catalog-about-text .spec-card img { width: 160px; height: 160px; object-fit: contain; flex: 0 0 160px; border: 1px solid var(--border); border-radius: var(--radius); background: #fff; margin: 0; }
+body.shop .catalog-about-text .spec-card .sc-body { flex: 1 1 220px; min-width: 200px; }
+body.shop .catalog-about-text .spec-card .sc-title { display: inline-block; font-weight: 700; font-size: 16px; color: var(--black); text-decoration: underline; margin: 0 0 6px; }
+body.shop .catalog-about-text .spec-card .sc-desc { margin: 0 0 6px; }
+body.shop .catalog-about-text .spec-card .sc-specs { margin: 0; color: var(--text-muted); font-size: 13px; }
+@media (max-width: 480px) {
+  body.shop .catalog-about-text .spec-card img { width: 120px; height: 120px; flex-basis: 120px; }
+}
+
+/* ===== Фото/видео проектов раздела ===== */
+body.shop .catalog-gallery { padding: 40px 0; border-top: 1px solid var(--border); }
+body.shop .catalog-gallery-title {
+  font-size: 20px; font-weight: 800; line-height: 1.3; color: var(--black); margin: 0 0 16px;
+}
+body.shop .catalog-gallery-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px;
+}
+body.shop .gallery-item { border-radius: 10px; overflow: hidden; display: block; background: var(--green-light); }
+body.shop .gallery-photo img { width: 100%; height: 220px; object-fit: cover; display: block; transition: transform .2s; }
+body.shop .gallery-photo:hover img { transform: scale(1.04); }
+body.shop .gallery-video { position: relative; aspect-ratio: 16/9; }
+body.shop .gallery-video iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+body.shop .gallery-video-link {
+  display: flex; align-items: center; justify-content: center; height: 220px;
+  background: var(--green-light); color: var(--green); font-weight: 700; text-decoration: none;
+}
+@media (max-width: 640px) {
+  body.shop .catalog-gallery-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+  body.shop .gallery-photo img, body.shop .gallery-video-link { height: 150px; }
+}
 
 /* ===== FAQ раздела (аккордеон на <details>/<summary> — работает без JS) ===== */
 body.shop .catalog-faq { padding: 40px 0; border-top: 1px solid var(--border); }
@@ -1601,12 +1859,17 @@ body.shop .quiz-result-actions { display: flex; gap: 12px; flex-wrap: wrap; marg
   body.shop .hdr-fav { padding: 7px 9px; }
   body.shop .hdr-account { padding: 7px 9px; }
   body.shop .hdr-account .acc-name { display: none; }
-  body.shop .catalog-filters { padding: 18px 20px 90px; }
+  body.shop .catalog-filters { padding: 18px 20px; }
   body.shop .filters-close {
     display: block; background: none; border: none; font-size: 20px; cursor: pointer; color: var(--text); line-height: 1;
   }
+  /* position: fixed (вместо sticky) якорит кнопку к экрану, а не к концу списка фильтров —
+     пока фильтров было мало и список помещался на экран без прокрутки, разницы не было
+     заметно, но с универсальной системой характеристик список стал длиннее одной подкатегории,
+     и кнопка перекрывала середину списка при прокрутке. sticky двигается вместе со списком
+     и останавливается у его настоящего конца. */
   body.shop .filters-done {
-    display: block; position: fixed; left: 16px; bottom: 16px; width: calc(min(300px,85vw) - 32px);
+    display: block; position: sticky; bottom: 16px; width: 100%; margin-top: 16px;
     padding: 13px; background: var(--green); color: #fff; border: none; border-radius: 8px;
     font-weight: 700; font-size: 14px; cursor: pointer; z-index: 1;
   }
@@ -1620,12 +1883,19 @@ body.shop .quiz-result-actions { display: flex; gap: 12px; flex-wrap: wrap; marg
   body.shop .made-badge { max-width: 220px; }
   body.shop .delivery-extra,
   body.shop .contacts-grid { grid-template-columns: 1fr; gap: 28px; }
+  body.shop .checkout-grid { grid-template-columns: 1fr; }
+  body.shop .checkout-aside { position: static; }
   body.shop .reviews-grid { grid-template-columns: 1fr; }
   body.shop .compare-bar-inner { padding: 10px 16px; }
   body.shop .quiz-cta { flex-direction: column; align-items: flex-start; gap: 14px; margin: 24px 0; padding: 20px 18px; }
   body.shop .pv-top { grid-template-columns: 1fr; gap: 24px; }
-  body.shop .pv-gallery { flex-direction: column; }
-  body.shop .pv-thumbs { flex-direction: row; order: 0; max-height: none; overflow-x: auto; overflow-y: visible; padding-right: 0; }
+  /* min-width:0 обязателен: у flex/grid-элементов он по умолчанию "auto", а не 0 —
+     без этого .pv-gallery (и вся колонка товара вместе с заголовком) раздувалась до
+     суммарной ширины всех миниатюр в ряд вместо того, чтобы сжаться до экрана и дать
+     .pv-thumbs прокручиваться внутри себя (её же overflow-x:auto ниже для этого и
+     поставлен — без min-width:0 он просто не успевал сработать). */
+  body.shop .pv-gallery { flex-direction: column; min-width: 0; }
+  body.shop .pv-thumbs { flex-direction: row; order: 0; max-height: none; overflow-x: auto; overflow-y: visible; padding-right: 0; min-width: 0; }
   body.shop .pv-img { min-height: 300px; }
   body.shop .pv-img img { max-height: 360px; }
 }
@@ -1710,7 +1980,11 @@ body.shop .qs-label { font-size: 10.5px; color: var(--text-muted); margin-top: 2
   body.shop .sort-select { width: 100%; }
 
   body.shop .breadcrumb .section-title { font-size: 20px; }
-  body.shop .product-grid { grid-template-columns: repeat(2, 1fr); gap: 12px; }
+  /* minmax(0, 1fr), не просто 1fr — у грид-колонки по умолчанию такой же "неявный"
+     минимум, как у флекс-айтема (см. .catalog-main выше): колонка не сжималась бы уже
+     контента карточки (длинное название/бейдж), и на телефоне сетка из 2 карточек
+     раздвигала всю страницу вширь вместо того, чтобы карточки ужались в свои 50%. */
+  body.shop .product-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
   body.shop .card-img-wrap { height: 128px; padding: 10px; }
   body.shop .card-body { padding: 10px 12px; }
   body.shop .card-name { font-size: 12.5px; }
@@ -1818,6 +2092,7 @@ body.admin .table-wrap { overflow-x: auto; }
 body.admin table { width: 100%; border-collapse: collapse; font-size: 13px; }
 body.admin tr.dragging { opacity: .4; }
 body.admin .img-cell.dragging { opacity: .4; }
+body.admin .spec-row.dragging { opacity: .4; }
 body.admin .img-cell { cursor: grab; }
 body.admin .drag-handle { user-select: none; font-size: 16px; text-align: center; }
 body.admin th { background: var(--bg); padding: 12px 16px; text-align: left; font-weight: 700; color: var(--text-muted); font-size: 12px; text-transform: uppercase; border-bottom: 1px solid var(--border); }
@@ -2011,6 +2286,49 @@ body.admin .img-del { right: 4px; background: rgba(17,24,39,0.8); color: #fff; }
 body.admin .img-fn { font-size: 9px; color: var(--text-muted); padding: 3px 5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 body.admin .img-add-row { display: flex; gap: 8px; align-items: center; }
 
+/* Красный бейдж непрочитанных рядом с пунктом меню "Чат с клиентами" */
+body.admin .nav-badge { background: #dc2626; color: #fff; font-size: 11px; font-weight: 700; padding: 1px 7px; border-radius: 20px; margin-left: auto; }
+
+/* ==================== ЧАТ С КЛИЕНТАМИ (admin.html) ==================== */
+body.admin .chat-card { display: flex; height: calc(100vh - 150px); min-height: 440px; overflow: hidden; }
+body.admin .chat-threads { width: 300px; flex: none; border-right: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden; }
+body.admin .chat-threads-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 12px 14px; border-bottom: 1px solid var(--border); }
+body.admin .chat-notif-btn { font-size: 12px; padding: 6px 10px; border: 1.5px solid var(--border); border-radius: 20px; background: var(--white); cursor: pointer; white-space: nowrap; }
+body.admin .chat-notif-btn.on { border-color: var(--green); color: var(--green); background: var(--green-light); }
+body.admin #chatThreadsList { overflow-y: auto; flex: 1; }
+body.admin .chat-thread { display: block; width: 100%; text-align: left; padding: 12px 14px; border: none; border-bottom: 1px solid var(--border); background: none; cursor: pointer; }
+body.admin .chat-thread:hover { background: var(--bg); }
+body.admin .chat-thread.active { background: var(--green-light); }
+body.admin .chat-thread-top { display: flex; justify-content: space-between; align-items: center; gap: 6px; font-size: 13px; font-weight: 700; }
+body.admin .chat-thread-snippet { font-size: 12px; color: var(--text-muted); margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+body.admin .chat-thread-unread { background: #dc2626; color: #fff; font-size: 11px; font-weight: 700; min-width: 18px; height: 18px; border-radius: 10px; display: inline-flex; align-items: center; justify-content: center; padding: 0 5px; }
+body.admin .chat-convo { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+body.admin #chatConvoBody { display: flex; flex-direction: column; height: 100%; }
+body.admin .chat-convo-head { padding: 14px 18px; border-bottom: 1px solid var(--border); display: flex; align-items: baseline; gap: 10px; }
+body.admin .chat-convo-messages { flex: 1; overflow-y: auto; padding: 16px 18px; display: flex; flex-direction: column; gap: 10px; }
+body.admin .chat-msg { display: flex; flex-direction: column; max-width: 70%; }
+body.admin .chat-msg.mine { align-self: flex-end; align-items: flex-end; }
+body.admin .chat-msg.theirs { align-self: flex-start; align-items: flex-start; }
+body.admin .chat-bubble { padding: 9px 13px; border-radius: 14px; font-size: 14px; line-height: 1.4; white-space: pre-wrap; word-break: break-word; }
+body.admin .chat-msg.mine .chat-bubble { background: var(--green); color: #fff; border-bottom-right-radius: 4px; }
+body.admin .chat-msg.theirs .chat-bubble { background: var(--bg); color: var(--text); border-bottom-left-radius: 4px; }
+body.admin .chat-time { color: var(--text-muted); font-size: 11px; margin-top: 3px; }
+body.admin .chat-admin-name { color: var(--text-muted); font-size: 11px; margin-bottom: 2px; padding: 0 2px; }
+body.admin .chat-convo-form { display: flex; gap: 10px; padding: 14px 18px; border-top: 1px solid var(--border); }
+body.admin .chat-convo-form input { flex: 1; padding: 10px 14px; border: 1.5px solid var(--border); border-radius: 10px; font-size: 14px; }
+body.admin .chat-bubble-img { display: block; max-width: 220px; max-height: 220px; border-radius: 8px; cursor: pointer; }
+body.admin .chat-bubble-file { display: inline-block; text-decoration: underline; }
+body.admin .chat-msg.mine .chat-bubble-file { color: #fff; }
+body.admin .chat-attach-preview { display: flex; align-items: center; gap: 8px; padding: 8px 18px; border-top: 1px solid var(--border); background: var(--bg); }
+body.admin .chat-attach-preview img { width: 36px; height: 36px; object-fit: cover; border-radius: 6px; }
+body.admin .chat-attach-preview-icon { font-size: 22px; width: 36px; text-align: center; }
+body.admin .chat-attach-preview span { font-size: 12px; color: var(--text-muted); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+body.admin .chat-attach-preview button { border: none; background: none; cursor: pointer; font-size: 14px; color: var(--text-muted); }
+@media (max-width: 780px) {
+  body.admin .chat-card { flex-direction: column; height: auto; }
+  body.admin .chat-threads { width: auto; border-right: none; border-bottom: 1px solid var(--border); max-height: 240px; }
+}
+
 /* ==================== ЛИЧНЫЙ КАБИНЕТ (/account) ==================== */
 body.shop .acct-wrap { display: grid; grid-template-columns: 220px 1fr; gap: 28px; align-items: start; }
 @media (max-width: 780px) { body.shop .acct-wrap { grid-template-columns: 1fr; } }
@@ -2025,8 +2343,12 @@ body.shop .acct-avatar-upload {
   background: var(--green); color: #fff; border: 2px solid #fff; font-size: 12px; cursor: pointer;
   display: flex; align-items: center; justify-content: center;
 }
-body.shop .acct-head-info h1 { font-size: 20px; margin-bottom: 4px; }
+body.shop .acct-head-info h1 { font-size: 20px; margin-bottom: 4px; display: inline-flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 body.shop .acct-head-info p { color: var(--text-muted); font-size: 14px; }
+body.shop .acct-id-badge {
+  display: inline-block; background: var(--accent); color: black; font-weight: 700;
+  font-size: 13px; padding: 3px 10px; border-radius: 10px; vertical-align: middle;
+}
 body.shop .acct-nav { display: flex; flex-direction: column; gap: 2px; border: 1.5px solid var(--border); border-radius: var(--radius); padding: 6px; }
 body.shop .acct-nav button {
   text-align: left; padding: 10px 12px; border: none; background: none; border-radius: 8px;
@@ -2034,6 +2356,28 @@ body.shop .acct-nav button {
 }
 body.shop .acct-nav button:hover { background: var(--bg); }
 body.shop .acct-nav button.active { background: var(--green-light); color: var(--green-dark); font-weight: 600; }
+/* "Бонусная программа" / "Чат с нами" — выделены крупнее и цветом среди обычных
+   пунктов меню личного кабинета, чтобы сразу бросались в глаза (не теряться в списке
+   рядом с "Мои данные"/"Мои заказы" и т.п.) */
+body.shop .acct-nav-sep { border-top: 1px solid var(--border); margin: 6px 2px; }
+body.shop .acct-nav-perk {
+  display: flex; align-items: center; gap: 10px; padding: 12px; border-radius: 10px;
+  text-decoration: none; font-size: 14px; font-weight: 600; width: 100%; box-sizing: border-box;
+  border: none; cursor: pointer; text-align: left; position: relative;
+}
+body.shop .acct-nav-perk small { display: block; font-weight: 400; color: var(--text-muted); font-size: 11px; margin-top: 1px; }
+body.shop .acct-nav-perk-icon { font-size: 20px; flex: none; }
+body.shop .acct-nav-perk-bonus { background: linear-gradient(135deg, #fff7e6, #ffecc2); color: var(--text); }
+body.shop .acct-nav-perk-chat { background: var(--green-light); color: var(--text); }
+body.shop .acct-nav-perk-chat.active { background: var(--green); color: #fff; }
+body.shop .acct-nav-perk-chat.active small { color: rgba(255,255,255,0.85); }
+body.shop .acct-nav-perk-bonus.active { background: linear-gradient(135deg, #f4b73c, #e0940a); color: #fff; }
+body.shop .acct-nav-perk-bonus.active small { color: rgba(255,255,255,0.85); }
+body.shop .acct-nav-perk-badge { position: absolute; top: 8px; right: 10px; }
+/* Счётчик непрочитанных уведомлений — красным, рядом с "Мои уведомления" */
+body.shop .acct-badge { color: #dc2626; font-weight: 700; }
+/* Сами непрочитанные уведомления в списке — лёгкая подсветка, пропадает после открытия вкладки */
+body.shop .acct-unread { background: #fef2f2; border-radius: 8px; margin: 0 -10px; padding: 12px 10px !important; }
 body.shop .acct-panel { display: none; border: 1.5px solid var(--border); border-radius: var(--radius); padding: 20px; }
 body.shop .acct-panel.active { display: block; }
 body.shop .acct-panel h2 { font-size: 17px; margin-bottom: 16px; }
@@ -2067,3 +2411,37 @@ body.shop .acct-review:last-child { border-bottom: none; }
 body.shop .acct-review-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
 body.shop .acct-review .stars { color: var(--accent); letter-spacing: 1px; }
 body.shop .acct-empty { color: var(--text-muted); font-size: 13px; padding: 6px 0; }
+body.shop .acct-review-bonus-info { background: linear-gradient(135deg, #fff7e6, #ffecc2); border: 1.5px solid #f4d78a; border-radius: 10px; padding: 10px 14px; font-size: 13px; margin-bottom: 14px; }
+body.shop .acct-review-prompts-title { font-size: 14px; margin-bottom: 8px; }
+#acctReviewPrompts .acct-fav-grid { margin-bottom: 20px; }
+body.shop .acct-fav-card-body .acct-review-prompt-link {
+  display: inline-block; margin-top: 8px; padding: 6px 12px; border-radius: 8px;
+  background: var(--green); color: #fff; font-size: 12px; font-weight: 600; text-align: center;
+}
+body.shop .acct-fav-card-body .acct-review-prompt-link:hover { background: var(--green-dark); }
+/* Чат с нами (личный кабинет) — сообщения лентой, свои справа/зелёные, от админа слева/серые. */
+body.shop .acct-chat-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 16px; }
+body.shop .acct-chat-head h2 { margin-bottom: 0; }
+body.shop .chat-notif-btn { font-size: 12px; padding: 6px 10px; border: 1.5px solid var(--border); border-radius: 20px; background: #fff; cursor: pointer; white-space: nowrap; color: var(--text); }
+body.shop .chat-notif-btn.on { border-color: var(--green); color: var(--green); background: var(--green-light); }
+body.shop .acct-chat-messages { display: flex; flex-direction: column; gap: 10px; max-height: 420px; overflow-y: auto; padding: 4px 4px 10px; margin-bottom: 12px; }
+body.shop .acct-chat-msg { display: flex; flex-direction: column; max-width: 78%; }
+body.shop .acct-chat-msg.mine { align-self: flex-end; align-items: flex-end; }
+body.shop .acct-chat-msg.theirs { align-self: flex-start; align-items: flex-start; }
+body.shop .acct-chat-admin { font-size: 11px; color: var(--text-muted); margin-bottom: 2px; padding: 0 2px; }
+body.shop .acct-chat-bubble { padding: 9px 13px; border-radius: 14px; font-size: 14px; line-height: 1.4; white-space: pre-wrap; word-break: break-word; }
+body.shop .acct-chat-msg.mine .acct-chat-bubble { background: var(--green); color: #fff; border-bottom-right-radius: 4px; }
+body.shop .acct-chat-msg.theirs .acct-chat-bubble { background: var(--bg); color: var(--text); border-bottom-left-radius: 4px; }
+body.shop .acct-chat-time { color: var(--text-muted); font-size: 11px; margin-top: 3px; }
+body.shop .acct-chat-form { display: flex; gap: 10px; }
+body.shop .acct-chat-form input { flex: 1; padding: 10px 14px; border: 1.5px solid var(--border); border-radius: 10px; font-size: 14px; }
+body.shop .acct-chat-form .btn-primary { width: auto; flex: none; padding: 10px 18px; margin-top: 0; white-space: nowrap; }
+body.shop .chat-attach-btn { border: 1.5px solid var(--border); background: #fff; border-radius: 10px; width: 42px; flex: none; font-size: 16px; cursor: pointer; }
+body.shop .acct-chat-bubble-img { display: block; max-width: 220px; max-height: 220px; border-radius: 8px; cursor: pointer; }
+body.shop .acct-chat-bubble-file { display: inline-block; text-decoration: underline; }
+body.shop .acct-chat-msg.mine .acct-chat-bubble-file { color: #fff; }
+body.shop .acct-chat-attach-preview { display: flex; align-items: center; gap: 8px; padding: 6px 0; }
+body.shop .acct-chat-attach-preview img { width: 36px; height: 36px; object-fit: cover; border-radius: 6px; }
+body.shop .acct-chat-attach-preview-icon { font-size: 22px; width: 36px; text-align: center; }
+body.shop .acct-chat-attach-preview span { font-size: 12px; color: var(--text-muted); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+body.shop .acct-chat-attach-preview button { border: none; background: none; cursor: pointer; font-size: 14px; color: var(--text-muted); }

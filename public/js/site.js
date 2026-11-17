@@ -10,9 +10,21 @@
   // Доступ к localStorage безопасно оборачиваем: в некоторых мобильных браузерах
   // (приватный режим, отключённое хранилище политиками и т.п.) window.localStorage
   // сам оказывается null — обращение .getItem() тогда роняет весь скрипт целиком.
-  function tokenGet() { try { return localStorage.getItem('customerToken'); } catch (e) { return null; } }
-  function tokenSet(v) { try { localStorage.setItem('customerToken', v); } catch (e) {} }
-  function tokenRemove() { try { localStorage.removeItem('customerToken'); } catch (e) {} }
+  // "Запомнить меня" (чекбокс в форме входа, по умолчанию включён) — токен в
+  // localStorage (переживает закрытие браузера) или в sessionStorage (только эта
+  // вкладка/сессия), если человек явно снял галочку.
+  function tokenGet() {
+    try { return localStorage.getItem('customerToken') || sessionStorage.getItem('customerToken'); } catch (e) { return null; }
+  }
+  function tokenSet(v, remember) {
+    try {
+      if (remember === false) { sessionStorage.setItem('customerToken', v); localStorage.removeItem('customerToken'); }
+      else { localStorage.setItem('customerToken', v); sessionStorage.removeItem('customerToken'); }
+    } catch (e) {}
+  }
+  function tokenRemove() {
+    try { localStorage.removeItem('customerToken'); sessionStorage.removeItem('customerToken'); } catch (e) {}
+  }
 
   // Миниатюра (до 500px) рядом с полноразмерным фото — см. makeThumb() в server.js.
   // Живёт здесь (а не в index.html), потому что это самый первый подключаемый скрипт —
@@ -49,20 +61,25 @@
   /* ---------- СТАТИСТИКА ПРОСМОТРОВ (видно в админке, раздел «Статистика») ---------- */
   // Считаем именно на клиенте: после первой загрузки переходы внутри SPA идут через
   // JS без обращения к серверу, поэтому серверный лог их бы не увидел.
-  // Источник визита (откуда пришли — реклама/поиск/напрямую) запоминаем ОДИН раз, в
-  // момент самой первой загрузки страницы — document.referrer/location.search у
-  // внутренних переходов SPA это были бы уже "сам сайт"/пустая строка, а нам нужно
-  // знать, с чего начался визит, а не с какой внутренней страницы кликнули.
+  // Источник (откуда пришли — реклама/поиск/напрямую) у САМОЙ ПЕРВОЙ страницы визита —
+  // настоящий document.referrer/location.search. А у всех следующих переходов внутри
+  // того же визита (SPA, без перезагрузки) источником ставим текущую страницу сайта —
+  // trafficSource() на сервере увидит в ней b2btech.kz и покажет "Другая страница
+  // сайта", а не повторно "Google Ads": по рекламе кликнули один раз, дальше это уже
+  // просто навигация по сайту, а не новый переход с объявления.
   var _entryRef = document.referrer || '';
   var _entryQuery = location.search || '';
+  var _firstView = true;
   window.trackView = function (path, refId) {
     try {
+      var isFirst = _firstView;
+      _firstView = false;
       fetch('/api/track-view', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           type: refId ? 'product_view' : 'pageview', path: path || location.pathname, refId: refId || null,
-          ref: _entryRef, entryQuery: _entryQuery
+          ref: isFirst ? _entryRef : location.href, entryQuery: isFirst ? _entryQuery : ''
         })
       }).catch(function () {});
     } catch (e) {}
@@ -71,12 +88,12 @@
   // Клики по ключевым кнопкам ("Подобрать оборудование", "Запросить КП", "Позвонить",
   // "Написать в WhatsApp") — видно в админке, раздел «Статистика». productId — если клик
   // с карточки/страницы конкретного товара, чтобы знать, по какому товару чаще звонят/пишут.
-  window.trackClick = function (kind, productId) {
+  window.trackClick = function (kind, productId, phone) {
     try {
       fetch('/api/track-click', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ kind: kind, path: location.pathname, productId: productId || null })
+        body: JSON.stringify({ kind: kind, path: location.pathname, productId: productId || null, phone: phone || null })
       }).catch(function () {});
     } catch (e) {}
   };
@@ -129,6 +146,23 @@
     var pos = el.value.length;
     el.setSelectionRange(pos, pos);
   }
+  // Предзаполнить tel-поле уже известным номером (напр. при редактировании в /account) —
+  // нужно и значение, и dataset.phoneDigits, иначе маска при следующем вводе собьётся.
+  window.fillPhoneField = function (el, phone) {
+    if (!el) return;
+    el.dataset.phoneDigits = String(phone || '').replace(/\D/g, '').slice(-10);
+    el.value = formatKzPhone(el.dataset.phoneDigits);
+  };
+  // Галочка "Списать бонусы" — общая между попапом корзины (index.html) и /checkout
+  // (отдельная страница, отдельная загрузка). localStorage — чтобы выбор, сделанный в
+  // одном месте, не терялся при переходе в другое (раньше на /checkout приходилось
+  // отмечать её заново).
+  window.getUseBonusPref = function () {
+    try { return localStorage.getItem('useBonus') === '1'; } catch (e) { return false; }
+  };
+  window.setUseBonusPref = function (v) {
+    try { localStorage.setItem('useBonus', v ? '1' : '0'); } catch (e) {}
+  };
   document.addEventListener('keydown', function (e) {
     var el = e.target;
     if (!el || el.tagName !== 'INPUT' || el.type !== 'tel') return;
@@ -194,7 +228,69 @@
     var show = !d.style.display || d.style.display === 'none';
     d.style.display = show ? 'block' : 'none';
     if (show && $('searchInput')) $('searchInput').focus();
+    else hideSuggest();
   };
+
+  // Живые подсказки при наборе — чтобы не нужно было дожидаться "Найти" и попадать в
+  // точное написание: сервер (/api/products/suggest) уже сам матчит по названию, артикулу,
+  // бренду и характеристикам без учёта пробелов/дефисов и регистра (см. queries.js).
+  function escHtml(s) {
+    return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
+    });
+  }
+  function fmtPrice(p) {
+    if (p.price_on_request || !p.price) return 'По запросу';
+    return Math.round(p.price).toLocaleString('ru-RU') + ' ₸';
+  }
+  var _suggestTimer = null;
+  var _suggestReqId = 0;
+  function hideSuggest() {
+    var box = $('searchSuggest');
+    if (box) { box.style.display = 'none'; box.innerHTML = ''; }
+  }
+  function renderSuggest(items, q) {
+    var box = $('searchSuggest');
+    if (!box) return;
+    if (!items.length) {
+      box.innerHTML = '<div class="search-suggest-empty">Ничего не найдено по запросу «' + escHtml(q) + '»</div>';
+      box.style.display = 'block';
+      return;
+    }
+    var html = items.map(function (p) {
+      var img = p.icon ? window.thumbIconUrl(p.icon) : '/assets/icons/logo.png';
+      return '<a class="search-suggest-item" href="/product/' + p.id + '">' +
+        '<img src="' + img + '" alt="" loading="lazy" onerror="this.style.display=\'none\'">' +
+        '<span class="ssi-name">' + escHtml(p.name) + '</span>' +
+        '<span class="ssi-price">' + fmtPrice(p) + '</span></a>';
+    }).join('');
+    html += '<a class="search-suggest-more" href="/?q=' + encodeURIComponent(q) + '">Показать все результаты →</a>';
+    box.innerHTML = html;
+    box.style.display = 'block';
+  }
+  function onSearchInput(e) {
+    var q = e.target.value.trim();
+    clearTimeout(_suggestTimer);
+    if (q.length < 2) { hideSuggest(); return; }
+    _suggestTimer = setTimeout(function () {
+      var myReqId = ++_suggestReqId;
+      fetch('/api/products/suggest?q=' + encodeURIComponent(q))
+        .then(function (r) { return r.json(); })
+        .then(function (items) {
+          if (myReqId !== _suggestReqId) return; // пришёл ответ на уже не актуальный запрос
+          renderSuggest(items || [], q);
+        })
+        .catch(function () {});
+    }, 250);
+  }
+  document.addEventListener('DOMContentLoaded', function () {
+    var inp = $('searchInput');
+    if (inp) inp.addEventListener('input', onSearchInput);
+    document.addEventListener('click', function (e) {
+      var dd = $('searchDropdown');
+      if (dd && dd.style.display === 'block' && !dd.contains(e.target) && e.target.id !== 'searchInput') hideSuggest();
+    });
+  });
 
   /* ---------- КОРЗИНА (счётчик на всех страницах) ---------- */
   function cartCount() {
@@ -296,58 +392,143 @@
     var btn = $('hdrAccount');
     if (!btn) return;
     var c = window.custState.customer;
+    // ID клиента (client_no) — тот же номер, что в личном кабинете и в админке,
+    // с ведущими нулями до 6 знаков: "ID:002262".
+    var idStr = c && c.clientNo ? ' ID:' + String(c.clientNo).padStart(6, '0') : '';
     btn.innerHTML = HDR_ACCOUNT_ICON + (c
-      ? '<span class="acc-name">' + c.name.split(' ')[0] + (c.bonusBalance ? ' · ' + c.bonusBalance + '₸' : '') + '</span>'
+      ? '<span class="acc-name">' + c.name.split(' ')[0] + idStr + '</span>'
       : '<span class="acc-name">Войти</span>');
   };
 
+  function showAccStep(step) {
+    ['email', 'code', 'password', 'complete', 'tgphone', 'reset-code', 'reset-newpass'].forEach(function (s) {
+      var el = $('acc-step-' + s);
+      if (el) el.style.display = (s === step) ? '' : 'none';
+    });
+  }
   window.openAccountModal = function () {
     if (window.custState.customer) { location.href = '/account'; return; }
     var ov = $('accountOverlay');
     if (!ov) return;
-    $('acc-step-phone').style.display = '';
-    $('acc-step-code').style.display = 'none';
-    $('accPhone').value = ''; $('accCode').value = ''; $('accName').value = '';
-    $('accNameField').style.display = 'none';
+    showAccStep('email');
+    $('accEmail').value = ''; $('accCode').value = ''; $('accPassword').value = '';
+    $('accPhone2').value = ''; $('accNewPassword').value = '';
+    $('accResetCode').value = ''; $('accResetNewPassword').value = '';
+    $('accWebsite').value = '';
     ov.classList.add('open');
   };
   window.closeAccountModal = function () { var ov = $('accountOverlay'); if (ov) ov.classList.remove('open'); };
 
+  window.togglePwd = function (id, btn) {
+    var el = $(id); if (!el) return;
+    var show = el.type === 'password';
+    el.type = show ? 'text' : 'password';
+    btn.textContent = show ? '🙈' : '👁';
+  };
+  window.isValidEmail = function (email) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email || '').trim()); };
+
   var accResendTimer = null;
+  var accPendingEmail = '';
+  var accPendingRegToken = '';
+  // Шаг 1: email → уже зарегистрирован (есть пароль) — сразу просим пароль; иначе
+  // шлём код на почту (аналог старого шага "код на телефон", см. acc-step-code).
   window.custRequestCode = async function (isResend) {
-    var phone = $('accPhone').value.trim();
-    if (!window.isValidPhone(phone)) { window.showToast('⚠️ Введите корректный номер телефона'); return; }
-    var res = await window.apiFetch('/api/auth/request-code', 'POST', { phone: phone });
+    var email = $('accEmail').value.trim();
+    if (!window.isValidEmail(email)) { window.showToast('⚠️ Введите корректный email'); return; }
+    var res = await window.apiFetch('/api/auth/email/request-code', 'POST', { email: email, website: $('accWebsite').value });
     if (res.error) { window.showToast('❌ ' + res.error); return; }
-    $('acc-step-phone').style.display = 'none';
-    $('acc-step-code').style.display = '';
-    $('accCodeSentTo').textContent = res.channel === 'whatsapp'
-      ? 'Код отправлен в WhatsApp на ' + phone
-      : 'WhatsApp не найден — код отправлен по SMS на ' + phone;
-    if (!isResend) { $('accCode').value = ''; $('accName').value = ''; $('accNameField').style.display = 'none'; }
+    accPendingEmail = email;
+    if (res.needPassword) { showAccStep('password'); return; }
+    showAccStep('code');
+    $('accCodeSentTo').textContent = 'Код отправлен на ' + email;
+    if (!isResend) $('accCode').value = '';
     var btn = $('accResendBtn');
     btn.disabled = true; var left = 60;
     clearInterval(accResendTimer);
     var tick = function () { btn.textContent = left > 0 ? 'Отправить ещё раз (' + left + ')' : 'Отправить код ещё раз'; if (left <= 0) { btn.disabled = false; clearInterval(accResendTimer); } left--; };
     tick(); accResendTimer = setInterval(tick, 1000);
   };
+  // Шаг 2: код подтверждён → regToken разрешает следующий шаг (телефон + пароль)
+  // без повторной отправки кода.
   window.custVerifyCode = async function () {
-    var phone = $('accPhone').value.trim();
     var code = $('accCode').value.trim();
-    var name = $('accName').value.trim();
-    if (!code) { window.showToast('⚠️ Введите код из сообщения'); return; }
-    var res = await window.apiFetch('/api/auth/verify-code', 'POST', { phone: phone, code: code, name: name });
-    if (res.needName) { $('accNameField').style.display = ''; window.showToast('⚠️ Укажите имя — регистрируем вас впервые'); return; }
+    if (!code) { window.showToast('⚠️ Введите код из письма'); return; }
+    var res = await window.apiFetch('/api/auth/email/verify-code', 'POST', { email: accPendingEmail, code: code });
     if (res.error) { window.showToast('❌ ' + res.error); return; }
-    custAuthed(res, res.isNew);
+    accPendingRegToken = res.regToken;
+    showAccStep('complete');
   };
-  function custAuthed(res, isNew) {
-    tokenSet(res.token);
+  // Шаг 3 (новый клиент): телефон (для бонусов) + пароль → аккаунт создан.
+  window.custCompleteRegistration = async function () {
+    var phone = $('accPhone2').value.trim();
+    var password = $('accNewPassword').value;
+    if (!window.isValidPhone(phone)) { window.showToast('⚠️ Введите корректный номер телефона'); return; }
+    if (password.length < 6) { window.showToast('⚠️ Пароль должен быть не короче 6 символов'); return; }
+    var remember = $('accRemember2').checked;
+    var res = await window.apiFetch('/api/auth/email/complete-registration', 'POST',
+      { email: accPendingEmail, regToken: accPendingRegToken, phone: phone, password: password, website: $('accWebsite').value });
+    if (res.error) { window.showToast('❌ ' + res.error); return; }
+    custAuthed(res, remember);
+  };
+  // Уже зарегистрирован — вход паролем, без кода.
+  window.custLogin = async function () {
+    var password = $('accPassword').value;
+    if (!password) { window.showToast('⚠️ Введите пароль'); return; }
+    var remember = $('accRemember').checked;
+    var res = await window.apiFetch('/api/auth/email/login', 'POST', { email: accPendingEmail, password: password });
+    if (res.error) { window.showToast('❌ ' + res.error); return; }
+    custAuthed(res, remember);
+  };
+  // "Забыли пароль?" с шага входа паролем — код на тот же email (уже известен из
+  // accPendingEmail), затем новый пароль (см. acc-step-reset-code/reset-newpass).
+  var accResetResendTimer = null;
+  window.custForgotPassword = async function (isResend) {
+    var res = await window.apiFetch('/api/auth/email/request-reset-code', 'POST', { email: accPendingEmail });
+    if (res.error) { window.showToast('❌ ' + res.error); return; }
+    showAccStep('reset-code');
+    $('accResetCodeSentTo').textContent = 'Код отправлен на ' + accPendingEmail;
+    if (!isResend) $('accResetCode').value = '';
+    var btn = $('accResetResendBtn');
+    btn.disabled = true; var left = 60;
+    clearInterval(accResetResendTimer);
+    var tick = function () { btn.textContent = left > 0 ? 'Отправить ещё раз (' + left + ')' : 'Отправить код ещё раз'; if (left <= 0) { btn.disabled = false; clearInterval(accResetResendTimer); } left--; };
+    tick(); accResetResendTimer = setInterval(tick, 1000);
+  };
+  window.custVerifyResetCode = async function () {
+    var code = $('accResetCode').value.trim();
+    if (!code) { window.showToast('⚠️ Введите код из письма'); return; }
+    var res = await window.apiFetch('/api/auth/email/verify-code', 'POST', { email: accPendingEmail, code: code });
+    if (res.error) { window.showToast('❌ ' + res.error); return; }
+    accPendingRegToken = res.regToken;
+    showAccStep('reset-newpass');
+    $('accResetNewPassword').value = '';
+  };
+  window.custResetPassword = async function () {
+    var password = $('accResetNewPassword').value;
+    if (password.length < 6) { window.showToast('⚠️ Пароль должен быть не короче 6 символов'); return; }
+    var res = await window.apiFetch('/api/auth/email/reset-password', 'POST',
+      { email: accPendingEmail, regToken: accPendingRegToken, password: password });
+    if (res.error) { window.showToast('❌ ' + res.error); return; }
+    custAuthed(res, true);
+  };
+  // После входа через Telegram без телефона — донести его отдельным шагом (бонусы
+  // начисляются по номеру телефона).
+  window.custSetTelegramPhone = async function () {
+    var phone = $('accTgPhone').value.trim();
+    if (!window.isValidPhone(phone)) { window.showToast('⚠️ Введите корректный номер телефона'); return; }
+    var res = await window.apiFetch('/api/me/phone', 'POST', { phone: phone });
+    if (res.error) { window.showToast('❌ ' + res.error); return; }
+    if (window.custState.customer) window.custState.customer.phone = phone;
+    window.showToast('✅ Телефон сохранён', 'green');
+    window.closeAccountModal();
+    finishLoginRedirect();
+  };
+
+  function applyAuthResult(res, remember) {
+    tokenSet(res.token, remember !== false);
     window.custState.token = res.token;
     window.custState.customer = res.customer;
     window.refreshAccountUI();
-    window.closeAccountModal();
-    window.showToast(isNew ? '✅ Добро пожаловать! Начислен бонус за регистрацию' : '✅ Вы вошли в аккаунт', 'green');
     if (typeof window.refreshCartBonus === 'function') window.refreshCartBonus();
     if (typeof window.renderCart === 'function') window.renderCart();
     // Избранное, накопленное в этом браузере до входа, переносим на аккаунт —
@@ -356,12 +537,53 @@
       var localFavs = JSON.parse(localStorage.getItem('favorites') || '[]');
       if (localFavs.length) window.apiFetch('/api/me/favorites', 'POST', { ids: localFavs });
     } catch (e) {}
+  }
+  function finishLoginRedirect() {
     // Вошли прямо из корзины (кнопка "Войти" в подсказке про бонусы) — остаёмся
     // на месте, чтобы не потерять оформление заказа; иначе ведём в личный кабинет.
     var cartPanel = document.getElementById('cartPanel');
     var midCartFlow = cartPanel && cartPanel.classList.contains('open');
     if (location.pathname !== '/account' && !midCartFlow) location.href = '/account';
   }
+  function custAuthed(res, remember) {
+    applyAuthResult(res, remember);
+    window.closeAccountModal();
+    window.showToast(res.isNew ? '✅ Добро пожаловать! Начислен бонус за регистрацию' : '✅ Вы вошли в аккаунт', 'green');
+    finishLoginRedirect();
+  }
+
+  // Колбэк виджета "Войти через Telegram" (data-onauth, см. renderTelegramWidget) —
+  // Telegram сам вызывает эту глобальную функцию с данными пользователя, подписанными
+  // токеном бота; подпись проверяется на сервере (см. auth.verifyTelegramAuth).
+  window.onTelegramAuth = async function (user) {
+    var res = await window.apiFetch('/api/auth/telegram/callback', 'POST', user);
+    if (res.error) { window.showToast('❌ ' + res.error); return; }
+    applyAuthResult(res, true);
+    if (res.needPhone) { showAccStep('tgphone'); return; }
+    window.closeAccountModal();
+    window.showToast(res.isNew ? '✅ Добро пожаловать! Начислен бонус за регистрацию' : '✅ Вы вошли через Telegram', 'green');
+    finishLoginRedirect();
+  };
+  // Кнопку виджета рисует сам Telegram через свой <script> — вставляем его динамически,
+  // т.к. username бота известен только из настроек (см. settings.telegram в /api/settings),
+  // не зашит заранее в HTML. Ничего не рисуем, пока бот не настроен в админке.
+  function renderTelegramWidget(tg) {
+    var wrap = $('accTelegramWrap'), divider = $('accTgDivider');
+    if (!wrap) return;
+    if (!tg || !tg.enabled || !tg.bot_username) { wrap.innerHTML = ''; if (divider) divider.style.display = 'none'; return; }
+    if (divider) divider.style.display = '';
+    wrap.innerHTML = '';
+    var s = document.createElement('script');
+    s.async = true;
+    s.src = 'https://telegram.org/js/telegram-widget.js?22';
+    s.setAttribute('data-telegram-login', tg.bot_username);
+    s.setAttribute('data-size', 'large');
+    s.setAttribute('data-radius', '8');
+    s.setAttribute('data-onauth', 'onTelegramAuth(user)');
+    s.setAttribute('data-request-access', 'write');
+    wrap.appendChild(s);
+  }
+
   window.custLogout = async function () {
     try { await window.apiFetch('/api/logout', 'POST'); } catch (e) {}
     tokenRemove();
@@ -376,11 +598,34 @@
     try {
       var s = await window.getSettings();
       if (btn) btn.style.display = (s.bonus && s.bonus.visible) ? '' : 'none';
+      renderTelegramWidget(s.telegram);
     } catch (e) {}
     if (!window.custState.token) { window.refreshAccountUI(); return; }
     try {
       var res = await window.apiFetch('/api/me');
-      if (res.customer) { window.custState.customer = res.customer; }
+      if (res.customer) {
+        window.custState.customer = res.customer;
+        // Всё, что зависит от "вошёл ли клиент", успевает отрисоваться ДО того, как
+        // придёт этот ответ (корзина — сразу при загрузке страницы, отзывы — сразу при
+        // открытии вкладки «Отзывы»): без пересчёта тут гость-стимул "Зарегистрируйтесь"
+        // в корзине и "войдите, чтобы оставить отзыв" висели бы даже у уже вошедшего
+        // клиента. Те же вызовы, что и после интерактивного входа — см. applyAuthResult.
+        if (typeof window.refreshCartBonus === 'function') window.refreshCartBonus();
+        if (typeof window.renderCart === 'function') window.renderCart();
+        if (typeof window.loadProductReviews === 'function' && typeof state !== 'undefined' && state.view === 'product' && state.productId) {
+          window.loadProductReviews(state.productId);
+        }
+        // Имя/телефон/email на /checkout — та же гонка: страница уже отрисовала пустые
+        // поля до того, как стало известно, что клиент вошёл.
+        if (typeof window.prefillCheckoutContact === 'function') window.prefillCheckoutContact();
+        // То же самое для бонусов в карточках каталога/избранного (cardHtml в index.html,
+        // "+N ₸ бонусов" над ценой) — без этого они пропадали именно после обновления
+        // страницы (F5): к первой отрисовке сетки клиент ещё не был известен.
+        if (typeof state !== 'undefined') {
+          if (state.view === 'catalog' && typeof window.loadProducts === 'function') window.loadProducts();
+          else if (state.view === 'favorites' && typeof window.loadFavorites === 'function') window.loadFavorites();
+        }
+      }
       else { tokenRemove(); window.custState.token = ''; }
     } catch (e) {}
     window.refreshAccountUI();
@@ -388,6 +633,19 @@
   window.formatPrice = function (n) {
     if (!n) return '0 ₸';
     return Number(n).toLocaleString('ru-KZ', { maximumFractionDigits: 0 }) + ' ₸';
+  };
+  // Сокращённая запись для мест, где мало места (например placeholder узкого поля
+  // "до N ₸" в фильтре цены) — иначе "41 000 000 ₸" физически не влезает в поле и
+  // обрезается браузером, визуально выглядя как "41 000" (без лишних нулей).
+  window.formatPriceCompact = function (n) {
+    n = Number(n) || 0;
+    // Без "₸" на конце — рядом с полем и так есть заголовок группы "Цена, ₸",
+    // а тут каждый символ на счету (поле физически узкое).
+    if (n >= 1000000) {
+      const m = Math.round(n / 100000) / 10;
+      return (Number.isInteger(m) ? m.toFixed(0) : m.toFixed(1).replace('.', ',')) + ' млн';
+    }
+    return Number(n).toLocaleString('ru-KZ', { maximumFractionDigits: 0 });
   };
   // Сколько бонусов получит вошедший клиент при покупке товара по этой цене —
   // 0, если клиент не вошёл, бонусы выключены/скрыты в админке, или у товара нет цены.
@@ -448,8 +706,8 @@
       // чтобы его было видно сразу, без наведения/клика.
       var c = nums[0], tel = '+' + c.wa;
       wa = '<a class="btn-wa' + cls + '" href="https://wa.me/' + c.wa + q + '" target="_blank" rel="noopener" ' +
-        'onclick="event.stopPropagation();trackClick(\'whatsapp\',' + (pid || 'null') + ')" aria-label="Написать в WhatsApp ' + tel + '">' + label(WA_SVG, 'WhatsApp', 'Быстрый ответ') + '</a>';
-      call = '<a class="btn-call' + cls + '" href="tel:' + tel + '" onclick="event.stopPropagation();trackClick(\'call\',' + (pid || 'null') + ')" aria-label="Позвонить ' + tel + '">' +
+        'onclick="event.stopPropagation();trackClick(\'whatsapp\',' + (pid || 'null') + ',' + attr(JSON.stringify(tel)) + ')" aria-label="Написать в WhatsApp ' + tel + '">' + label(WA_SVG, 'WhatsApp', 'Быстрый ответ') + '</a>';
+      call = '<a class="btn-call' + cls + '" href="tel:' + tel + '" onclick="event.stopPropagation();trackClick(\'call\',' + (pid || 'null') + ',' + attr(JSON.stringify(tel)) + ')" aria-label="Позвонить ' + tel + '">' +
         label(CALL_SVG, 'Позвонить', c.raw || tel) + '</a>';
     }
     if (opts.card) return wa + call;
@@ -475,12 +733,13 @@
       document.body.appendChild(ov);
     }
     var close = "document.getElementById('cpickOverlay').classList.remove('open')";
-    var track = "trackClick('" + (kind === 'wa' ? 'whatsapp' : 'call') + "'," + (pid || 'null') + ")";
     var rows = nums.map(function (c) {
       var href = kind === 'wa' ? 'https://wa.me/' + c.wa + q : 'tel:+' + c.wa;
       var tgt = kind === 'wa' ? ' target="_blank" rel="noopener"' : '';
+      var tel = c.raw || ('+' + c.wa);
+      var track = "trackClick('" + (kind === 'wa' ? 'whatsapp' : 'call') + "'," + (pid || 'null') + ',' + attr(JSON.stringify(tel)) + ')';
       return '<a class="cpick-num" href="' + href + '"' + tgt + ' onclick="' + track + ';' + close + '">' +
-        (kind === 'wa' ? WA_SVG : CALL_SVG) + '<span>' + (c.raw || ('+' + c.wa)) + '</span></a>';
+        (kind === 'wa' ? WA_SVG : CALL_SVG) + '<span>' + tel + '</span></a>';
     }).join('');
     ov.innerHTML = '<div class="cpick">' +
       '<div class="cpick-head">' + (kind === 'wa' ? 'Написать в WhatsApp' : 'Позвонить') + '</div>' +

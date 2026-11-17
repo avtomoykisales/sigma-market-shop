@@ -30,13 +30,14 @@
     <div class="nav-item active" onclick="showPanel('dashboard')" id="nav-dashboard"><span class="icon">📊</span>Дашборд</div>
     <div class="nav-item" onclick="showPanel('stats')" id="nav-stats"><span class="icon">📈</span>Статистика</div>
     <div class="nav-item" onclick="showPanel('orders')" id="nav-orders"><span class="icon">📋</span>Заявки</div>
+    <div class="nav-item" onclick="showPanel('customers')" id="nav-customers"><span class="icon">🧑‍🤝‍🧑</span>Клиенты</div>
+    <div class="nav-item" onclick="showPanel('chat')" id="nav-chat"><span class="icon">🗨</span>Чат с клиентами <span class="nav-badge" id="chatNavBadge" style="display:none"></span></div>
     <div class="nav-item" onclick="showPanel('products')" id="nav-products"><span class="icon">📦</span>Товары</div>
     <div class="nav-item" onclick="showPanel('subcats')" id="nav-subcats"><span class="icon">🗂</span>Категории</div>
     <div class="nav-item" onclick="showPanel('articles')" id="nav-articles"><span class="icon">📝</span>Статьи</div>
-    <div class="nav-item" onclick="showPanel('customers')" id="nav-customers"><span class="icon">🧑‍🤝‍🧑</span>Клиенты</div>
     <div class="nav-item" onclick="showPanel('reviews')" id="nav-reviews"><span class="icon">⭐</span>Отзывы товаров</div>
+    <div class="nav-item" onclick="showPanel('comments')" id="nav-comments"><span class="icon">💬</span>Комментарии к статьям</div>
     <div class="nav-item" onclick="showPanel('engage')" id="nav-engage"><span class="icon">⚙️</span>Настройки</div>
-    <div class="nav-item" onclick="showPanel('upload')" id="nav-upload"><span class="icon">🖼</span>Иконки (ZIP)</div>
     <div class="nav-item" onclick="showPanel('logs')" id="nav-logs"><span class="icon">📜</span>Журнал</div>
     <div class="nav-item" onclick="showPanel('errors')" id="nav-errors"><span class="icon">🐞</span>Ошибки сайта</div>
     <div class="nav-item" onclick="showPanel('admins')" id="nav-admins"><span class="icon">👥</span>Администраторы</div>
@@ -57,10 +58,13 @@
         <div class="stat-card"><div class="label">📦 Всего товаров</div><div class="val" id="stat-products">—</div></div>
         <div class="stat-card"><div class="label">📋 Заявок всего</div><div class="val" id="stat-orders">—</div></div>
         <div class="stat-card"><div class="label">🆕 Новых заявок</div><div class="val" id="stat-new">—</div></div>
+        <div class="stat-card"><div class="label">⏳ В работе</div><div class="val" id="stat-processing">—</div></div>
         <div class="stat-card"><div class="label">📂 Категорий</div><div class="val" id="stat-cats">—</div></div>
       </div>
       <div class="card">
-        <div class="card-header"><h3>Последние заявки — новые и в работе</h3></div>
+        <div class="card-header"><h3>Последние заявки — новые и в работе</h3>
+          <button class="btn-new" onclick="openNewOrder()">➕ Создать заказ</button>
+        </div>
         <div style="font-size:12px;color:var(--muted);margin:2px 0 8px"></div>
         <div class="table-wrap"><table>
           <thead><tr>
@@ -70,6 +74,7 @@
             <th class="sortable" data-sort="city" onclick="sortDashboardBy('city', event.shiftKey)">Город</th>
             <th class="sortable" data-sort="phone" onclick="sortDashboardBy('phone', event.shiftKey)">Телефон</th>
             <th>Товары</th>
+            <th class="sortable" data-sort="total" onclick="sortDashboardBy('total', event.shiftKey)">Сумма</th>
             <th>Комментарий</th>
             <th class="sortable" data-sort="status" onclick="sortDashboardBy('status', event.shiftKey)">Статус</th>
             <th class="sortable" data-sort="created_at" onclick="sortDashboardBy('created_at', event.shiftKey)">Дата</th>
@@ -119,6 +124,15 @@
       </div>
     </br>
       <div class="card">
+        <div class="card-header"><h3>Клики по кнопкам — последние события</h3></div>
+        <p style="color:var(--muted);font-size:13px;margin:-8px 0 12px"></p>
+        <div class="table-wrap" style="max-height:400px;overflow:auto"><table>
+          <thead><tr><th style="width:150px">Дата</th><th>Действие</th><th>Товар</th><th>Номер</th><th>IP</th></tr></thead>
+          <tbody id="statsRecentClicksTbody"></tbody>
+        </table></div>
+      </div>
+    </br>
+      <div class="card">
         <div class="card-header"><h3>Просмотры по дням</h3></div>
         <div class="table-wrap" style="max-height:260px;overflow:auto"><table>
           <thead><tr><th>Дата</th><th>Просмотров</th></tr></thead>
@@ -151,7 +165,7 @@
           <button class="action-btn" onclick="document.getElementById('statsIpFilter').value='';loadStats()">Сбросить</button>
         </div>
         <div class="table-wrap" style="max-height:420px;overflow:auto"><table>
-          <thead><tr><th>Время</th><th>Страница</th><th>Источник</th><th>IP</th><th>User-Agent</th></tr></thead>
+          <thead><tr><th>Время</th><th>Страница</th><th>Источник</th><th>Откуда (ссылка)</th><th>IP</th><th>User-Agent</th></tr></thead>
           <tbody id="statsRecentTbody"></tbody>
         </table></div>
       </div>
@@ -165,40 +179,11 @@
       </div>
     </div>
 
-    <!-- PRODUCTS -->
-    <div class="panel" id="panel-products">
-      <div class="card">
-        <div class="card-header">
-          <h3>Каталог товаров</h3>
-          <button class="btn-new" onclick="openProductForm()">+ Новый товар</button>
-        </div>
-        <div class="toolbar">
-          <input class="search-input" id="prodSearch" placeholder="Поиск по названию, артикулу, ID…" oninput="searchProds()">
-          <select class="search-input" id="prodCatFilter" onchange="onProdCatFilterChange()" style="min-width:160px">
-            <option value="">Все категории</option>
-          </select>
-          <select class="search-input" id="prodSubcatFilter" onchange="searchProds()" style="min-width:200px">
-            <option value="">Все подкатегории</option>
-          </select>
-        </div>
-        <p id="prodReorderHint" style="color:var(--muted);font-size:13px;margin:-6px 0 10px;display:none">
-        </p>
-        <div class="table-wrap"><table>
-          <thead><tr><th></th><th>ID</th><th></th><th>Товар</th><th>Бренд</th><th>Подкатегория</th><th>Категория</th><th>Цена</th><th>Статус</th><th>Действия</th></tr></thead>
-          <tbody id="prodsTbody"></tbody>
-        </table></div>
-        <div class="pagination">
-          <span class="total-label" id="prodTotal"></span>
-          <div id="prodPager"></div>
-        </div>
-      </div>
-    </div>
-
     <!-- ORDERS -->
     <div class="panel" id="panel-orders">
       <div class="card">
         <div class="card-header"><h3>Заявки клиентов</h3>
-          <button class="action-btn" onclick="openNewOrder()">➕ Создать заказ</button>
+          <button class="btn-new" onclick="openNewOrder()">➕ Создать заказ</button>
         </div>
         <div class="toolbar">
           <input class="search-input" id="ordSearch" placeholder="Поиск по имени, телефону, компании…" oninput="searchOrders()">
@@ -209,6 +194,13 @@
             <option value="done">✅ Выполнена</option>
             <option value="cancelled">❌ Отменена</option>
           </select>
+          <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted)">Закрыта с
+            <input type="date" class="search-input" id="ordDateFrom" onchange="searchOrders()" style="max-width:150px">
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted)">по
+            <input type="date" class="search-input" id="ordDateTo" onchange="searchOrders()" style="max-width:150px">
+          </label>
+          <button class="action-btn" onclick="document.getElementById('ordDateFrom').value='';document.getElementById('ordDateTo').value='';searchOrders()">✕ Сбросить даты</button>
         </div>
         
         <div class="table-wrap"><table>
@@ -239,15 +231,76 @@
       <div class="card">
         <div class="card-header"><h3>Клиенты</h3></div>
         <div class="toolbar">
-          <input class="search-input" id="custSearch" placeholder="Поиск по имени, телефону, email…" oninput="searchCustomers()">
+          <input class="search-input" id="custSearch" placeholder="Поиск по имени, телефону (в т.ч. доп. номерам), email, ID клиента…" oninput="searchCustomers()">
         </div>
         <div class="table-wrap"><table>
-          <thead><tr><th>Имя</th><th>Телефон</th><th>Email</th><th>Бонусы</th><th>Заказов</th><th>Регистрация</th><th>Действия</th></tr></thead>
+          <thead><tr><th>ID клиента</th><th>Имя</th><th>Телефон</th><th>Доп. номера</th><th>Email</th><th>Бонусы</th><th>Заказов</th><th>Регистрация</th><th>Комментарий</th><th>Действия</th></tr></thead>
           <tbody id="customersTbody"></tbody>
         </table></div>
         <div class="pagination">
           <span class="total-label" id="customersTotal"></span>
           <div id="customersPager"></div>
+        </div>
+      </div>
+    </div>
+
+
+    <!-- ЧАТ С КЛИЕНТАМИ -->
+    <div class="panel" id="panel-chat">
+      <div class="card chat-card">
+        <div class="chat-threads">
+          <div class="chat-threads-head">
+            <span id="chatThreadsTotal" style="font-size:12px;color:var(--text-muted)"></span>
+            <button type="button" class="chat-notif-btn" id="chatNotifBtn" onclick="chatRequestNotifyPermission()" title="Включить уведомления о новых сообщениях">🔔 Уведомления</button>
+          </div>
+          <div id="chatThreadsList"><p style="padding:14px;color:var(--text-muted);font-size:13px">Загрузка…</p></div>
+        </div>
+        <div class="chat-convo">
+          <div id="chatConvoEmpty" style="padding:40px;text-align:center;color:var(--text-muted)">Выберите диалог слева</div>
+          <div id="chatConvoBody" style="display:none">
+            <div class="chat-convo-head">
+              <b id="chatConvoName"></b>
+              <span id="chatConvoPhone" style="color:var(--text-muted);font-size:13px"></span>
+              <button type="button" class="action-btn" style="margin-left:auto" onclick="openCustomer(chatActiveCustomerId)">👤 Карточка клиента</button>
+            </div>
+            <div class="chat-convo-messages" id="chatConvoMessages"></div>
+            <div id="chatAttachPreview" class="chat-attach-preview" style="display:none"></div>
+            <form class="chat-convo-form" onsubmit="chatSend();return false">
+              <input type="file" id="chatConvoFile" accept="image/*,.pdf,.doc,.docx" style="display:none" onchange="chatShowAttachPreview()">
+              <button type="button" class="action-btn" onclick="document.getElementById('chatConvoFile').click()" title="Прикрепить файл">📎</button>
+              <input type="text" id="chatConvoInput" placeholder="Ответить клиенту…" maxlength="2000" autocomplete="off">
+              <button type="submit" class="btn-save">Отправить</button>
+            </form>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- PRODUCTS -->
+    <div class="panel" id="panel-products">
+      <div class="card">
+        <div class="card-header">
+          <h3>Каталог товаров</h3>
+          <button class="btn-new" onclick="openProductForm()">+ Новый товар</button>
+        </div>
+        <div class="toolbar">
+          <input class="search-input" id="prodSearch" placeholder="Поиск по названию, артикулу, ID…" oninput="searchProds()">
+          <select class="search-input" id="prodCatFilter" onchange="onProdCatFilterChange()" style="min-width:160px">
+            <option value="">Все категории</option>
+          </select>
+          <select class="search-input" id="prodSubcatFilter" onchange="searchProds()" style="min-width:200px">
+            <option value="">Все подкатегории</option>
+          </select>
+        </div>
+        <p id="prodReorderHint" style="color:var(--muted);font-size:13px;margin:-6px 0 10px;display:none">
+        </p>
+        <div class="table-wrap"><table>
+          <thead><tr><th></th><th>ID</th><th></th><th>Товар</th><th>Бренд</th><th>Подкатегория</th><th>Категория</th><th>Цена</th><th>Статус</th><th>Действия</th></tr></thead>
+          <tbody id="prodsTbody"></tbody>
+        </table></div>
+        <div class="pagination">
+          <span class="total-label" id="prodTotal"></span>
+          <div id="prodPager"></div>
         </div>
       </div>
     </div>
@@ -308,6 +361,60 @@
       </div>
     </div>
 
+    <!-- БОНУС ЗА ОТЗЫВ (окно при публикации) -->
+    <div class="overlay" id="reviewBonusOverlay">
+      <div class="form-modal" style="width:min(380px,95vw)">
+        <h3>Опубликовать отзыв</h3>
+        <p id="rbInfo" style="color:var(--muted);font-size:13px;margin-bottom:10px"></p>
+        <div class="fg" id="rbAmountRow">
+          <label>Начислить бонус (₸)</label>
+          <input type="number" id="rbAmount" min="1">
+        </div>
+        <div class="form-actions">
+          <button class="btn-cancel" onclick="document.getElementById('reviewBonusOverlay').classList.remove('open')">Отмена</button>
+          <button class="action-btn" id="rbSkipBtn" onclick="confirmReviewApprove(false)">Без бонуса</button>
+          <button class="btn-save" id="rbAwardBtn" onclick="confirmReviewApprove(true)">✅ Опубликовать и начислить</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ARTICLE COMMENTS -->
+    <div class="panel" id="panel-comments">
+      <div class="card">
+        <div class="card-header">
+          <h3>Комментарии к статьям</h3>
+        </div>
+        <div class="toolbar">
+          <select class="search-input" id="comStatus" onchange="loadArticleComments()" style="min-width:180px">
+            <option value="pending">На модерации</option>
+            <option value="approved">Опубликованные</option>
+            <option value="rejected">Отклонённые</option>
+            <option value="">Все</option>
+          </select>
+        </div>
+        <div class="table-wrap"><table>
+          <thead><tr><th style="width:150px">Дата</th><th>Статья</th><th>Имя / Комментарий</th><th style="width:220px">Действия</th></tr></thead>
+          <tbody id="commentsTbody"></tbody>
+        </table></div>
+      </div>
+    </div>
+
+    <!-- COMMENT EDIT MODAL -->
+    <div class="overlay" id="comEditOverlay">
+      <div class="form-modal" style="width:min(700px,95vw)">
+        <h3>Редактировать комментарий</h3>
+        <div class="form-grid">
+          <div class="fg full"><label>Имя *</label><input id="cmName"></div>
+          <div class="fg full"><label>Текст комментария</label><textarea id="cmText" style="min-height:120px"></textarea></div>
+          <div class="fg full"><label>Ответ от SIGMA MARKET <span style="font-weight:400;text-transform:none;color:var(--muted)">— покажется на сайте под комментарием, оставьте пустым, чтобы не отвечать</span></label><textarea id="cmReply" style="min-height:80px"></textarea></div>
+        </div>
+        <div class="form-actions">
+          <button class="btn-cancel" onclick="document.getElementById('comEditOverlay').classList.remove('open')">Отмена</button>
+          <button class="btn-save" onclick="saveCommentEdit()">💾 Сохранить</button>
+        </div>
+      </div>
+    </div>
+
     <!-- CATEGORIES + SUBCATEGORIES -->
     <div class="panel" id="panel-subcats">
       <div class="card" style="margin-bottom:20px">
@@ -351,6 +458,7 @@
             <div id="ctFaqList"></div>
             <button type="button" class="action-btn" onclick="addFaqRow('ctFaqList')">+ Добавить вопрос</button>
           </div>
+          <div class="fg full"><label class="eng-check"><input type="checkbox" id="ctPublished" checked> Показывать на сайте <span>— выключите, чтобы скрыть всю категорию целиком: пропадает из меню, каталога и поиска; разово выключает/включает сразу все подкатегории и товары внутри, дальше можно донастроить отдельный товар отдельно</span></label></div>
           <div class="fg full"><label class="eng-check"><input type="checkbox" id="ctInFeed" checked> Рекламировать в Google Merchant Center <span>— разово включает/выключает сразу все товары этой категории; дальше можно донастроить отдельные товары, не трогая эту галочку</span></label></div>
           <div class="fg full"><label>Иконка</label>
             <div class="img-manager" style="padding:12px">
@@ -435,6 +543,8 @@
         <label class="eng-check"><input type="checkbox" id="flt-brand"> Фильтр по бренду</label>
         <label class="eng-check"><input type="checkbox" id="flt-price"> Фильтр по цене</label>
         <label class="eng-check"><input type="checkbox" id="flt-perf"> Фильтр по производительности <span>— поле «Производительность» в карточке</span></label>
+        <!-- Фильтры по характеристикам (Тип питания, Сиденье и т.п.) теперь настраиваются
+             не здесь, а индивидуально для каждой подкатегории — см. её карточку в «Товары». -->
 
         <h3 style="margin:26px 0 6px">Дополнительно</h3>
         <label class="eng-check"><input type="checkbox" id="opt-compare"> Кнопка «Сравнить» на карточках</label>
@@ -469,6 +579,13 @@
         <div class="fg" style="margin-top:10px"><label>Бесплатная доставка при заказе от (₸)</label><input id="kp-threshold" placeholder="1000000"></div>
         <p style="color:var(--muted);font-size:12px;margin-top:6px">Ниже этой суммы в КП пишется «Уточняйте у менеджера».</p>
 
+        <h3 style="margin:26px 0 6px">Отзывы</h3>
+        <label class="eng-check"><input type="checkbox" id="rev-followup"> Автоматически просить отзыв в WhatsApp (через 3 дня после выполнения заказа, ежедневно в 10:00, кроме сб/вс)</label>
+
+        <h3 style="margin:26px 0 6px">Вход клиентов — Telegram</h3>
+        <label class="eng-check"><input type="checkbox" id="tg-enabled"> Показывать кнопку «Войти через Telegram» на сайте</label>
+        <div class="fg" style="margin-top:10px"><label>Username бота</label><input id="tg-username" placeholder="b2btech_bot"></div>
+        
         <div class="form-actions" style="justify-content:flex-start;margin-top:24px">
           <button class="btn-save" onclick="saveEngage()">💾 Сохранить настройки</button>
         </div>
@@ -531,6 +648,7 @@
           <select class="search-input" id="logAction" onchange="loadLogs(1)" style="min-width:150px">
             <option value="">Все действия</option>
             <option value="login">Входы</option>
+            <option value="unauthorized">Попытки без доступа</option>
             <option value="create">Создание</option>
             <option value="update">Изменение</option>
             <option value="delete">Удаление</option>
@@ -606,6 +724,7 @@
     <h3 id="formTitle">Новый товар</h3>
     <div class="form-grid">
       <div class="fg full"><label>Название *</label><input id="fName" placeholder="Название товара"></div>
+      <div class="fg full" style="margin-top:-10px"><label>URL-адрес (slug) <span style="font-weight:400;text-transform:none;color:var(--muted)">— часть ссылки на товар, например /product/12-<b>vash-slug</b>. Меняется один раз при создании и дальше не трогается сам при переименовании — редактируйте только если точно нужно, иначе уже проиндексированная в Google/Яндексе ссылка перестанет работать</span></label><input id="fSlug" placeholder="заполнится автоматически из названия"></div>
       <div class="fg"><label>Артикул *</label><input id="fArticle"></div>
       <div class="fg"><label>Бренд *</label><input id="fBrand"></div>
       <div class="fg"><label>Категория *</label><select id="fCategory" onchange="fillSubcatSelect()"></select></div>
@@ -619,6 +738,10 @@
         </div>
       </div>
       <div class="fg"><label>Цена (тенге)</label><input id="fPrice" type="number" placeholder="0"></div>
+      <div class="fg"><label>Скидка (%)</label><input id="fDiscountPercent" type="number" min="0" max="100" placeholder="0"></div>
+      <div class="fg"><label>Цена со скидкой (тенге) <span style="font-weight:400;text-transform:none;color:var(--muted)">— если не хочется считать проценты</span></label><input id="fDiscountPrice" type="number" placeholder="0"></div>
+      <div class="fg full" style="margin-top:-10px"><span style="font-size:12px;color:var(--muted)">Если указан процент — используется он, а «Цена со скидкой» не учитывается.</span></div>
+      <div class="fg"><label>Скидка действует до <span style="font-weight:400;text-transform:none;color:var(--muted)">— пусто = пока не отменят</span></label><input id="fDiscountUntil" type="date"></div>
       <div class="fg full"><label>Изображения товара <span style="font-weight:400;text-transform:none;color:var(--muted)">— первое = главное</span></label>
         <div class="img-manager" id="imgManager">
           <div class="img-grid" id="imgGrid"></div>
@@ -677,6 +800,9 @@
           <input type="checkbox" id="fInStock" checked> В наличии
         </label>
         <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+          <input type="checkbox" id="fPublished" checked> Показывать на сайте
+        </label>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
           <input type="checkbox" id="fInFeed" checked> Рекламировать в Google Merchant Center
         </label>
       </div>
@@ -704,7 +830,28 @@
         <div id="scFaqList"></div>
         <button type="button" class="action-btn" onclick="addFaqRow('scFaqList')">+ Добавить вопрос</button>
       </div>
+      <div class="fg full"><label class="eng-check"><input type="checkbox" id="scPublished" checked> Показывать на сайте <span>— выключите, чтобы скрыть эту подкатегорию целиком (и вложенные в неё): пропадает из каталога и поиска;</span></label></div>
       <div class="fg full"><label class="eng-check"><input type="checkbox" id="scInFeed" checked> Рекламировать в Google Merchant Center <span>— разово включает/выключает сразу все товары этой подкатегории (и вложенных в неё); дальше можно донастроить отдельные товары, не трогая эту галочку</span></label></div>
+      <div class="fg full"><label>Категория в Google Merchant Center <span style="font-weight:400;text-transform:none;color:var(--muted)">— Если оставить пустым — Google определит категорию сам по названию и описанию товара.</span></label>
+        <input id="scGoogleCategory" type="text" placeholder="">
+      </div>
+      <div class="fg full"><label>Фото и видео<span style="font-weight:400;text-transform:none;color:var(--muted)">—покажутся на странице этой подкатегории под описанием</span></label>
+        <div class="img-manager" style="padding:12px">
+          <div class="img-grid" id="scGalleryGrid"></div>
+          <div class="img-add-row">
+            <input type="file" id="scGalleryFile" accept="image/*" multiple style="display:none" onchange="uploadScGalleryPhotos()">
+            <button type="button" class="action-btn" onclick="document.getElementById('scGalleryFile').click()">📤 Добавить фото</button>
+            <input id="scGalleryVideoUrl" placeholder="ссылка на YouTube + Enter"
+              style="flex:1;padding:8px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:13px"
+              onkeydown="if(event.key==='Enter'){event.preventDefault();addScGalleryVideo()}">
+            <button type="button" class="action-btn" onclick="addScGalleryVideo()">+ Видео</button>
+          </div>
+          <div id="scGalleryResult" style="font-size:12px;margin-top:6px"></div>
+        </div>
+      </div>
+      <div class="fg full"><label style="margin-bottom:6px;display:block">Фильтры по характеристикам в каталоге <span style="font-weight:400;text-transform:none;color:var(--muted)">— отметьте, какие характеристики товаров этой подкатегории показывать покупателю фильтром (список — то, что реально заполнено в карточках её товаров)</span></label>
+        <div id="scFilterSpecsList" style="color:var(--muted);font-size:13px">Сохраните подкатегорию с товарами, чтобы выбрать характеристики</div>
+      </div>
       <div class="fg"><label>Порядок сортировки</label><input id="scSort" type="number" value="0"></div>
       <div class="fg full"><label>Иконка</label>
         <div class="img-manager" style="padding:12px">
@@ -743,12 +890,20 @@
 <div class="overlay" id="orderNotesOverlay">
   <div class="form-modal" style="width:min(1200px,95vw)">
     <h3>Заказ №<span id="notesOrderId"></span></h3>
+    <div id="odLinkedCustomer" style="display:none;align-items:center;gap:10px;margin-bottom:16px;padding:9px 12px;border-radius:8px;background:var(--green-light, #e8f5ee);color:var(--green-dark, var(--green));font-size:13px"></div>
+    <div class="fg full" style="position:relative;margin-bottom:16px">
+      <label>Найти клиента <span style="font-weight:400;text-transform:none;color:var(--muted)">— подставить данные другого клиента (ID клиента, имя, любой из телефонов)</span></label>
+      <input id="odCustSearch" placeholder="Поиск по имени, телефону (в любом формате), ID клиента или доп. номеру…" style="width:100%;padding:9px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:13px">
+      <div id="odCustResults" class="rel-results"></div>
+    </div>
     <div class="form-grid form-grid-2">
       <div class="fg"><label>Имя</label><input id="odName"></div>
       <div class="fg"><label>Телефон</label><input id="odPhone"></div>
       <div class="fg"><label>Email</label><input id="odEmail"></div>
       <div class="fg"><label>Город</label><input id="odCity"></div>
       <div class="fg full"><label>Компания</label><input id="odCompany"></div>
+      <div class="fg"><label>Способ оплаты</label><input id="odPaymentMethod" readonly style="background:var(--bg)"></div>
+      <div class="fg"><label>Способ доставки</label><input id="odDeliveryMethod" readonly style="background:var(--bg)"></div>
       <div class="fg full"><label>Комментарий</label><textarea id="odMessage" style="min-height:60px"></textarea></div>
     </div>
 
@@ -761,6 +916,7 @@
     </div>
     <div class="fg" style="margin-top:10px"><label>Или просто напишите, что купил клиент <span style="font-weight:400;text-transform:none;color:var(--muted)">— если товара нет в каталоге</span></label><textarea id="odManualItem" style="min-height:60px" placeholder=""></textarea></div>
     <div class="fg" style="margin-top:10px"><label>Сумма заказа (₸)</label><input id="odTotal" type="number"></div>
+    <div id="odBonusRequestRow" style="display:none;margin-top:10px;padding:10px 12px;background:var(--bg);border-radius:8px;font-size:13px"></div>
 
     <div class="form-actions" style="justify-content:flex-start;margin-top:6px">
       <button class="btn-save" onclick="saveOrderDetail()">💾 Сохранить</button>
@@ -802,6 +958,12 @@
     <div style="margin-top:16px;padding:12px 14px;background:var(--bg);border-radius:8px;font-size:13px">
       Бонусов у клиента сейчас: <b id="coCurrentBonus">—</b>
     </div>
+    <div id="coBonusRequestRow" style="display:none;margin-top:10px;padding:12px 14px;background:#fff7e6;border-radius:8px;font-size:13px">
+      <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;font-weight:400">
+        <input type="checkbox" id="coApplyBonusRedeem" style="margin-top:3px">
+        <span>🎁 Списать бонус с этого заказа: <b id="coBonusRequested">0 ₸</b></span>
+      </label>
+    </div>
     <div class="fg" style="margin-top:10px">
       <label>Начислить бонус за этот заказ (₸)</label>
       <input id="coBonusAward" type="number">
@@ -817,21 +979,24 @@
 
 <!-- КАРТОЧКА КЛИЕНТА: редактирование + его заказы -->
 <div class="overlay" id="customerOverlay">
-  <div class="form-modal" style="width:min(700px,95vw)">
-    <h3>Клиент</h3>
+  <div class="form-modal" style="width:min(1100px,95vw)">
+    <h3>Клиент <span id="cuIdLabel" style="font-weight:400;color:var(--muted);font-size:14px"></span></h3>
     <div class="form-grid form-grid-2">
       <div class="fg"><label>Имя</label><input id="cuName"></div>
-      <div class="fg"><label>Телефон</label><input id="cuPhone"></div>
+      <div class="fg"><label>Телефон</label><input id="cuPhone" placeholder="+7 (___) ___-__-__"></div>
       <div class="fg"><label>Email</label><input id="cuEmail"></div>
       <div class="fg"><label>Город</label><input id="cuCity"></div>
       <div class="fg"><label>Компания</label><input id="cuCompany"></div>
+      <div class="fg"><label>Корпоративный номер</label><input id="cuCorpPhone" placeholder="+7 (___) ___-__-__"></div>
+      <div class="fg"><label>Доп. номер</label><input id="cuExtraPhone" placeholder="+7 (___) ___-__-__"></div>
       <div class="fg">
         <label>Бонусы (₸)</label>
         <div style="display:flex;align-items:center;gap:10px;padding:9px 0">
-          <b id="cuBonusDisplay" style="font-size:15px">0</b>
+          <input type="number" id="cuBonusInput" min="0" style="width:120px" title="Изменить баланс бонусов (только superadmin)">
           <button type="button" class="action-btn superadmin-only" onclick="openDeductBonus()">➖ Списать бонус</button>
         </div>
       </div>
+      <div class="fg full"><label>Комментарий <span style="font-weight:400;text-transform:none;color:var(--muted)">— внутренняя заметка</span></label><textarea id="cuComment" style="min-height:70px"></textarea></div>
     </div>
     <div class="form-actions" style="justify-content:flex-start;margin-top:6px">
       <button class="btn-save" onclick="saveCustomer()">💾 Сохранить</button>
@@ -867,6 +1032,7 @@
     <h3>Списать бонус</h3>
     <p style="color:var(--muted);font-size:13px;margin-bottom:10px">Доступно у клиента: <b id="deductBonusAvail">0</b> ₸</p>
     <div class="fg"><label>Сумма списания (₸)</label><input id="deductBonusAmount" type="number" min="1"></div>
+    <div class="fg"><label>Чек/квитанция <span style="font-weight:400;text-transform:none;color:var(--muted)">— необязательно</span></label><input type="file" id="deductBonusFile" accept="image/*,.pdf"></div>
     <div class="form-actions">
       <button class="btn-cancel" onclick="closeDeductBonus()">Отмена</button>
       <button class="btn-save" onclick="confirmDeductBonus()">➖ Списать</button>
@@ -876,8 +1042,13 @@
 
 <!-- СОЗДАНИЕ ЗАКАЗА ВРУЧНУЮ -->
 <div class="overlay" id="newOrderOverlay">
-  <div class="form-modal" style="width:min(640px,95vw)">
+  <div class="form-modal" style="width:min(900px,95vw)">
     <h3>Новый заказ</h3>
+    <div class="fg full" style="position:relative;margin-bottom:16px">
+      <label>Найти клиента <span style="font-weight:400;text-transform:none;color:var(--muted)"></span></label>
+      <input id="noCustSearch" placeholder="Поиск по имени, телефону (в любом формате), ID клиента или доп. номеру…" style="width:100%;padding:9px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:13px">
+      <div id="noCustResults" class="rel-results"></div>
+    </div>
     <div class="form-grid form-grid-2">
       <div class="fg full"><label>Имя *</label><input id="noName" required></div>
       <div class="fg"><label>Телефон *</label><input id="noPhone" placeholder="+7 (___) ___-__-__" required></div>
@@ -885,6 +1056,7 @@
       <div class="fg"><label>Город</label><input id="noCity"></div>
       <div class="fg full"><label>Компания</label><input id="noCompany"></div>
     </div>
+    <div id="noPhoneNotice" style="display:none;margin-top:12px;font-size:13px;line-height:1.5"></div>
 
     <label style="font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.3px;display:block;margin-top:14px">Товары</label>
     <div id="noItemsList" style="margin:8px 0"></div>
@@ -936,9 +1108,11 @@ let ordersSort = [{ col: 'id', dir: 'desc' }];
 let custPage = 1;
 let prodSearchTimer;
 
-// Маска +7 (xxx) xxx-xx-xx для поля телефона при создании заказа вручную (#noPhone) —
-// та же логика, что на сайте (public/js/site.js): цифры собираются заново в
-// el.dataset.phoneDigits, backspace над скобкой/дефисом реально удаляет цифру.
+// Маска +7 (xxx) xxx-xx-xx для полей телефона в админке (создание заказа вручную —
+// #noPhone, и телефон/доп. номера в карточке клиента — #cuPhone/#cuCorpPhone/
+// #cuExtraPhone) — та же логика, что на сайте (public/js/site.js): цифры собираются
+// заново в el.dataset.phoneDigits, backspace над скобкой/дефисом реально удаляет цифру.
+const PHONE_MASK_IDS = new Set(['noPhone', 'cuPhone', 'cuCorpPhone', 'cuExtraPhone']);
 function formatKzPhoneAdmin(digits) {
   if (!digits) return '';
   let out = '+7 (' + digits.slice(0, 3);
@@ -953,9 +1127,16 @@ function renderKzPhoneAdmin(el) {
   const pos = el.value.length;
   el.setSelectionRange(pos, pos);
 }
+// Предзаполнить поле уже известным номером (напр. при открытии карточки клиента) —
+// нужно и значение, и dataset.phoneDigits, иначе маска при следующем вводе собьётся.
+function fillPhoneFieldAdmin(el, phone) {
+  if (!el) return;
+  el.dataset.phoneDigits = String(phone || '').replace(/\D/g, '').slice(-10);
+  el.value = formatKzPhoneAdmin(el.dataset.phoneDigits);
+}
 document.addEventListener('keydown', e => {
   const el = e.target;
-  if (!el || el.id !== 'noPhone') return;
+  if (!el || !PHONE_MASK_IDS.has(el.id)) return;
   if (e.key !== 'Backspace' && e.key !== 'Delete') return;
   e.preventDefault();
   const hasSelection = el.selectionStart !== el.selectionEnd;
@@ -964,7 +1145,7 @@ document.addEventListener('keydown', e => {
 });
 document.addEventListener('input', e => {
   const el = e.target;
-  if (!el || el.id !== 'noPhone') return;
+  if (!el || !PHONE_MASK_IDS.has(el.id)) return;
   const prevDigits = el.dataset.phoneDigits || '';
   const allDigits = el.value.replace(/\D/g, '');
   let added;
@@ -976,6 +1157,131 @@ document.addEventListener('input', e => {
   }
   el.dataset.phoneDigits = (prevDigits + added).slice(0, 10);
   renderKzPhoneAdmin(el);
+  if (el.id === 'noPhone') checkNoPhoneExisting(el.dataset.phoneDigits);
+});
+
+// Телефон введён вручную прямо в поле "Телефон" (а не выбран через поиск клиента
+// сверху) — как только набраны все 10 цифр, проверяем: (1) есть ли уже такой клиент
+// в базе — если да, подставляем его данные, как при выборе из поиска; (2) есть ли у
+// этого номера уже заявки — предупреждаем, чтобы не создать случайный дубль.
+let noPhoneCheckTimer;
+// ID найденного/выбранного клиента (поиском сверху или автоподстановкой по телефону
+// здесь) — отправляется вместе с заказом, чтобы заявка сразу привязалась к аккаунту
+// (customer_id), а не только совпадала по телефону. Сбрасывается при открытии модалки
+// (openNewOrder) и каждый раз, когда по текущему телефону клиент не находится.
+let noFoundCustomerId = null;
+function checkNoPhoneExisting(digits) {
+  clearTimeout(noPhoneCheckTimer);
+  const noticeEl = document.getElementById('noPhoneNotice');
+  if (!digits || digits.length < 10) { noticeEl.style.display = 'none'; noticeEl.innerHTML = ''; return; }
+  noPhoneCheckTimer = setTimeout(async () => {
+    const [custData, ordData] = await Promise.all([
+      apiFetch('/api/admin/customers?search=' + digits + '&limit=1'),
+      // Только активные заявки (новая/в работе) — выполненные и отменённые тут не
+      // интересны, это просто история, а не риск случайно создать дубль.
+      apiFetch('/api/admin/orders?search=' + digits + '&status=new,processing&limit=5'),
+    ]);
+    // Пока вводили — могли успеть стереть/поменять номер; проверяем, что это
+    // всё ещё актуальный результат именно для него.
+    if (document.getElementById('noPhone').dataset.phoneDigits !== digits) return;
+    const c = (custData.customers || [])[0];
+    const orders = ordData.orders || [];
+    noFoundCustomerId = c ? c.id : null;
+    let html = '';
+    const boxStyle = 'padding:9px 12px;border-radius:8px;margin-bottom:8px';
+    if (c) {
+      document.getElementById('noName').value = c.name || '';
+      document.getElementById('noEmail').value = c.email || '';
+      document.getElementById('noCity').value = c.city || '';
+      document.getElementById('noCompany').value = c.company || '';
+      html += `<div style="${boxStyle};background:var(--green-light, #e8f5ee);color:var(--green-dark, var(--green))">✅ Клиент уже есть в базе: ${esc(c.name)} — данные подставлены</div>`;
+    }
+    if (orders.length) {
+      const list = orders.slice(0, 5).map(o => `#${o.id} (${esc(statusLabel(o.status))}, ${fmtDate(o.created_at)})`).join(', ');
+      const word = orders.length > 1 ? 'активные заявки' : 'активная заявка';
+      html += `<div style="${boxStyle};background:#fee2e2;color:#dc2626;font-weight:600">⚠️ У этого номера уже есть ${word}: ${list}</div>`;
+    }
+    noticeEl.innerHTML = html;
+    noticeEl.style.display = html ? '' : 'none';
+  }, 300);
+}
+
+// Поиск существующего клиента в формах "Новый заказ" и "Заказ №N" (редактирование) —
+// чтобы не вводить данные заново (используем тот же /api/admin/customers?search=, что
+// и у вкладки "Клиенты", поиск там уже понимает ID, доп. номера и номер в любом формате).
+// Подпись результата — показываем ID всегда, доп. номера (если есть) в скобках, чтобы
+// админ видел, что нашёл именно нужного клиента, а не тёзку.
+function custExtraLabel(c) {
+  const extras = [c.corp_phone, c.extra_phone].filter(p => p && String(p).replace(/\D/g, '').length >= 5).map(fmtPhone);
+  return extras.length ? ` (доп: ${extras.join(', ')})` : '';
+}
+function custResultLabel(c) {
+  return `${esc(c.name)} <small>${fmtPhone(c.phone)} · ID ${fmtClientNo(c.client_no)}${custExtraLabel(c)}</small>`;
+}
+let noCustSearchTimer;
+document.addEventListener('input', e => {
+  if (e.target.id !== 'noCustSearch') return;
+  clearTimeout(noCustSearchTimer);
+  const q = e.target.value.trim();
+  const resEl = document.getElementById('noCustResults');
+  if (!q) { resEl.innerHTML = ''; return; }
+  noCustSearchTimer = setTimeout(async () => {
+    const data = await apiFetch('/api/admin/customers?search=' + encodeURIComponent(q) + '&limit=8');
+    const rows = data.customers || [];
+    resEl.innerHTML = rows.map(c =>
+      `<div class="rel-res" data-id="${c.id}">${custResultLabel(c)}</div>`
+    ).join('') || '<div class="rel-res muted">Не найдено</div>';
+    resEl.querySelectorAll('.rel-res[data-id]').forEach(d => d.onclick = () => {
+      const c = rows.find(x => x.id === +d.dataset.id);
+      if (!c) return;
+      noFoundCustomerId = c.id;
+      document.getElementById('noName').value = c.name || '';
+      document.getElementById('noEmail').value = c.email || '';
+      document.getElementById('noCity').value = c.city || '';
+      document.getElementById('noCompany').value = c.company || '';
+      const phoneEl = document.getElementById('noPhone');
+      phoneEl.dataset.phoneDigits = String(c.phone || '').replace(/\D/g, '').slice(-10);
+      renderKzPhoneAdmin(phoneEl);
+      e.target.value = ''; resEl.innerHTML = '';
+      showToast('✅ Данные клиента подставлены', 'green');
+    });
+  }, 300);
+});
+// Та же подстановка в карточке заказа (редактирование) — поле телефона там обычное,
+// без маски/dataset.phoneDigits, поэтому значение пишем прямо в .value.
+let odCustSearchTimer;
+// Тот же принцип, что и у noFoundCustomerId в "Новый заказ" — ID клиента, к которому
+// привязывается заказ при сохранении. Выставляется в openOrderNotes() из уже имеющейся
+// привязки заказа (чтобы её не потерять при сохранении, если тут ничего не меняли) и
+// перезаписывается при выборе другого клиента через "Найти клиента".
+let odFoundCustomerId = null;
+document.addEventListener('input', e => {
+  if (e.target.id !== 'odCustSearch') return;
+  clearTimeout(odCustSearchTimer);
+  const q = e.target.value.trim();
+  const resEl = document.getElementById('odCustResults');
+  if (!q) { resEl.innerHTML = ''; return; }
+  odCustSearchTimer = setTimeout(async () => {
+    const data = await apiFetch('/api/admin/customers?search=' + encodeURIComponent(q) + '&limit=8');
+    const rows = data.customers || [];
+    resEl.innerHTML = rows.map(c =>
+      `<div class="rel-res" data-id="${c.id}">${custResultLabel(c)}</div>`
+    ).join('') || '<div class="rel-res muted">Не найдено</div>';
+    resEl.querySelectorAll('.rel-res[data-id]').forEach(d => d.onclick = () => {
+      const c = rows.find(x => x.id === +d.dataset.id);
+      if (!c) return;
+      odFoundCustomerId = c.id;
+      document.getElementById('odName').value = c.name || '';
+      // odPhone — обычное текстовое поле (не маска), заявки хранят телефон уже
+      // отформатированным (см. orders.phone) — подставляем в том же виде.
+      document.getElementById('odPhone').value = fmtPhone(c.phone) === '—' ? '' : fmtPhone(c.phone);
+      document.getElementById('odEmail').value = c.email || '';
+      document.getElementById('odCity').value = c.city || '';
+      document.getElementById('odCompany').value = c.company || '';
+      e.target.value = ''; resEl.innerHTML = '';
+      showToast('✅ Данные клиента подставлены', 'green');
+    });
+  }, 300);
 });
 
 // ===== ПРОСТОЙ HTML-РЕДАКТОР (для «Описание» категорий/подкатегорий) =====
@@ -1098,6 +1404,9 @@ async function initApp() {
   fillCatFilter();
   await applyRoleRestrictions();
   loadDashboard();
+  chatUpdateNotifBtn();
+  chatPollAll();
+  if (!chatPollTimer) chatPollTimer = setInterval(chatPollAll, 8000);
 }
 function fillContactPrimarySelect() {
   const sel = document.getElementById('fContactPrimary');
@@ -1224,13 +1533,15 @@ function showPanel(name) {
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
   document.getElementById('panel-'+name).classList.add('active');
   document.getElementById('nav-'+name).classList.add('active');
-  const titles = {dashboard:'Дашборд',stats:'Статистика',products:'Управление товарами',subcats:'Категории и подкатегории',articles:'Статьи',orders:'Заявки клиентов',customers:'Клиенты',reviews:'Отзывы на товары',engage:'Вовлечённость и подбор',upload:'Загрузка иконок',logs:'Журнал действий',errors:'Ошибки сайта',admins:'Администраторы'};
+  const titles = {dashboard:'Дашборд',stats:'Статистика',products:'Управление товарами',subcats:'Категории и подкатегории',articles:'Статьи',orders:'Заявки клиентов',customers:'Клиенты',chat:'Чат с клиентами',reviews:'Отзывы на товары',comments:'Комментарии к статьям',engage:'Вовлечённость и подбор',upload:'Загрузка иконок',logs:'Журнал действий',errors:'Ошибки сайта',admins:'Администраторы'};
   document.getElementById('panelTitle').textContent = titles[name] || name;
   if (name === 'stats') loadStats();
   if (name === 'products') loadProducts();
   if (name === 'orders') loadOrders();
   if (name === 'customers') loadCustomers();
+  if (name === 'chat') chatPollAll();
   if (name === 'reviews') loadReviews();
+  if (name === 'comments') loadArticleComments();
   if (name === 'dashboard') loadDashboard();
   if (name === 'engage') { loadEngage(); loadKpLeads(); }
   if (name === 'subcats') { loadCats(); loadSubcats(); }
@@ -1264,10 +1575,10 @@ async function loadLogs(page = 1) {
     sel.innerHTML = '<option value="">Все админы</option>' + data.admins.map(a => `<option>${esc(a)}</option>`).join('');
     if (admin) sel.value = admin;
   }
-  const ICON = { login:'🔓', login_fail:'⛔', create:'➕', update:'✏️', delete:'🗑' };
+  const ICON = { login:'🔓', login_fail:'⛔', unauthorized:'🚫', create:'➕', update:'✏️', delete:'🗑' };
   logsRows = data.rows || [];
   document.getElementById('logsTbody').innerHTML = logsRows.map((r, i) => `
-    <tr${r.action === 'login_fail' ? ' style="background:#fef2f2"' : ''}${r.detail ? ` class="log-row-clickable" onclick="showLogDetail(${i})"` : ''}>
+    <tr${(r.action === 'login_fail' || r.action === 'unauthorized') ? ' style="background:#fef2f2"' : ''}${r.detail ? ` class="log-row-clickable" onclick="showLogDetail(${i})"` : ''}>
       <td>${fmtDate(r.ts && r.ts.replace(' ', 'T') + 'Z')}</td>
       <td>${esc(r.admin || '—')}</td>
       <td>${ICON[r.action] || ''} ${esc(r.label || r.action)}${r.detail ? `<div style="color:var(--muted);font-size:12px;margin-top:3px;white-space:normal">${esc(r.detail.length > 160 ? r.detail.slice(0, 160) + '…' : r.detail)}</div><div class="log-more-hint">Подробнее →</div>` : ''}</td>
@@ -1390,12 +1701,12 @@ async function deleteAdmin(id, username) {
 let catEditId = null, ctIcon = '';
 async function loadCats() {
   const list = await apiFetch('/api/admin/categories');
-  categories = list.map(c => ({ id: c.id, name: c.name, slug: c.slug, description: c.description, icon: c.icon, seo_title: c.seo_title, seo_description: c.seo_description, faq: c.faq, in_feed: c.in_feed }));
+  categories = list.map(c => ({ id: c.id, name: c.name, slug: c.slug, description: c.description, icon: c.icon, seo_title: c.seo_title, seo_description: c.seo_description, faq: c.faq, in_feed: c.in_feed, published: c.published }));
   fillCatSelect(); fillCatFilter();
   const tb = document.getElementById('catsTbody');
   tb.innerHTML = list.map(c => `<tr>
     <td>${c.icon ? `<img src="${catImgSrc(c.icon)}" style="width:30px;height:30px;object-fit:contain" onerror="this.replaceWith('—')">` : '—'}</td>
-    <td><strong>${esc(c.name)}</strong></td>
+    <td><strong>${esc(c.name)}</strong>${c.published === 0 ? ' <span class="tag tag-red" title="Не показывается на сайте">Скрыта</span>' : ''}</td>
     <td style="color:var(--muted)">${esc(c.slug)}</td>
     <td style="color:var(--muted);max-width:280px;font-size:12px" class="td-clip">${esc(plainText(c.description))}</td>
     <td>${c.product_count}</td>
@@ -1468,16 +1779,31 @@ function collectFaq(listId) {
 // Та же идея, что и FAQ выше: строки «Характеристика» + «Значение» вместо текста JSON,
 // который легко сломать пропущенной кавычкой/запятой. Порядок строк — это и есть порядок
 // в карточке товара (JS-объект с текстовыми ключами сохраняет порядок добавления).
+// Перетаскивание строк мышью — та же логика, что у миниатюр фото/строк товаров
+// (initImgDrag/initProdDrag): двигаем сам DOM-узел на dragover, ничего не пересчитываем
+// до drop. Порядок строк в DOM — это и есть порядок, который считает collectSpecs().
+let _specDragRow = null;
 function addSpecRow(listId, k, v) {
   const row = document.createElement('div');
   row.className = 'spec-row';
+  row.draggable = true;
   row.style.cssText = 'display:flex;gap:8px;margin-bottom:8px;align-items:center';
   row.innerHTML = `
+    <span style="cursor:grab;color:var(--muted);flex:none;padding:0 2px;font-size:16px" title="Перетащите, чтобы изменить порядок">⠿</span>
     <input class="spec-k" placeholder="Характеристика (например, Вес)" style="flex:1;padding:8px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:13px">
     <input class="spec-v" placeholder="Значение (например, 382 кг)" style="flex:1;padding:8px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:13px">
     <button type="button" class="action-btn del" onclick="this.closest('.spec-row').remove()" style="flex:none">✕</button>`;
   row.querySelector('.spec-k').value = k || '';
   row.querySelector('.spec-v').value = v || '';
+  row.ondragstart = () => { _specDragRow = row; row.classList.add('dragging'); };
+  row.ondragend = () => { row.classList.remove('dragging'); _specDragRow = null; };
+  row.ondragover = (e) => {
+    e.preventDefault();
+    if (!_specDragRow || _specDragRow === row) return;
+    const rect = row.getBoundingClientRect();
+    const after = (e.clientY - rect.top) > rect.height / 2;
+    row.parentNode.insertBefore(_specDragRow, after ? row.nextSibling : row);
+  };
   document.getElementById(listId).appendChild(row);
 }
 function renderSpecsList(listId, specsRaw) {
@@ -1509,6 +1835,7 @@ function openCatForm(id) {
   document.getElementById('ctSeoDesc').value = c ? (c.seo_description || '') : '';
   renderFaqList('ctFaqList', c ? c.faq : '');
   document.getElementById('ctInFeed').checked = c ? !!c.in_feed : true;
+  document.getElementById('ctPublished').checked = c ? (c.published == null ? true : !!c.published) : true;
   ctIcon = c ? (c.icon || '') : '';
   renderCtIcon();
   document.getElementById('catOverlay').classList.add('open');
@@ -1526,7 +1853,8 @@ async function saveCat() {
     seo_title: document.getElementById('ctSeoTitle').value.trim() || null,
     seo_description: document.getElementById('ctSeoDesc').value.trim() || null,
     faq: collectFaq('ctFaqList'),
-    in_feed: document.getElementById('ctInFeed').checked
+    in_feed: document.getElementById('ctInFeed').checked,
+    published: document.getElementById('ctPublished').checked
   };
   const res = catEditId
     ? await apiFetch(`/api/admin/categories/${catEditId}`, 'PUT', data)
@@ -1668,7 +1996,7 @@ function renderSubcatTree() {
     return `<tr${hidden ? ' hidden' : ''}>
       <td>${s.icon ? `<img src="${catImgSrc(s.icon)}" style="width:30px;height:30px;object-fit:contain" onerror="this.replaceWith('—')">` : '—'}</td>
       <td>${depth ? '' : `<span class="tag tag-blue">${esc(s.category_name)}</span>`}</td>
-      <td style="padding-left:${depth * 20}px">${branch}${twist}<strong${depth ? ' style="font-weight:600"' : ''}>${esc(s.name)}</strong>${has ? ` <span style="color:var(--muted);font-weight:400">(${has})</span>` : ''}</td>
+      <td style="padding-left:${depth * 20}px">${branch}${twist}<strong${depth ? ' style="font-weight:600"' : ''}>${esc(s.name)}</strong>${has ? ` <span style="color:var(--muted);font-weight:400">(${has})</span>` : ''}${s.published === 0 ? ' <span class="tag tag-red" title="Не показывается на сайте">Скрыта</span>' : ''}</td>
       <td class="td-clip" style="max-width:300px;font-size:12px">${desc
         ? `<span style="color:var(--muted)">${esc(desc)}</span>`
         : `<span style="color:#c0392b;font-weight:600">— нет описания</span>`}</td>
@@ -1727,7 +2055,7 @@ function fillScParent(selectedId) {
     opts.map(x => `<option value="${x.id}">${esc(x.name)}</option>`).join('');
   if (selectedId) sel.value = selectedId;
 }
-function openSubcatForm(id) {
+async function openSubcatForm(id) {
   subcatEditId = id || null;
   document.getElementById('subcatFormTitle').textContent = id ? 'Редактировать подкатегорию' : 'Новая подкатегория';
   const s = id ? subcategories.find(x => x.id === id) : null;
@@ -1741,10 +2069,76 @@ function openSubcatForm(id) {
   document.getElementById('scSeoDesc').value = s ? (s.seo_description || '') : '';
   renderFaqList('scFaqList', s ? s.faq : '');
   document.getElementById('scInFeed').checked = s ? !!s.in_feed : true;
+  document.getElementById('scPublished').checked = s ? (s.published == null ? true : !!s.published) : true;
+  document.getElementById('scGoogleCategory').value = s ? (s.google_category || '') : '';
+  scGalleryItems = s ? (() => { try { return JSON.parse(s.gallery || '[]'); } catch (e) { return []; } })() : [];
+  renderScGallery();
+  document.getElementById('scGalleryResult').textContent = '';
   document.getElementById('scSort').value = s ? s.sort : 0;
   scIcon = s ? (s.icon || '') : '';
   renderScIcon();
   document.getElementById('subcatOverlay').classList.add('open');
+  await loadScFilterSpecs(s);
+}
+// Фото/видео проектов подкатегории — показываются на странице под описанием
+// (см. renderCatalogGallery() в index.html / catalogGalleryHtml() в seo.js).
+let scGalleryItems = [];
+function renderScGallery() {
+  const g = document.getElementById('scGalleryGrid');
+  g.innerHTML = scGalleryItems.map((it, i) => it.type === 'photo'
+    ? `<div class="img-cell" data-i="${i}">
+        <img src="/icons/${esc(it.file)}" alt="" onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'img-broken',textContent:'нет файла'}))">
+        <button type="button" class="img-del" title="Убрать" onclick="scGalleryRemove(${i})">✕</button>
+        <div class="img-fn">${esc(it.file)}</div>
+      </div>`
+    : `<div class="img-cell" data-i="${i}">
+        <div class="img-broken" style="color:var(--muted)">▶ видео</div>
+        <button type="button" class="img-del" title="Убрать" onclick="scGalleryRemove(${i})">✕</button>
+        <div class="img-fn">${esc(it.url)}</div>
+      </div>`
+  ).join('');
+}
+function scGalleryRemove(i) { scGalleryItems.splice(i, 1); renderScGallery(); }
+async function uploadScGalleryPhotos() {
+  const files = document.getElementById('scGalleryFile').files;
+  if (!files.length) return;
+  const res = document.getElementById('scGalleryResult');
+  res.textContent = 'Загрузка…'; res.style.color = 'var(--muted)';
+  const fd = new FormData();
+  Array.from(files).forEach(f => fd.append('images', f));
+  try {
+    const r = await fetch('/api/admin/upload-images', { method: 'POST', headers: { 'x-admin-token': token }, body: fd });
+    const d = await r.json();
+    if (d.filenames) {
+      d.filenames.forEach(fn => scGalleryItems.push({ type: 'photo', file: fn }));
+      renderScGallery();
+      res.textContent = `✅ Добавлено: ${d.filenames.length}`; res.style.color = 'var(--green)';
+    } else { res.textContent = '❌ ' + (d.error || ('HTTP ' + r.status)); res.style.color = '#ef4444'; }
+  } catch (e) { res.textContent = '❌ ' + (e.message || 'Ошибка сети'); res.style.color = '#ef4444'; }
+  document.getElementById('scGalleryFile').value = '';
+}
+function addScGalleryVideo() {
+  const inp = document.getElementById('scGalleryVideoUrl');
+  const v = inp.value.trim();
+  if (!v) return;
+  scGalleryItems.push({ type: 'video', url: v });
+  renderScGallery();
+  inp.value = '';
+}
+// Список характеристик фильтром — универсальный, не привязан к конкретным названиям:
+// подтягиваем все характеристики, которые реально встречаются у товаров ЭТОЙ подкатегории
+// (см. GET .../spec-keys), и отмечаем те, что уже включены в её filter_specs. У новой
+// подкатегории (ещё нет товаров) список неоткуда брать — показываем подсказку вместо него.
+let scEnabledSpecs = [];
+async function loadScFilterSpecs(s) {
+  const box = document.getElementById('scFilterSpecsList');
+  scEnabledSpecs = s ? (() => { try { return JSON.parse(s.filter_specs || '[]'); } catch (e) { return []; } })() : [];
+  if (!s) { box.innerHTML = 'Сохраните подкатегорию с товарами, чтобы выбрать характеристики'; return; }
+  box.innerHTML = 'Загрузка…';
+  let keys = [];
+  try { keys = await apiFetch(`/api/admin/subcategories/${s.id}/spec-keys`); } catch (e) { keys = []; }
+  if (!keys.length) { box.innerHTML = 'У товаров этой подкатегории пока не заполнено ни одной характеристики'; return; }
+  box.innerHTML = keys.map(k => `<label class="eng-check"><input type="checkbox" class="sc-filter-spec-cb" value="${esc(k.key)}" ${scEnabledSpecs.includes(k.key) ? 'checked' : ''}> ${esc(k.key)} <span>— заполнено у ${k.count} товаров</span></label>`).join('');
 }
 async function saveSubcat() {
   const name = document.getElementById('scName').value.trim();
@@ -1762,7 +2156,11 @@ async function saveSubcat() {
     seo_description: document.getElementById('scSeoDesc').value.trim() || null,
     parent_id: document.getElementById('scParent').value || null,
     faq: collectFaq('scFaqList'),
-    in_feed: document.getElementById('scInFeed').checked
+    in_feed: document.getElementById('scInFeed').checked,
+    published: document.getElementById('scPublished').checked,
+    google_category: document.getElementById('scGoogleCategory').value.trim() || null,
+    gallery: scGalleryItems,
+    filter_specs: Array.from(document.querySelectorAll('.sc-filter-spec-cb:checked')).map(el => el.value)
   };
   const res = subcatEditId
     ? await apiFetch(`/api/admin/subcategories/${subcatEditId}`, 'PUT', data)
@@ -1805,6 +2203,11 @@ async function loadEngage() {
   const kpCfg = engSettings.kp || {};
   document.getElementById('kp-instant').checked = kpCfg.instantDownload === true;
   document.getElementById('kp-threshold').value = kpCfg.freeDeliveryThreshold != null ? kpCfg.freeDeliveryThreshold : '';
+  const revCfg = engSettings.reviews_followup || {};
+  document.getElementById('rev-followup').checked = revCfg.enabled !== false;
+  const tgCfg = engSettings.telegram || {};
+  document.getElementById('tg-enabled').checked = tgCfg.enabled === true;
+  document.getElementById('tg-username').value = tgCfg.bot_username || '';
 }
 async function loadKpLeads() {
   const box = document.getElementById('kpLeadsList');
@@ -1850,6 +2253,11 @@ async function saveEngage() {
       kp: {
         instantDownload: document.getElementById('kp-instant').checked,
         freeDeliveryThreshold: Number(document.getElementById('kp-threshold').value) || 1000000
+      },
+      reviews_followup: { enabled: document.getElementById('rev-followup').checked },
+      telegram: {
+        enabled: document.getElementById('tg-enabled').checked,
+        bot_username: document.getElementById('tg-username').value.trim().replace(/^@/, '')
       }
     });
   } catch (e) {
@@ -2082,6 +2490,17 @@ async function loadStats(days) {
     </tr>`).join('')
     || '<tr><td colspan="5" style="padding:20px;color:var(--muted)">Пока нет кликов по товарам</td></tr>';
 
+  const CTA_KIND_LABEL = { quiz: '🧭 Подбор оборудования', offer: '📝 Запросить КП', call: '📞 Позвонить', whatsapp: '💬 WhatsApp' };
+  document.getElementById('statsRecentClicksTbody').innerHTML = (data.recentClicks || []).map(r => `
+    <tr>
+      <td>${fmtDate(r.ts && r.ts.replace(' ', 'T') + 'Z')}</td>
+      <td>${CTA_KIND_LABEL[r.kind] || esc(r.kind || '')}</td>
+      <td>${r.product_name ? esc(r.product_name) : (r.ref_id ? `Товар #${r.ref_id} (удалён)` : '—')}</td>
+      <td>${r.phone ? esc(r.phone) : '—'}</td>
+      <td style="white-space:nowrap">${esc(r.ip || '—')}</td>
+    </tr>`).join('')
+    || '<tr><td colspan="5" style="padding:20px;color:var(--muted)">Пока нет кликов</td></tr>';
+
   const recentViewsList = data.recentViews || [];
   // Сколько раз встречается каждый IP — ЗА ВЕСЬ ВЫБРАННЫЙ ПЕРИОД (data.ipCountsFull,
   // отдельный запрос на сервере без лимита в 1000 строк), а не только в этом урезанном
@@ -2100,10 +2519,16 @@ async function loadStats(days) {
       ? `<span style="color:#E5484D;font-weight:700" title="${esc(r.ua || '')}">🤖 ${esc(r.bot_name || 'бот')}</span>`
       : (r.ua ? `<span style="color:var(--muted)" title="${esc(r.ua)}">${esc(parseBrowserName(r.ua))}</span>` : '<span style="color:var(--muted)">—</span>');
     const isAds = /реклама/.test(r.traffic_source || '');
-    const srcHtml = `<span${isAds ? ' style="color:var(--green);font-weight:700"' : ''} title="${esc(r.ref || 'нет referrer')}">${esc(r.traffic_source || '—')}</span>`;
-    return `<tr><td style="white-space:nowrap">${fmtDate(r.ts.replace(' ', 'T') + 'Z')}</td><td>${page}</td><td style="white-space:nowrap">${srcHtml}</td><td style="white-space:nowrap">${ipHtml}</td><td style="white-space:nowrap">${uaHtml}</td></tr>`;
+    const srcHtml = `<span${isAds ? ' style="color:var(--green);font-weight:700"' : ''}>${esc(r.traffic_source || '—')}</span>`;
+    // Раньше полная ссылка-реферер была видна только при наведении (title) — вынесли
+    // отдельной колонкой, чтобы не наводить каждый раз. Длинные обрезаем, title остаётся
+    // для полного текста по наведению.
+    const refHtml = r.ref
+      ? `<span title="${esc(r.ref)}" style="color:var(--muted)">${esc(r.ref.length > 40 ? r.ref.slice(0, 40) + '…' : r.ref)}</span>`
+      : '<span style="color:var(--muted)">—</span>';
+    return `<tr><td style="white-space:nowrap">${fmtDate(r.ts.replace(' ', 'T') + 'Z')}</td><td>${page}</td><td style="white-space:nowrap">${srcHtml}</td><td style="white-space:nowrap">${refHtml}</td><td style="white-space:nowrap">${ipHtml}</td><td style="white-space:nowrap">${uaHtml}</td></tr>`;
   }).join('')
-    || '<tr><td colspan="5" style="padding:20px;color:var(--muted)">Пока нет просмотров</td></tr>';
+    || '<tr><td colspan="6" style="padding:20px;color:var(--muted)">Пока нет просмотров</td></tr>';
 }
 let dashboardSort = [{ col: 'id', dir: 'desc' }];
 function sortDashboardBy(col, additive) {
@@ -2131,10 +2556,11 @@ function updateDashboardSortHeaders() {
 }
 async function loadDashboard() {
   const sortParam = encodeURIComponent(dashboardSort.map(s => `${s.col}:${s.dir}`).join(','));
-  const [prods, orders, newOrders, activeOrders, cats] = await Promise.all([
+  const [prods, orders, newOrders, processingOrders, activeOrders, cats] = await Promise.all([
     apiFetch('/api/admin/products?limit=1'),
     apiFetch('/api/admin/orders?limit=1'),
     apiFetch('/api/admin/orders?limit=1&status=new'),
+    apiFetch('/api/admin/orders?limit=1&status=processing'),
     apiFetch('/api/admin/orders?limit=100&status=new,processing&sort=' + sortParam),
     apiFetch('/api/categories')
   ]);
@@ -2142,15 +2568,17 @@ async function loadDashboard() {
   document.getElementById('stat-orders').textContent = orders.total;
   document.getElementById('stat-cats').textContent = cats.length;
   document.getElementById('stat-new').textContent = newOrders.total;
+  document.getElementById('stat-processing').textContent = processingOrders.total;
   updateDashboardSortHeaders();
   const tbody = document.getElementById('recentOrdersTbody');
-  tbody.innerHTML = (activeOrders.orders.length ? activeOrders.orders.map(o => `<tr>
+  tbody.innerHTML = (activeOrders.orders.length ? activeOrders.orders.map(o => `<tr data-order-id="${o.id}">
     <td>#${o.id}</td>
     <td><strong>${esc(o.name)}</strong></td>
     <td>${esc(o.company || '—')}</td>
     <td>${esc(o.city || '—')}</td>
-    <td>${esc(o.phone)}${o.ip ? `<div style="color:var(--muted);font-size:12px;margin-top:3px">${esc(o.ip)}</div>` : ''}</td>
+    <td>${fmtPhone(o.phone)}${o.ip ? `<div style="color:var(--muted);font-size:12px;margin-top:3px">${esc(o.ip)}</div>` : ''}</td>
     <td class="order-items-list">${getItemsSummary(o.items)}</td>
+    <td style="white-space:nowrap">${fmtPrice(o.total)}${orderBonusNoteHtml(o)}</td>
     <td style="max-width:220px;white-space:pre-wrap" title="${esc(o.message || '')}">${o.message ? esc(o.message.length > 80 ? o.message.slice(0, 80) + '…' : o.message) : '—'}</td>
     <td>
       <select class="status-select" data-prev="${o.status}" onchange="handleStatusChange(${o.id}, this)">
@@ -2163,7 +2591,7 @@ async function loadDashboard() {
     <td>${fmtDate(o.created_at)}</td>
     <td class="order-note-cell">${lastNoteText(o.lastNote, o.id, o.nextReminder)}</td>
     <td><button class="action-btn" onclick="openOrderNotes(${o.id})" title="Редактировать">✏️</button></td>
-  </tr>`).join('') : '<tr><td colspan="11" style="padding:20px;color:var(--muted)">Новых заявок и заявок в работе нет</td></tr>');
+  </tr>`).join('') : '<tr><td colspan="12" style="padding:20px;color:var(--muted)">Новых заявок и заявок в работе нет</td></tr>');
 }
 
 // ===== PRODUCTS =====
@@ -2198,8 +2626,11 @@ async function loadProducts() {
       ${p.is_extra_subcategory ? `<span class="tag" title="Добавлен в эту подкатегорию как дополнительную — основная указана справа">+доп.</span>` : ''}</td>
     <td><span class="tag tag-blue">${esc(p.category_name)}</span>
       ${p.is_extra_category ? `<span class="tag" title="Добавлен в эту категорию как дополнительную">+доп.</span>` : ''}</td>
-    <td>${p.price_on_request ? '<span class="tag tag-muted">По запросу</span>' : fmtPrice(p.price)}</td>
+    <td>${p.price_on_request ? '<span class="tag tag-muted">По запросу</span>' : fmtPrice(p.price)}
+      ${p.discount_percent > 0 ? `<br><span class="tag tag-red" title="${p.discount_until ? 'до ' + p.discount_until : 'без даты окончания'}">−${p.discount_percent}%</span>`
+        : (p.discount_price > 0 ? `<br><span class="tag tag-red" title="${p.discount_until ? 'до ' + p.discount_until : 'без даты окончания'}">${fmtPrice(p.discount_price)}</span>` : '')}</td>
     <td><span class="tag ${p.in_stock ? 'tag-green' : 'tag-red'}">${p.in_stock ? 'В наличии' : 'Нет'}</span>
+        ${p.published === 0 ? ' <span class="tag tag-red" title="Не показывается на сайте">Скрыт</span>' : ''}
         ${(() => { let f = []; try { f = JSON.parse(p.featured || '[]'); } catch (e) {} return f.map(k => BADGE_LABELS[k] ? ` <span class="tag ${BADGE_TAG_CLASS[k] || 'tag-yellow'}">${BADGE_LABELS[k]}</span>` : '').join(''); })()}</td>
     <td>
       <button class="action-btn" onclick="openProductForm(${p.id})">✏️ Ред.</button>
@@ -2268,11 +2699,18 @@ async function openProductForm(id = null) {
   fillContactPrimarySelect();
   const parseIds = v => { try { return Array.isArray(v) ? v : JSON.parse(v || '[]'); } catch (e) { return []; } };
   if (id) {
-    const p = await apiFetch(`/api/products/${id}`);
+    const p = await apiFetch(`/api/admin/products/${id}`);
     document.getElementById('fName').value = p.name;
+    document.getElementById('fSlug').value = p.slug||'';
     document.getElementById('fArticle').value = p.article||'';
     document.getElementById('fBrand').value = p.brand||'';
-    document.getElementById('fPrice').value = p.price||'';
+    // p.price может быть уже уценённой ценой (applyDiscount подменяет её в /api/products/:id
+    // для покупателей) — в форме редактирования всегда нужна настоящая/базовая цена,
+    // поэтому при активной скидке берём p.old_price (её applyDiscount сохраняет как раз для этого).
+    document.getElementById('fPrice').value = (p.old_price != null ? p.old_price : p.price) || '';
+    document.getElementById('fDiscountPercent').value = p.discount_percent || '';
+    document.getElementById('fDiscountPrice').value = p.discount_price || '';
+    document.getElementById('fDiscountUntil').value = p.discount_until || '';
     setImgList([p.icon].concat(parseIds(p.images)).filter(Boolean));
     document.getElementById('fDesc')._richSet(p.description || '');
     document.getElementById('fSubtitle').value = p.subtitle||'';
@@ -2285,6 +2723,7 @@ async function openProductForm(id = null) {
     document.getElementById('fRequest').checked = !!p.price_on_request;
     setFeaturedValue(parseIds(p.featured));
     document.getElementById('fInStock').checked = !!p.in_stock;
+    document.getElementById('fPublished').checked = p.published == null ? true : !!p.published;
     document.getElementById('fInFeed').checked = p.in_feed == null ? true : !!p.in_feed;
     document.getElementById('fCategory').value = p.category_id;
     document.getElementById('fContactPrimary').value = (p.contact_primary === '1' || p.contact_primary === '2') ? p.contact_primary : '';
@@ -2294,13 +2733,14 @@ async function openProductForm(id = null) {
     extraCatList = (p.extra_categories || []).map(x => ({ category_id: x.category_id, subcategory_id: x.subcategory_id || null }));
     renderExtraCatList();
   } else {
-    ['fName','fArticle','fBrand','fPrice','fIcon', 'fSubtitle','fYoutube','fPerf','fPerfUnit','fSeoTitle','fSeoDesc'].forEach(id => document.getElementById(id).value = '');
+    ['fName','fSlug','fArticle','fBrand','fPrice','fIcon', 'fSubtitle','fYoutube','fPerf','fPerfUnit','fSeoTitle','fSeoDesc','fDiscountPercent','fDiscountPrice','fDiscountUntil'].forEach(id => document.getElementById(id).value = '');
     document.getElementById('fDesc')._richSet('');
     setImgList([]);
     document.getElementById('fSpecsList').innerHTML = '';
     document.getElementById('fRequest').checked = false;
     setFeaturedValue([]);
     document.getElementById('fInStock').checked = true;
+    document.getElementById('fPublished').checked = true;
     document.getElementById('fInFeed').checked = true;
     document.getElementById('fContactPrimary').value = '';
     fillSubcatSelect('');
@@ -2328,14 +2768,19 @@ async function saveProduct() {
     category_id: document.getElementById('fCategory').value,
     subcategory_id: document.getElementById('fSubcategory').value || null,
     name,
+    slug: document.getElementById('fSlug').value.trim() || null,
     article,
     brand,
     description: document.getElementById('fDesc').value.trim(),
     price: document.getElementById('fPrice').value || 0,
+    discount_percent: document.getElementById('fDiscountPercent').value || 0,
+    discount_price: document.getElementById('fDiscountPrice').value || 0,
+    discount_until: document.getElementById('fDiscountUntil').value || null,
     price_on_request: document.getElementById('fRequest').checked ? 1 : 0,
     icon: imgList[0] || null,
     images: imgList.slice(1),
     in_stock: document.getElementById('fInStock').checked ? 1 : 0,
+    published: document.getElementById('fPublished').checked,
     in_feed: document.getElementById('fInFeed').checked,
     featured: getFeaturedValue(),
     specs,
@@ -2350,15 +2795,18 @@ async function saveProduct() {
     contact_primary: document.getElementById('fContactPrimary').value || null,
     extra_categories: extraCatList
   };
+  let flashId = editId;
   if (editId) {
     await apiFetch(`/api/admin/products/${editId}`, 'PUT', data);
     showToast('✅ Товар обновлён', 'green');
   } else {
-    await apiFetch('/api/admin/products', 'POST', data);
+    const res = await apiFetch('/api/admin/products', 'POST', data);
     showToast('✅ Товар создан', 'green');
+    flashId = res && res.id;
   }
   closeForm();
-  loadProducts();
+  await loadProducts();
+  if (flashId) flashRow('prodsTbody', 'data-id', flashId);
 }
 
 async function deleteProduct(id) {
@@ -2408,22 +2856,26 @@ function updateOrdersSortHeaders() {
 async function loadOrders() {
   const search = document.getElementById('ordSearch').value.trim();
   const status = document.getElementById('ordStatusFilter').value;
+  const dateFrom = document.getElementById('ordDateFrom').value;
+  const dateTo = document.getElementById('ordDateTo').value;
   const sortParam = ordersSort.map(s => `${s.col}:${s.dir}`).join(',');
   let url = `/api/admin/orders?page=${ordPage}&limit=30&sort=${encodeURIComponent(sortParam)}`;
   if (search) url += `&search=${encodeURIComponent(search)}`;
   if (status) url += `&status=${status}`;
+  if (dateFrom) url += `&dateFrom=${dateFrom}`;
+  if (dateTo) url += `&dateTo=${dateTo}`;
   const data = await apiFetch(url);
   document.getElementById('ordersTotal').textContent = `Всего: ${data.total} заявок`;
   updateOrdersSortHeaders();
   const tbody = document.getElementById('ordersTbody');
-  tbody.innerHTML = data.orders.map(o => `<tr>
+  tbody.innerHTML = data.orders.map(o => `<tr data-order-id="${o.id}">
     <td>#${o.id}</td>
     <td><strong>${esc(o.name)}</strong></td>
     <td>${esc(o.company || '—')}</td>
     <td>${esc(o.city || '—')}</td>
-    <td>${esc(o.phone)}${o.ip ? `<div style="color:var(--muted);font-size:12px;margin-top:3px">${esc(o.ip)}</div>` : ''}</td>
+    <td>${fmtPhone(o.phone)}${o.ip ? `<div style="color:var(--muted);font-size:12px;margin-top:3px">${esc(o.ip)}</div>` : ''}</td>
     <td class="order-items-list">${getItemsSummary(o.items)}</td>
-    <td>${o.total > 0 ? fmtPrice(o.total) : '—'}</td>
+    <td>${o.total > 0 ? fmtPrice(o.total) : '—'}${orderBonusNoteHtml(o)}</td>
     <td>
       <select class="status-select" data-prev="${o.status}" onchange="handleStatusChange(${o.id}, this)">
         <option value="new" ${o.status==='new'?'selected':''}>🆕 Новая</option>
@@ -2443,6 +2895,18 @@ async function loadOrders() {
   ).join('') : '';
 }
 
+// Телефон только для отображения, как везде на сайте — "+7 (777) 777-77-09". Поиск и
+// сохранение по-прежнему работают с сырыми цифрами, это не трогаем, только вывод в таблице.
+function fmtPhone(p) {
+  const d = String(p || '').replace(/\D/g, '').slice(-10);
+  if (d.length < 10) return p ? esc(p) : '—';
+  return '+7 (' + d.slice(0, 3) + ') ' + d.slice(3, 6) + '-' + d.slice(6, 8) + '-' + d.slice(8, 10);
+}
+// Номер клиента (client_no) — то, что показываем в админке и личном кабинете вместо
+// внутреннего id (см. миграцию в database.js). 6 цифр с ведущими нулями: "002261".
+function fmtClientNo(n) {
+  return n ? String(n).padStart(6, '0') : '—';
+}
 // ===== КЛИЕНТЫ =====
 async function loadCustomers() {
   const search = document.getElementById('custSearch').value.trim();
@@ -2451,15 +2915,21 @@ async function loadCustomers() {
   const data = await apiFetch(url);
   document.getElementById('customersTotal').textContent = `Всего: ${data.total} клиентов`;
   const tbody = document.getElementById('customersTbody');
-  tbody.innerHTML = data.customers.length ? data.customers.map(c => `<tr>
+  tbody.innerHTML = data.customers.length ? data.customers.map(c => {
+    const extraLines = [c.corp_phone ? 'Корп: ' + fmtPhone(c.corp_phone) : '', c.extra_phone ? 'Доп: ' + fmtPhone(c.extra_phone) : ''].filter(Boolean);
+    return `<tr data-id="${c.id}">
+    <td style="color:var(--muted)">${fmtClientNo(c.client_no)}</td>
     <td><strong>${esc(c.name)}</strong></td>
-    <td>${esc(c.phone)}</td>
+    <td>${fmtPhone(c.phone)}</td>
+    <td style="font-size:12px;white-space:nowrap">${extraLines.length ? extraLines.join('<br>') : '<span style="color:var(--muted)">—</span>'}</td>
     <td>${esc(c.email || '—')}</td>
     <td>${c.bonus_balance || 0} ₸</td>
     <td>${c.ordersCount || 0}</td>
     <td>${c.registered_at ? fmtDate(c.registered_at) : '—'}</td>
+    <td style="max-width:220px;white-space:pre-wrap" title="${esc(c.comment || '')}">${c.comment ? esc(c.comment.length > 60 ? c.comment.slice(0, 60) + '…' : c.comment) : '—'}</td>
     <td><button class="action-btn" onclick="openCustomer(${c.id})" title="Редактировать">✏️</button></td>
-  </tr>`).join('') : '<tr><td colspan="7" style="padding:20px;color:var(--muted)">Клиентов пока нет</td></tr>';
+  </tr>`;
+  }).join('') : '<tr><td colspan="10" style="padding:20px;color:var(--muted)">Клиентов пока нет</td></tr>';
   const pager = document.getElementById('customersPager');
   const pages = Math.ceil(data.total / 30);
   pager.innerHTML = pages > 1 ? Array.from({length:pages}, (_,i) =>
@@ -2474,11 +2944,21 @@ async function openCustomer(id) {
   if (data.error) { showToast('❌ ' + data.error); return; }
   const c = data.customer;
   document.getElementById('cuName').value = c.name || '';
-  document.getElementById('cuPhone').value = c.phone || '';
+  fillPhoneFieldAdmin(document.getElementById('cuPhone'), c.phone);
   document.getElementById('cuEmail').value = c.email || '';
   document.getElementById('cuCity').value = c.city || '';
   document.getElementById('cuCompany').value = c.company || '';
-  document.getElementById('cuBonusDisplay').textContent = (c.bonus_balance || 0).toLocaleString('ru-KZ');
+  fillPhoneFieldAdmin(document.getElementById('cuCorpPhone'), c.corp_phone);
+  fillPhoneFieldAdmin(document.getElementById('cuExtraPhone'), c.extra_phone);
+  document.getElementById('cuIdLabel').textContent = 'ID ' + fmtClientNo(c.client_no);
+  document.getElementById('cuComment').value = c.comment || '';
+  const cuBonusInput = document.getElementById('cuBonusInput');
+  cuBonusInput.value = c.bonus_balance || 0;
+  // Править баланс напрямую может только superadmin (как и "Списать бонус") — для
+  // обычного админа поле заблокировано, но само значение видно. На сервере та же
+  // проверка роли продублирована (см. PUT /api/admin/customers/:id) — это не единственная защита.
+  cuBonusInput.readOnly = myRole !== 'superadmin';
+  cuBonusInput.style.background = myRole !== 'superadmin' ? 'var(--bg)' : '';
   const orders = data.orders || [];
   document.getElementById('cuOrders').innerHTML = renderOrdersTable(orders, 'Заказов пока нет');
   await renderCustomerLog(id);
@@ -2488,11 +2968,12 @@ let cuLogRows = [];
 async function renderCustomerLog(id) {
   const data = await apiFetch(`/api/admin/customers/${id}/log`);
   cuLogRows = data.rows || [];
-  const ICON = { login: '🔓', login_fail: '⛔', create: '➕', update: '✏️', delete: '🗑' };
+  const ICON = { login: '🔓', login_fail: '⛔', unauthorized: '🚫', create: '➕', update: '✏️', delete: '🗑' };
   document.getElementById('cuLogList').innerHTML = cuLogRows.map((r, i) => `
     <div style="padding:8px 0;border-bottom:1px solid var(--border)${r.detail ? ';cursor:pointer' : ''}"${r.detail ? ` onclick="showCuLogDetail(${i})"` : ''}>
       <div style="font-size:12px;color:var(--muted)">${esc(r.admin || '—')} · ${fmtDate(r.ts && r.ts.replace(' ', 'T') + 'Z')}</div>
       <div style="margin-top:2px">${ICON[r.action] || ''} ${esc(r.label || r.action)}</div>
+      ${r.attachment ? `<a href="${esc(r.attachment)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" style="font-size:12px">📎 Квитанция</a>` : ''}
       ${r.detail ? `<div class="log-more-hint">Подробнее →</div>` : ''}
     </div>`).join('') || '<div style="color:var(--muted);padding:8px 0">История пуста</div>';
 }
@@ -2503,27 +2984,49 @@ async function saveCustomer() {
     phone: document.getElementById('cuPhone').value.trim(),
     email: document.getElementById('cuEmail').value.trim(),
     city: document.getElementById('cuCity').value.trim(),
-    company: document.getElementById('cuCompany').value.trim()
+    company: document.getElementById('cuCompany').value.trim(),
+    corpPhone: document.getElementById('cuCorpPhone').value.trim(),
+    extraPhone: document.getElementById('cuExtraPhone').value.trim(),
+    comment: document.getElementById('cuComment').value.trim(),
+    // Сервер сам игнорирует это поле не от superadmin (см. PUT /api/admin/customers/:id) —
+    // отправляем всегда, без разницы, видно оно отредактированным или нет.
+    bonusBalance: Number(document.getElementById('cuBonusInput').value) || 0
   });
   if (res.error) { showToast('❌ ' + res.error); return; }
   showToast('✅ Сохранено', 'green');
-  await renderCustomerLog(cuId);
-  loadCustomers();
+  document.getElementById('customerOverlay').classList.remove('open');
+  await loadCustomers();
+  flashRow('customersTbody', 'data-id', cuId);
 }
 
 // ===== СПИСАНИЕ БОНУСА (только superadmin) =====
 function openDeductBonus() {
-  document.getElementById('deductBonusAvail').textContent = document.getElementById('cuBonusDisplay').textContent;
+  document.getElementById('deductBonusAvail').textContent = document.getElementById('cuBonusInput').value;
   document.getElementById('deductBonusAmount').value = '';
+  document.getElementById('deductBonusFile').value = '';
   document.getElementById('deductBonusOverlay').classList.add('open');
 }
 function closeDeductBonus() { document.getElementById('deductBonusOverlay').classList.remove('open'); }
 async function confirmDeductBonus() {
   const amount = Number(document.getElementById('deductBonusAmount').value) || 0;
   if (amount <= 0) { showToast('⚠️ Укажите сумму больше нуля'); return; }
-  const res = await apiFetch(`/api/admin/customers/${cuId}/deduct-bonus`, 'PUT', { amount });
+  // Чек — необязательно: если выбран, сначала загружаем файл отдельным запросом
+  // (apiFetch всегда шлёт JSON, для файла нужен обычный fetch с FormData, как в
+  // uploadCatIcon()), и только потом прикладываем готовый путь к самому списанию.
+  let attachment = null;
+  const file = document.getElementById('deductBonusFile').files[0];
+  if (file) {
+    const fd = new FormData(); fd.append('receipt', file);
+    try {
+      const r = await fetch('/api/admin/upload-receipt', { method: 'POST', headers: { 'x-admin-token': token }, body: fd });
+      const d = await r.json();
+      if (d.path) attachment = d.path;
+      else { showToast('❌ ' + (d.error || 'Не удалось загрузить чек')); return; }
+    } catch (e) { showToast('❌ Ошибка загрузки чека'); return; }
+  }
+  const res = await apiFetch(`/api/admin/customers/${cuId}/deduct-bonus`, 'PUT', { amount, attachment });
   if (res.error) { showToast('❌ ' + res.error); return; }
-  document.getElementById('cuBonusDisplay').textContent = res.bonusBalance.toLocaleString('ru-KZ');
+  document.getElementById('cuBonusInput').value = res.bonusBalance;
   closeDeductBonus();
   showToast('✅ Бонус списан', 'green');
   await renderCustomerLog(cuId);
@@ -2690,6 +3193,15 @@ async function openCompleteOrder(id, selectEl) {
   document.getElementById('coCurrentBonus').textContent = c ? (c.bonusBalance + ' ₸') : 'клиент не зарегистрирован';
   updateCoBonusHint();
 
+  const redeemRow = document.getElementById('coBonusRequestRow');
+  if (o.bonus_requested > 0 && !o.bonus_redeemed_at) {
+    redeemRow.style.display = '';
+    document.getElementById('coBonusRequested').textContent = o.bonus_requested + ' ₸';
+    document.getElementById('coApplyBonusRedeem').checked = true; // по умолчанию выполняем то, что клиент просил при заказе
+  } else {
+    redeemRow.style.display = 'none';
+  }
+
   document.getElementById('completeOrderOverlay').classList.add('open');
 }
 // Бонус за заказ считается автоматически по проценту из настроек (Вовлечённость → Бонусы).
@@ -2717,14 +3229,22 @@ function closeCompleteOrder() {
 async function saveCompleteOrder() {
   const total = Number(document.getElementById('coTotal').value) || 0;
   const bonusAward = Number(document.getElementById('coBonusAward').value) || 0;
+  const redeemRow = document.getElementById('coBonusRequestRow');
+  // Галочка видна, только когда есть что списывать (см. openCompleteOrder) — если
+  // строка скрыта, считаем как есть, галочка тут ни на что не влияет.
+  const applyBonusRedeem = redeemRow.style.display === 'none' || document.getElementById('coApplyBonusRedeem').checked;
   const items = pickerItemsOrManual('co');
-  const res = await apiFetch(`/api/admin/orders/${coOrderId}/complete`, 'PUT', { items, total, bonusAward });
+  const res = await apiFetch(`/api/admin/orders/${coOrderId}/complete`, 'PUT', { items, total, bonusAward, applyBonusRedeem });
   if (res.error) { showToast('❌ ' + res.error); return; }
   if (coSelectEl) coSelectEl.dataset.prev = 'done';
   document.getElementById('completeOrderOverlay').classList.remove('open');
   // res.bonusAwarded — сколько реально начислил сервер (0, если не superadmin), а не то,
   // что было в поле формы — иначе тост врал бы «начислено», хотя сервер это отклонил.
-  showToast('✅ Заказ выполнен' + (res.bonusAwarded > 0 ? `, начислено ${res.bonusAwarded} ₸ бонусов` : ''), 'green');
+  const bonusMsg = [
+    res.bonusAwarded > 0 ? `начислено ${res.bonusAwarded} ₸` : '',
+    res.bonusRedeemed > 0 ? `списано ${res.bonusRedeemed} ₸` : ''
+  ].filter(Boolean).join(', ');
+  showToast('✅ Заказ выполнен' + (bonusMsg ? `, ${bonusMsg} бонусов` : ''), 'green');
   loadOrders();
   loadDashboard();
 }
@@ -2735,18 +3255,47 @@ async function openOrderNotes(id, focusNote) {
   notesOrderId = id;
   document.getElementById('notesOrderId').textContent = id;
   document.getElementById('newNoteText').value = '';
+  document.getElementById('odCustSearch').value = '';
+  document.getElementById('odCustResults').innerHTML = '';
   const data = await apiFetch(`/api/admin/orders/${id}`);
   if (data.error) { showToast('❌ ' + data.error); return; }
   const o = data.order;
+  // Текущая привязка (если есть) — сохраняем её по умолчанию, чтобы простое
+  // сохранение заказа без изменений в "Найти клиента" не сбрасывало customer_id.
+  odFoundCustomerId = o.customer_id || null;
+  // Заказ привязан к аккаунту клиента (customer_id) — показываем его актуальные имя/
+  // телефон/номер клиента отдельной строкой: поля самого заказа ниже — это снимок на
+  // момент оформления и могут отличаться (например, клиент потом сменил имя или номер).
+  const linkedEl = document.getElementById('odLinkedCustomer');
+  const lc = data.linkedCustomer;
+  if (lc) {
+    linkedEl.style.display = 'flex';
+    linkedEl.innerHTML = `🔗 Привязан к клиенту: <b>${esc(lc.name)}</b> · ${fmtPhone(lc.phone)} · ID ${fmtClientNo(lc.client_no)}` +
+      `<button type="button" class="action-btn" style="margin-left:auto" onclick="openCustomer(${lc.id})">👤 Карточка клиента</button>`;
+  } else {
+    linkedEl.style.display = 'none';
+    linkedEl.innerHTML = '';
+  }
   document.getElementById('odName').value = o.name || '';
   document.getElementById('odPhone').value = o.phone || '';
   document.getElementById('odEmail').value = o.email || '';
   document.getElementById('odCity').value = o.city || '';
   document.getElementById('odCompany').value = o.company || '';
+  document.getElementById('odPaymentMethod').value = o.payment_method || '—';
+  document.getElementById('odDeliveryMethod').value = o.delivery_method || '—';
   document.getElementById('odMessage').value = o.message || '';
   splitItemsIntoPicker('od', o.items);
   renderPickerItems('od');
   document.getElementById('odTotal').value = o.total || 0;
+  const bonusRow = document.getElementById('odBonusRequestRow');
+  if (o.bonus_requested > 0) {
+    bonusRow.style.display = '';
+    bonusRow.innerHTML = o.bonus_redeemed_at
+      ? `✅ Клиент списал бонусами: <b>${o.bonus_requested} ₸</b> (списано)`
+      : `🎁 Клиент хочет списать бонусами: <b>${o.bonus_requested} ₸</b>`;
+  } else {
+    bonusRow.style.display = 'none';
+  }
   document.getElementById('odItemSearch').value = '';
   document.getElementById('odItemResults').innerHTML = '';
   renderItemSuggest('od', o.message);
@@ -2771,12 +3320,34 @@ async function saveOrderDetail() {
     company: document.getElementById('odCompany').value.trim(),
     message: document.getElementById('odMessage').value.trim(),
     items: pickerItemsOrManual('od'),
-    total: document.getElementById('odTotal').value
+    total: document.getElementById('odTotal').value,
+    customerId: odFoundCustomerId
   });
   if (res.error) { showToast('❌ ' + res.error); return; }
   showToast('✅ Сохранено', 'green');
-  await renderOrderLog(notesOrderId);
-  loadOrders();
+  document.getElementById('orderNotesOverlay').classList.remove('open');
+  // Заявку могли открыть и с Дашборда (своя таблица "Последние заявки"), и со страницы
+  // "Заявки" — обновляем и подсвечиваем ту таблицу, которая сейчас реально на экране.
+  const activePanel = document.querySelector('.panel.active');
+  if (activePanel && activePanel.id === 'panel-dashboard') {
+    await loadDashboard();
+    flashRow('recentOrdersTbody', 'data-order-id', notesOrderId);
+  } else {
+    await loadOrders();
+    flashRow('ordersTbody', 'data-order-id', notesOrderId);
+  }
+}
+// Подсветить строку в таблице после сохранения — чтобы было видно, какую именно запись
+// только что отредактировали (список мог заново отсортироваться/перезагрузиться).
+function flashRow(tbodyId, attr, id) {
+  const row = document.querySelector(`#${tbodyId} tr[${attr}="${id}"]`);
+  if (!row) return;
+  row.scrollIntoView({ block: 'center' });
+  row.style.backgroundColor = 'var(--green-light, #e8f5ee)';
+  setTimeout(() => {
+    row.style.transition = 'background-color 1.5s ease';
+    row.style.backgroundColor = '';
+  }, 900);
 }
 // Напоминание к примечанию: сегодня (или просрочено) — красным, завтра — жёлтым,
 // более дальняя дата — нейтрально. dateStr — "YYYY-MM-DD", сравнение строкой (тот же
@@ -2803,7 +3374,7 @@ let odLogRows = [];
 async function renderOrderLog(id) {
   const data = await apiFetch(`/api/admin/orders/${id}/log`);
   odLogRows = data.rows || [];
-  const ICON = { login: '🔓', login_fail: '⛔', create: '➕', update: '✏️', delete: '🗑' };
+  const ICON = { login: '🔓', login_fail: '⛔', unauthorized: '🚫', create: '➕', update: '✏️', delete: '🗑' };
   document.getElementById('odLogList').innerHTML = odLogRows.map((r, i) => `
     <div style="padding:8px 0;border-bottom:1px solid var(--border)${r.detail ? ';cursor:pointer' : ''}"${r.detail ? ` onclick="showOdLogDetail(${i})"` : ''}>
       <div style="font-size:12px;color:var(--muted)">${esc(r.admin || '—')} · ${fmtDate(r.ts && r.ts.replace(' ', 'T') + 'Z')}</div>
@@ -2828,11 +3399,15 @@ async function addOrderNote() {
 
 // ===== СОЗДАНИЕ ЗАКАЗА ВРУЧНУЮ =====
 function openNewOrder() {
-  ['noName','noPhone','noEmail','noCity','noCompany','noTotal','noMessage','noManualItem','noItemSearch'].forEach(id => document.getElementById(id).value = '');
+  ['noName','noPhone','noEmail','noCity','noCompany','noTotal','noMessage','noManualItem','noItemSearch','noCustSearch'].forEach(id => document.getElementById(id).value = '');
   delete document.getElementById('noPhone').dataset.phoneDigits;
+  noFoundCustomerId = null;
   pickers.no = [];
   renderPickerItems('no');
   document.getElementById('noItemResults').innerHTML = '';
+  document.getElementById('noCustResults').innerHTML = '';
+  const noticeEl = document.getElementById('noPhoneNotice');
+  noticeEl.innerHTML = ''; noticeEl.style.display = 'none';
   document.getElementById('newOrderOverlay').classList.add('open');
 }
 async function saveNewOrder() {
@@ -2847,7 +3422,10 @@ async function saveNewOrder() {
     company: document.getElementById('noCompany').value.trim(),
     message: document.getElementById('noMessage').value.trim(),
     total: document.getElementById('noTotal').value,
-    items: pickerItemsOrManual('no')
+    items: pickerItemsOrManual('no'),
+    // Клиент найден поиском сверху или автоподстановкой по телефону — привязываем
+    // заказ к его аккаунту (customer_id), а не только по совпадению телефона.
+    customerId: noFoundCustomerId
   });
   if (res.error) { showToast('❌ ' + res.error); return; }
   document.getElementById('newOrderOverlay').classList.remove('open');
@@ -2877,9 +3455,58 @@ async function loadReviews() {
       <td>${(BTNS[r.status] || (() => ''))(r)} <button class="action-btn" onclick="openReviewEdit(${r.id})">${r.reply ? '✏️ Ответ' : '💬 Ответить'}</button> <button class="action-btn del" onclick="deleteReview(${r.id})">🗑</button></td>
     </tr>`).join('') || '<tr><td colspan="5" style="padding:20px;color:var(--muted)">Отзывов нет</td></tr>';
 }
+// ===== ПУБЛИКАЦИЯ ОТЗЫВА + БОНУС =====
+// Бонус за отзыв (см. PUT /api/admin/reviews/:id на сервере): только при публикации,
+// только если отзыв оставил вошедший клиент (есть customer_id) и ему ещё не начисляли
+// бонус за ИМЕННО этот отзыв (bonus_awarded_at) — спрашиваем сумму и лимит в отдельном
+// окне (reviewBonusOverlay), а не начисляем молча.
+let rbReviewId = null;
 async function setReviewStatus(id, status) {
-  await apiFetch(`/api/admin/reviews/${id}`, 'PUT', { status });
-  showToast(status === 'approved' ? '✅ Отзыв опубликован' : 'Отзыв отклонён', 'green');
+  if (status !== 'approved') {
+    await apiFetch(`/api/admin/reviews/${id}`, 'PUT', { status });
+    showToast('Отзыв отклонён', 'green');
+    loadReviews();
+    return;
+  }
+  const r = reviewsRows.find(x => x.id === id);
+  if (!r || !r.customer_id || r.bonus_awarded_at) {
+    // Гостевой отзыв (без аккаунта) или бонус за него уже когда-то начисляли — публикуем
+    // как обычно, без диалога про бонус.
+    await apiFetch(`/api/admin/reviews/${id}`, 'PUT', { status: 'approved' });
+    showToast('✅ Отзыв опубликован', 'green');
+    loadReviews();
+    return;
+  }
+  rbReviewId = id;
+  let defaultAmount = 500;
+  try { defaultAmount = Number((await apiFetch('/api/admin/settings')).review_bonus_amount) || 500; } catch (e) {}
+  const count = r.reviewBonusThisMonth || 0;
+  const limitReached = count >= 3;
+  document.getElementById('rbInfo').textContent = limitReached
+    ? `У клиента уже ${count} из 3 отзывов с бонусом в этом месяце — лимит исчерпан, бонус начислить нельзя.`
+    : `У клиента ${count} из 3 отзывов с бонусом в этом месяце.`;
+  const amountInput = document.getElementById('rbAmount');
+  amountInput.value = defaultAmount;
+  // Сумму может менять только superadmin — обычный админ видит её нередактируемой.
+  amountInput.readOnly = myRole !== 'superadmin';
+  amountInput.style.background = myRole !== 'superadmin' ? 'var(--bg)' : '';
+  document.getElementById('rbAmountRow').style.display = limitReached ? 'none' : '';
+  document.getElementById('rbAwardBtn').style.display = limitReached ? 'none' : '';
+  document.getElementById('reviewBonusOverlay').classList.add('open');
+}
+async function confirmReviewApprove(awardBonus) {
+  const id = rbReviewId;
+  const body = { status: 'approved' };
+  if (awardBonus) {
+    body.awardBonus = true;
+    body.bonusAmount = Number(document.getElementById('rbAmount').value) || 0;
+  }
+  const res = await apiFetch(`/api/admin/reviews/${id}`, 'PUT', body);
+  document.getElementById('reviewBonusOverlay').classList.remove('open');
+  if (res.error) { showToast('❌ ' + res.error); return; }
+  if (res.bonus && res.bonus.awarded) showToast(`✅ Отзыв опубликован, начислено ${res.bonus.amount} ₸`, 'green');
+  else if (res.bonus && res.bonus.reason) showToast('✅ Отзыв опубликован. ' + res.bonus.reason, 'green');
+  else showToast('✅ Отзыв опубликован', 'green');
   loadReviews();
 }
 async function deleteReview(id) {
@@ -2962,6 +3589,62 @@ async function saveReviewEdit() {
   loadReviews();
 }
 
+// ===== КОММЕНТАРИИ К СТАТЬЯМ =====
+let commentsRows = [];
+let comEditId = null;
+async function loadArticleComments() {
+  const status = document.getElementById('comStatus').value;
+  const data = await apiFetch('/api/admin/article-comments' + (status ? `?status=${status}` : ''));
+  commentsRows = data.rows || [];
+  const BTNS = {
+    pending: c => `<button class="action-btn" style="color:#16a34a" onclick="setCommentStatus(${c.id},'approved')">✅ Опубликовать</button>
+                   <button class="action-btn" style="color:#dc2626" onclick="setCommentStatus(${c.id},'rejected')">✕ Отклонить</button>`,
+    approved: c => `<button class="action-btn" style="color:#dc2626" onclick="setCommentStatus(${c.id},'rejected')">✕ Снять с публикации</button>`,
+    rejected: c => `<button class="action-btn" style="color:#16a34a" onclick="setCommentStatus(${c.id},'approved')">✅ Опубликовать</button>`,
+  };
+  document.getElementById('commentsTbody').innerHTML = commentsRows.map(c => `
+    <tr>
+      <td>${fmtDate(c.created_at && c.created_at.replace(' ', 'T') + 'Z')}</td>
+      <td>${c.article_title ? `<a href="/articles/${c.article_slug}" target="_blank">${esc(c.article_title)}</a>` : '—'}</td>
+      <td><strong>${esc(c.name)}</strong>${c.text ? `<div style="color:var(--muted);font-size:13px;margin-top:3px;white-space:normal">${esc(c.text)}</div>` : ''}${c.reply ? `<div style="color:var(--green);font-size:13px;margin-top:3px;white-space:normal">↳ ${esc(c.reply)}</div>` : ''}</td>
+      <td>${(BTNS[c.status] || (() => ''))(c)} <button class="action-btn" onclick="openCommentEdit(${c.id})">${c.reply ? '✏️ Ответ' : '💬 Ответить'}</button> <button class="action-btn del" onclick="deleteComment(${c.id})">🗑</button></td>
+    </tr>`).join('') || '<tr><td colspan="4" style="padding:20px;color:var(--muted)">Комментариев нет</td></tr>';
+}
+async function setCommentStatus(id, status) {
+  await apiFetch(`/api/admin/article-comments/${id}`, 'PUT', { status });
+  showToast(status === 'approved' ? '✅ Комментарий опубликован' : 'Комментарий отклонён', 'green');
+  loadArticleComments();
+}
+async function deleteComment(id) {
+  if (!confirm('Удалить комментарий?')) return;
+  await apiFetch(`/api/admin/article-comments/${id}`, 'DELETE');
+  showToast('🗑 Комментарий удалён');
+  loadArticleComments();
+}
+function openCommentEdit(id) {
+  const c = commentsRows.find(x => x.id === id);
+  if (!c) return;
+  comEditId = id;
+  document.getElementById('cmName').value = c.name || '';
+  document.getElementById('cmText').value = c.text || '';
+  document.getElementById('cmReply').value = c.reply || '';
+  document.getElementById('comEditOverlay').classList.add('open');
+}
+async function saveCommentEdit() {
+  const name = document.getElementById('cmName').value.trim();
+  if (!name) { showToast('Укажите имя'); return; }
+  const data = {
+    name,
+    text: document.getElementById('cmText').value.trim(),
+    reply: document.getElementById('cmReply').value.trim(),
+  };
+  const res = await apiFetch(`/api/admin/article-comments/${comEditId}`, 'PUT', data);
+  if (res.error) { showToast('❌ ' + res.error); return; }
+  showToast('✅ Сохранено', 'green');
+  document.getElementById('comEditOverlay').classList.remove('open');
+  loadArticleComments();
+}
+
 // ===== UPLOAD =====
 function previewZip() {
   const f = document.getElementById('zipFile').files[0];
@@ -3039,6 +3722,7 @@ function renderOrdersTable(orders, emptyText) {
       <th style="${th};text-align:right">Сумма</th>
       <th style="${th};text-align:right">Бонусы</th>
       <th style="${th};text-align:right">Дата</th>
+      <th style="${th}">Примечание</th>
     </tr></thead>
     <tbody>${orders.map(o => `
       <tr>
@@ -3048,6 +3732,7 @@ function renderOrdersTable(orders, emptyText) {
         <td style="${td};text-align:right;white-space:nowrap">${fmtPrice(o.total)}</td>
         <td style="${td};text-align:right;white-space:nowrap;color:var(--accent)">${o.bonus_earned ? '+' + fmtPrice(o.bonus_earned) : '—'}</td>
         <td style="${td};text-align:right;white-space:nowrap;color:var(--muted)">${fmtDate(o.created_at)}</td>
+        <td style="${td}">${lastNoteText(o.lastNote, o.id, o.nextReminder)}</td>
       </tr>`).join('')}
     </tbody>
   </table>`;
@@ -3065,8 +3750,215 @@ function fmtDate(d) {
   return new Date(d).toLocaleString('ru',{day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'});
 }
 function fmtPrice(n) { return n ? Number(n).toLocaleString('ru-KZ',{maximumFractionDigits:0}) + ' ₸' : '—'; }
+// Короткая заметка под суммой заказа (таблицы "Заявки" и дашборд) — списание бонуса и
+// начисление за заказ. Пока не списано — "хочет списать"; после — просто "Списано"
+// (писать "хочет списать ... (списано)" после выполнения заказа бессмысленно).
+function orderBonusNoteHtml(o) {
+  const lines = [];
+  if (o.bonus_requested > 0) {
+    lines.push(o.bonus_redeemed_at ? `Списано ${o.bonus_requested} ₸` : `🎁 клиент хочет списать ${o.bonus_requested} ₸`);
+  }
+  if (o.bonus_earned > 0) lines.push(`Начислено ${o.bonus_earned} ₸`);
+  if (!lines.length) return '';
+  return `<div style="color:var(--accent);font-size:11px;margin-top:3px;font-weight:700">${lines.join(' · ')}</div>`;
+}
 function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function plainText(s) { const d = document.createElement('div'); d.innerHTML = String(s||''); return (d.textContent || '').replace(/\s+/g,' ').trim(); }
+
+// ==================== ЧАТ С КЛИЕНТАМИ ====================
+// Опрашиваем /api/admin/chats каждые 8 секунд НЕЗАВИСИМО от того, какая вкладка
+// открыта в админке (см. setInterval в initApp) — только так можно показать
+// десктоп-уведомление, если админ в этот момент работает в разделе "Заявки" или
+// вообще в другой вкладке браузера (см. chatNotify). chatPrevUnread запоминает,
+// сколько непрочитанных было у каждого диалога на прошлом опросе — уведомление
+// шлём только когда число НЕПРОЧИТАННЫХ выросло, а не на каждый опрос.
+let chatThreadsCache = [];
+let chatActiveCustomerId = null;
+let chatPrevUnread = {};
+let chatPendingFile = null;
+let chatBaseTitle = document.title;
+let chatPollTimer = null;
+
+function chatRequestNotifyPermission() {
+  if (!('Notification' in window)) { showToast('Браузер не поддерживает уведомления'); return; }
+  Notification.requestPermission().then(chatUpdateNotifBtn);
+}
+function chatUpdateNotifBtn() {
+  const btn = document.getElementById('chatNotifBtn');
+  if (!btn) return;
+  if (!('Notification' in window)) { btn.style.display = 'none'; return; }
+  const p = Notification.permission;
+  btn.classList.toggle('on', p === 'granted');
+  btn.textContent = p === 'granted' ? '🔔 Уведомления включены' : (p === 'denied' ? '🔔 Заблокированы в браузере' : '🔔 Включить уведомления');
+}
+
+function chatThreadSnippet(t) {
+  const prefix = t.lastSender === 'admin' ? 'Вы: ' : '';
+  const body = t.lastText ? t.lastText.slice(0, 60) : (t.lastAttachment ? '📷 Фото' : '');
+  return esc(prefix + body);
+}
+function renderChatThreads(list) {
+  const box = document.getElementById('chatThreadsList');
+  const totalEl = document.getElementById('chatThreadsTotal');
+  if (totalEl) totalEl.textContent = list.length ? `Диалогов: ${list.length}` : '';
+  if (!box) return;
+  if (!list.length) { box.innerHTML = '<p style="padding:14px;color:var(--text-muted);font-size:13px">Пока нет обращений</p>'; return; }
+  box.innerHTML = list.map(t => `
+    <button type="button" class="chat-thread${t.customer_id === chatActiveCustomerId ? ' active' : ''}" onclick="chatOpenThread(${t.customer_id})">
+      <div class="chat-thread-top"><span>${esc(t.name || 'Клиент')}</span>${t.unread ? `<span class="chat-thread-unread">${t.unread}</span>` : ''}</div>
+      <div class="chat-thread-snippet">${chatThreadSnippet(t)}</div>
+    </button>
+  `).join('');
+}
+function chatUpdateBadges(list) {
+  const totalUnread = list.reduce((s, t) => s + (t.unread || 0), 0);
+  const navBadge = document.getElementById('chatNavBadge');
+  if (navBadge) { navBadge.textContent = totalUnread; navBadge.style.display = totalUnread ? '' : 'none'; }
+  document.title = totalUnread ? `(${totalUnread}) ${chatBaseTitle}` : chatBaseTitle;
+  if (document.getElementById('panel-chat').classList.contains('active')) renderChatThreads(list);
+}
+
+async function chatPollAll() {
+  let list;
+  try { list = (await apiFetch('/api/admin/chats')).chats || []; } catch (e) { return; }
+  // Уведомление шлём всегда при новом сообщении, даже если вкладка "Чат" и сам этот
+  // диалог открыты — по просьбе Миры: так надёжнее, не нужно гадать, видит админ
+  // сообщение на экране прямо сейчас или нет.
+  list.forEach(t => {
+    const prev = chatPrevUnread[t.customer_id] || 0;
+    if ((t.unread || 0) > prev) chatNotify(t);
+    chatPrevUnread[t.customer_id] = t.unread || 0;
+  });
+  chatThreadsCache = list;
+  chatUpdateBadges(list);
+  // Открытый диалог получил новое сообщение, пока реально виден на экране (раздел
+  // выбран И само окно/вкладка не свёрнуты/не в фоне) — подгружаем тихо, чтобы новое
+  // сообщение сразу появилось в переписке. Это отдельная вещь от уведомления выше:
+  // тут только решаем, подгружать ли тихо открытую переписку (она же заодно помечает
+  // сообщения клиента прочитанными на сервере, см. GET /api/admin/chats/:id) —
+  // поэтому, в отличие от уведомления, здесь по-прежнему проверяем chatPanelOpen.
+  const chatPanelOpen = document.getElementById('panel-chat').classList.contains('active') && !document.hidden;
+  if (chatPanelOpen && chatActiveCustomerId != null) {
+    const t = list.find(x => x.customer_id === chatActiveCustomerId);
+    if (t && t.unread > 0) chatOpenThread(chatActiveCustomerId, true);
+  }
+}
+
+function chatNotify(t) {
+  chatPlayBeep();
+  if (!('Notification' in window) || Notification.permission !== 'granted') return;
+  try {
+    const n = new Notification('💬 ' + (t.name || 'Клиент') + ' — SIGMA MARKET', { body: t.lastText || '', tag: 'chat-' + t.customer_id });
+    n.onclick = () => { window.focus(); showPanel('chat'); chatOpenThread(t.customer_id); n.close(); };
+  } catch (e) {}
+}
+// Короткий сигнал без аудиофайла — просто тон через Web Audio API.
+function chatPlayBeep() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator(), gain = ctx.createGain();
+    osc.frequency.value = 880; osc.connect(gain); gain.connect(ctx.destination);
+    gain.gain.setValueAtTime(0.08, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
+    osc.start(); osc.stop(ctx.currentTime + 0.35);
+  } catch (e) {}
+}
+
+function chatRenderMessages(list, forceBottom) {
+  const box = document.getElementById('chatConvoMessages');
+  if (!box) return;
+  // forceBottom — явно открыли диалог (не тихое фоновое обновление уже открытого):
+  // тогда прыгаем вниз безусловно, а не по эвристике "и так был внизу", которая иначе
+  // опирается на положение прокрутки ПРЕДЫДУЩЕГО открытого диалога (или на пустой box
+  // при самом первом открытии) и может ошибочно оставить чат не долистанным до конца.
+  const wasNearBottom = forceBottom || (box.scrollHeight - box.scrollTop - box.clientHeight < 60);
+  box.innerHTML = (list || []).map(m => {
+    // Собираем содержимое .chat-bubble в одну строку без переносов: у неё
+    // white-space:pre-wrap (чтобы сохранять настоящие переводы строк в тексте
+    // сообщения), и любой "технический" перенос строки из самого шаблона
+    // иначе тоже стал бы видимой пустой строкой и растягивал пузырь.
+    const img = m.attachment ? chatAttachmentHtml(m.attachment) : '';
+    const txt = m.text ? `<div${m.attachment ? ' style="margin-top:6px"' : ''}>${esc(m.text)}</div>` : '';
+    return `
+    <div class="chat-msg ${m.sender === 'admin' ? 'mine' : 'theirs'}">
+      ${m.sender === 'admin' && m.admin ? `<div class="chat-admin-name">${esc(m.admin)}</div>` : ''}
+      <div class="chat-bubble">${img}${txt}</div>
+      <div class="chat-time">${fmtDate(m.created_at)}</div>
+    </div>
+  `;
+  }).join('');
+  if (wasNearBottom) box.scrollTop = box.scrollHeight;
+}
+
+async function chatOpenThread(customerId, silent) {
+  chatActiveCustomerId = customerId;
+  if (!silent) {
+    document.getElementById('chatConvoEmpty').style.display = 'none';
+    document.getElementById('chatConvoBody').style.display = 'flex';
+    renderChatThreads(chatThreadsCache);
+  }
+  let data;
+  try { data = await apiFetch('/api/admin/chats/' + customerId); } catch (e) { return; }
+  if (data.error) { showToast('❌ ' + data.error); return; }
+  document.getElementById('chatConvoName').textContent = data.customer.name || 'Клиент';
+  document.getElementById('chatConvoPhone').textContent = data.customer.phone ? '+' + data.customer.phone : '';
+  chatRenderMessages(data.messages, !silent);
+  chatPrevUnread[customerId] = 0;
+  const cached = chatThreadsCache.find(t => t.customer_id === customerId);
+  if (cached) cached.unread = 0;
+  chatUpdateBadges(chatThreadsCache);
+}
+
+// И для присланного вложения (chatAttachmentHtml), и для ещё не отправленного файла
+// в превью (chatShowAttachPreview) картинки показываем картинкой, а остальное (PDF,
+// Word) — иконкой документа со скачиваемым именем файла.
+function isImageName(name) { return /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(name || ''); }
+
+function chatAttachmentHtml(path) {
+  if (isImageName(path)) return `<a href="${esc(path)}" target="_blank" rel="noopener"><img src="${esc(path)}" class="chat-bubble-img"></a>`;
+  const name = path.split('/').pop();
+  return `<a href="${esc(path)}" target="_blank" rel="noopener" class="chat-bubble-file">📄 ${esc(name)}</a>`;
+}
+
+function chatShowAttachPreview() {
+  const file = document.getElementById('chatConvoFile').files[0];
+  const box = document.getElementById('chatAttachPreview');
+  if (!file) { chatPendingFile = null; box.style.display = 'none'; box.innerHTML = ''; return; }
+  chatPendingFile = file;
+  const thumb = isImageName(file.name) ? `<img src="${URL.createObjectURL(file)}">` : '<span class="chat-attach-preview-icon">📄</span>';
+  box.style.display = 'flex';
+  box.innerHTML = `${thumb}<span>${esc(file.name)}</span><button type="button" onclick="chatClearAttachPreview()" title="Убрать">✕</button>`;
+}
+
+function chatClearAttachPreview() {
+  chatPendingFile = null;
+  document.getElementById('chatConvoFile').value = '';
+  const box = document.getElementById('chatAttachPreview');
+  box.style.display = 'none';
+  box.innerHTML = '';
+}
+
+async function chatSend() {
+  const input = document.getElementById('chatConvoInput');
+  const text = input.value.trim();
+  if ((!text && !chatPendingFile) || chatActiveCustomerId == null) return;
+  let attachment = null;
+  if (chatPendingFile) {
+    const fd = new FormData(); fd.append('photo', chatPendingFile);
+    try {
+      const r = await fetch('/api/admin/chat-upload', { method: 'POST', headers: { 'x-admin-token': token }, body: fd });
+      const d = await r.json();
+      if (d.path) attachment = d.path;
+      else { showToast('❌ ' + (d.error || 'Не удалось загрузить фото')); return; }
+    } catch (e) { showToast('❌ Ошибка загрузки фото'); return; }
+  }
+  input.value = '';
+  chatClearAttachPreview();
+  const res = await apiFetch('/api/admin/chats/' + chatActiveCustomerId, 'POST', { text, attachment });
+  if (res.error) { showToast('❌ ' + res.error); return; }
+  await chatOpenThread(chatActiveCustomerId, true);
+  chatPollAll();
+}
 
 async function apiFetch(url, method='GET', body=null) {
   const opts = { method, headers: { 'Content-Type': 'application/json', 'x-admin-token': token } };
