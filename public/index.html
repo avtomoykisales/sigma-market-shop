@@ -1136,17 +1136,9 @@ function renderSubcatBar() {
   }
   const rowItems = level ? kidsOf(level) : all.filter(s => !s.parent_slug);
   const par = level ? bySlug[level] : null;
-  // внутри группы убираем из названий подгрупп повторяющийся префикс родителя
-  const label = s => {
-    if (par) {
-      const pn = par.name.replace(/\s*\([^)]*\)\s*$/, '').trim();
-      const re = new RegExp('^' + pn.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s*', 'i');
-      const cut = s.name.replace(re, '').trim();
-      if (cut && cut.length < s.name.length) return cut.charAt(0).toUpperCase() + cut.slice(1);
-    }
-    return s.name;
-  };
-  const chip = s => `<button class="subcat-chip${sel === s.slug ? ' active' : ''}" onclick="pickSubcat('${esc(s.slug)}')">${label(s)} <span>${s.cnt}</span></button>`;
+  // Название подкатегории в табе — всегда полностью, как в админке (раньше тут
+  // вырезался повторяющийся префикс родителя, но Мира попросила не сокращать).
+  const chip = s => `<button class="subcat-chip${sel === s.slug ? ' active' : ''}" onclick="pickSubcat('${esc(s.slug)}')">${esc(s.name)} <span>${s.cnt}</span></button>`;
 
   let html = '';
   if (level) {

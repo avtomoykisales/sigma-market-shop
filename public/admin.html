@@ -65,7 +65,9 @@
         <div class="card-header"><h3>Последние заявки — новые и в работе</h3>
           <button class="btn-new" onclick="openNewOrder()">➕ Создать заказ</button>
         </div>
-        <div style="font-size:12px;color:var(--muted);margin:2px 0 8px"></div>
+        <div style="margin:2px 0 8px">
+          <input class="search-input" id="dashSearch" placeholder="Поиск по имени, телефону, компании, городу, товарам…" oninput="searchDashboard()">
+        </div>
         <div class="table-wrap"><table>
           <thead><tr>
             <th class="sortable" data-sort="id" onclick="sortDashboardBy('id', event.shiftKey)">№</th>
@@ -920,6 +922,7 @@
 
     <div class="form-actions" style="justify-content:flex-start;margin-top:6px">
       <button class="btn-save" onclick="saveOrderDetail()">💾 Сохранить</button>
+      <button class="btn-cancel" id="odDeleteBtn" style="color:#d33;border-color:#d33" onclick="confirmDeleteOrder(notesOrderId)">🗑️ Удалить заявку</button>
     </div>
 
     <h3 style="margin-top:22px">История покупок клиента</h3>
@@ -1022,6 +1025,19 @@
     <div class="form-actions">
       <button class="btn-cancel" onclick="closeCancelOrder()">Не отменять</button>
       <button class="btn-save" onclick="confirmCancelOrder()">❌ Отменить заказ</button>
+    </div>
+  </div>
+</div>
+
+<!-- УДАЛЕНИЕ ЗАЯВКИ -->
+<div class="overlay" id="deleteOrderOverlay">
+  <div class="form-modal" style="width:min(420px,95vw)">
+    <h3>Удалить заявку?</h3>
+    <p style="color:var(--muted);font-size:13px;margin-bottom:10px">Хотите удалить заявку «<b id="delOrderLabel"></b>»? Это действие нельзя отменить.</p>
+    <div class="fg"><label>Чтобы подтвердить, напишите слово «удалить»</label><input id="delOrderConfirmText" oninput="updateDeleteOrderBtn()" autocomplete="off"></div>
+    <div class="form-actions">
+      <button class="btn-cancel" onclick="closeDeleteOrder()">Отмена</button>
+      <button class="btn-save" id="delOrderBtn" disabled style="background:#d33;border-color:#d33" onclick="doDeleteOrder()">🗑️ Удалить</button>
     </div>
   </div>
 </div>
@@ -2554,14 +2570,23 @@ function updateDashboardSortHeaders() {
     th.innerHTML = `${label} <span class="sort-icon active">${arrow}${num}</span>`;
   });
 }
+let dashSearchTimer;
+function searchDashboard() {
+  clearTimeout(dashSearchTimer);
+  dashSearchTimer = setTimeout(loadDashboard, 350);
+}
 async function loadDashboard() {
   const sortParam = encodeURIComponent(dashboardSort.map(s => `${s.col}:${s.dir}`).join(','));
+  // Поиск фильтрует только саму таблицу «Последние заявки» — плашки сверху (Всего
+  // товаров, Заявок всего и т.д.) всегда показывают общие цифры, без учёта поиска.
+  const search = document.getElementById('dashSearch').value.trim();
+  const searchParam = search ? '&search=' + encodeURIComponent(search) : '';
   const [prods, orders, newOrders, processingOrders, activeOrders, cats] = await Promise.all([
     apiFetch('/api/admin/products?limit=1'),
     apiFetch('/api/admin/orders?limit=1'),
     apiFetch('/api/admin/orders?limit=1&status=new'),
     apiFetch('/api/admin/orders?limit=1&status=processing'),
-    apiFetch('/api/admin/orders?limit=100&status=new,processing&sort=' + sortParam),
+    apiFetch('/api/admin/orders?limit=100&status=new,processing&sort=' + sortParam + searchParam),
     apiFetch('/api/categories')
   ]);
   document.getElementById('stat-products').textContent = prods.total;
@@ -2886,13 +2911,51 @@ async function loadOrders() {
     </td>
     <td>${fmtDate(o.created_at)}</td>
     <td class="order-note-cell">${lastNoteText(o.lastNote, o.id, o.nextReminder)}</td>
-    <td><button class="action-btn" onclick="openOrderNotes(${o.id})" title="Редактировать">✏️</button></td>
+    <td>
+      <button class="action-btn" onclick="openOrderNotes(${o.id})" title="Редактировать">✏️</button>
+      ${(myRole === 'superadmin' && (o.status === 'new' || o.status === 'cancelled')) ? `<button class="action-btn" onclick="confirmDeleteOrder(${o.id})" title="Удалить">🗑️</button>` : ''}
+    </td>
   </tr>`).join('');
   const pager = document.getElementById('ordersPager');
   const pages = Math.ceil(data.total / 30);
   pager.innerHTML = pages > 1 ? Array.from({length:pages}, (_,i) =>
     `<button class="page-btn${i+1===ordPage?' active':''}" onclick="ordPage=${i+1};loadOrders()">${i+1}</button>`
   ).join('') : '';
+}
+
+// Удаление заявки — отдельное подтверждение словом "удалить", не просто confirm():
+// случайный клик тут необратим, а заявка может быть единственным контактом с клиентом.
+let deleteOrderId = null;
+async function confirmDeleteOrder(id) {
+  const data = await apiFetch(`/api/admin/orders/${id}`);
+  if (data.error) { showToast('❌ ' + data.error); return; }
+  deleteOrderId = id;
+  document.getElementById('delOrderLabel').textContent = `${data.order.name}, ${fmtPhone(data.order.phone)}`;
+  document.getElementById('delOrderConfirmText').value = '';
+  updateDeleteOrderBtn();
+  document.getElementById('deleteOrderOverlay').classList.add('open');
+}
+function closeDeleteOrder() {
+  document.getElementById('deleteOrderOverlay').classList.remove('open');
+  deleteOrderId = null;
+}
+function updateDeleteOrderBtn() {
+  const ok = document.getElementById('delOrderConfirmText').value.trim().toLowerCase() === 'удалить';
+  const btn = document.getElementById('delOrderBtn');
+  btn.disabled = !ok;
+  // У .btn-save нет своего стиля для :disabled — без этого кнопка выглядит
+  // одинаково активной и когда слово ещё не введено правильно.
+  btn.style.opacity = ok ? '1' : '.45';
+  btn.style.cursor = ok ? 'pointer' : 'not-allowed';
+}
+async function doDeleteOrder() {
+  if (!deleteOrderId) return;
+  const res = await apiFetch(`/api/admin/orders/${deleteOrderId}`, 'DELETE');
+  if (res.error) { showToast('❌ ' + res.error); return; }
+  showToast('🗑️ Заявка удалена');
+  closeDeleteOrder();
+  document.getElementById('orderNotesOverlay').classList.remove('open');
+  loadOrders();
 }
 
 // Телефон только для отображения, как везде на сайте — "+7 (777) 777-77-09". Поиск и
@@ -3036,6 +3099,10 @@ async function confirmDeductBonus() {
 async function updateOrderStatus(id, status) {
   await apiFetch(`/api/admin/orders/${id}/status`, 'PUT', { status });
   showToast('Статус обновлён', 'green');
+  // Перерисовываем таблицу — кнопка удаления видна только у новой/отменённой заявки
+  // (см. тот же запрет на сервере), без этого она осталась бы висеть после смены статуса.
+  loadOrders();
+  loadDashboard();
 }
 function handleStatusChange(id, selectEl) {
   if (selectEl.value === 'done') { openCompleteOrder(id, selectEl); return; }
@@ -3287,6 +3354,9 @@ async function openOrderNotes(id, focusNote) {
   splitItemsIntoPicker('od', o.items);
   renderPickerItems('od');
   document.getElementById('odTotal').value = o.total || 0;
+  // Удалить можно только новую или отменённую заявку — см. тот же запрет на сервере
+  // (DELETE /api/admin/orders/:id).
+  document.getElementById('odDeleteBtn').style.display = (myRole === 'superadmin' && (o.status === 'new' || o.status === 'cancelled')) ? '' : 'none';
   const bonusRow = document.getElementById('odBonusRequestRow');
   if (o.bonus_requested > 0) {
     bonusRow.style.display = '';

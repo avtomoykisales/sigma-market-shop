@@ -1432,7 +1432,7 @@ function adminActionLabel(req) {
     [/\/orders\/\d+\/status$/, { PUT: ['update', `Статус заявки #${id}: ${(req.body && req.body.status) || ''}`] }],
     [/\/orders\/\d+\/complete$/, { PUT: ['update', 'Заказ выполнен'] }],
     [/\/orders\/\d+\/notes$/,  { POST: ['create', 'Добавлено примечание к заявке'] }],
-    [/\/orders\/\d+$/,         { PUT: ['update', 'Изменена заявка'] }],
+    [/\/orders\/\d+$/,         { PUT: ['update', 'Изменена заявка'], DELETE: ['delete', 'Удалена заявка'] }],
     [/\/customers\/\d+$/,      { PUT: ['update', 'Изменён клиент'] }],
     [/\/customers\/\d+\/deduct-bonus$/, { PUT: ['update', 'Списан бонус клиенту'] }],
     [/\/reviews\/\d+$/,        { PUT: ['update', (req.body && req.body.status) ? `Отзыв #${id}: ${req.body.status}` : `Изменён отзыв #${id}`], DELETE: ['delete', `Удалён отзыв #${id}`] }],
@@ -1506,6 +1506,7 @@ function diffDetail(req) {
   const before = req._before, body = req.body || {};
   if (req.method === 'DELETE') {
     if (before && before.name) {
+      if (diffEntity(u) === 'orders') return 'Было: «' + before.name + '», ' + (before.phone || '');
       return 'Было: «' + before.name + '»' +
         (before.article ? ` (арт. ${before.article})` : '') +
         (before.slug ? ` [${before.slug}]` : '');
@@ -1907,16 +1908,26 @@ app.get('/api/admin/logs', adminAuth, async (req, res) => {
     if (req.query.admin) { where.push('admin = ?'); params.push(req.query.admin); }
     if (req.query.action === 'login') { where.push("action IN ('login','login_fail')"); }
     else if (req.query.action) { where.push('action = ?'); params.push(req.query.action); }
-    if (req.query.q) {
-      where.push('(label LIKE ? OR detail LIKE ? OR ip LIKE ?)');
-      const like = `%${req.query.q}%`; params.push(like, like, like);
-    }
+    // Текстовый поиск — в JS, не LIKE в SQL: см. подробный комментарий в /api/admin/orders —
+    // обычный LIKE не приводит кириллицу к одному регистру, а своей функции для этого
+    // через db.function() эта версия пакета sqlite3 не даёт зарегистрировать.
+    const q = String(req.query.q || '').trim();
+    const qLower = q.toLowerCase();
+    const matchesSearch = (r) => !q || [r.label, r.detail, r.ip].some((v) => String(v || '').toLowerCase().includes(qLower));
     const w = where.length ? 'WHERE ' + where.join(' AND ') : '';
-    const total = (await db.getAsync(`SELECT COUNT(*) AS c FROM admin_log ${w}`, params)).c;
-    const rows = await db.allAsync(
-      `SELECT * FROM admin_log ${w} ORDER BY id DESC LIMIT ? OFFSET ?`,
-      [...params, limit, (page - 1) * limit]
-    );
+    let total, rows;
+    if (q) {
+      const all = await db.allAsync(`SELECT * FROM admin_log ${w} ORDER BY id DESC`, params);
+      const filtered = all.filter(matchesSearch);
+      total = filtered.length;
+      rows = filtered.slice((page - 1) * limit, (page - 1) * limit + limit);
+    } else {
+      total = (await db.getAsync(`SELECT COUNT(*) AS c FROM admin_log ${w}`, params)).c;
+      rows = await db.allAsync(
+        `SELECT * FROM admin_log ${w} ORDER BY id DESC LIMIT ? OFFSET ?`,
+        [...params, limit, (page - 1) * limit]
+      );
+    }
     const admins = (await db.allAsync('SELECT DISTINCT admin FROM admin_log ORDER BY admin')).map(r => r.admin);
     res.json({ total, page, limit, rows, admins });
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -2075,15 +2086,16 @@ app.get('/api/admin/products', adminAuth, async (req, res) => {
     let where = [];
     let params = [];
     let subcategoryIds = [];
-    if (search) {
-      if (/^\d+$/.test(String(search).trim())) {
-        where.push('(p.id = ? OR p.name LIKE ? OR p.article LIKE ?)');
-        params.push(Number(search), `%${search}%`, `%${search}%`);
-      } else {
-        where.push('(p.name LIKE ? OR p.article LIKE ? OR p.brand LIKE ?)');
-        params.push(`%${search}%`, `%${search}%`, `%${search}%`);
-      }
-    }
+    // Текстовый поиск — в JS, не LIKE в SQL: см. подробный комментарий в /api/admin/orders —
+    // обычный LIKE не приводит кириллицу к одному регистру, а своей функции для этого
+    // через db.function() эта версия пакета sqlite3 не даёт зарегистрировать.
+    const q = String(search || '').trim();
+    const qLower = q.toLowerCase();
+    const matchesSearch = (p) => {
+      if (!q) return true;
+      if (/^\d+$/.test(q) && Number(q) === p.id) return true;
+      return [p.name, p.article, p.brand].some((v) => String(v || '').toLowerCase().includes(qLower));
+    };
     // Товар виден в категории/подкатегории либо как в своей "родной" (category_id/
     // subcategory_id), либо как дополнительно привязанный (product_extra_categories) —
     // в админском списке/сортировке он должен появляться в обоих случаях, иначе Мира не
@@ -2115,8 +2127,10 @@ app.get('/api/admin/products', adminAuth, async (req, res) => {
     // Важно: sort_order у товара один на все категории, где он показан (своя и
     // дополнительные) — если потащить мышью товар, добавленный сюда как дополнительный,
     // это может сдвинуть его позицию и в его родной категории тоже.
-    const noPaging = !!subcategory;
-    const countRow = await db.getAsync(`SELECT COUNT(*) as cnt FROM products p ${whereStr}`, params);
+    // Текстовый поиск фильтруется уже после выборки (в JS) — значит, тут нужен весь
+    // список (без LIMIT/OFFSET в SQL), чтобы отфильтровать и посчитать total верно,
+    // а страницу вырезать уже из отфильтрованного списка.
+    const noPaging = !!subcategory || !!q;
     // Помечаем строки, которые попали в список не по своей "родной" категории/подкатегории,
     // а по дополнительной привязке — чтобы в таблице можно было показать отметку об этом.
     const selectExtra = [];
@@ -2137,7 +2151,19 @@ app.get('/api/admin/products', adminAuth, async (req, res) => {
        ${noPaging ? '' : 'LIMIT ? OFFSET ?'}`,
       noPaging ? [...selectParams, ...params] : [...selectParams, ...params, Number(limit), Number(offset)]
     );
-    res.json({ total: countRow.cnt, products: rows });
+    let total, finalRows;
+    if (q) {
+      const filtered = rows.filter(matchesSearch);
+      total = filtered.length;
+      // В подкатегории (drag-and-drop) всегда отдаём весь отфильтрованный список без
+      // постраничной разбивки — так же, как и без поиска в этом режиме.
+      finalRows = subcategory ? filtered : filtered.slice(offset, offset + Number(limit));
+    } else {
+      const countRow = subcategory ? { cnt: rows.length } : await db.getAsync(`SELECT COUNT(*) as cnt FROM products p ${whereStr}`, params);
+      total = countRow.cnt;
+      finalRows = rows;
+    }
+    res.json({ total, products: finalRows });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -2638,17 +2664,20 @@ app.get('/api/admin/orders', adminAuth, async (req, res) => {
     const clauses = [], params = [];
     if (statuses.length) { clauses.push(`status IN (${statuses.map(() => '?').join(',')})`); params.push(...statuses); }
     const q = String(search || '').trim();
-    if (q) {
-      // Телефон могут искать и как "77027900709", и отформатированным — "+7 (702)
-      // 790-07-09" — обычный LIKE по сырому номеру такое не найдёт (нет пробелов/скобок
-      // в базе), поэтому отдельно сравниваем нормализованный номер с цифрами из запроса.
-      const qDigits = q.replace(/\D/g, '').slice(-10); // та же нормализация, что у phoneNormSql — иначе "+7..." (11 цифр с кодом страны) не совпадёт с усечёнными до 10 цифр номерами в базе
-      const parts = ['name LIKE ?', 'phone LIKE ?', 'company LIKE ?', 'email LIKE ?', 'city LIKE ?', 'message LIKE ?', 'items LIKE ?'];
-      params.push(`%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`);
-      if (qDigits.length >= 3) { parts.push(`${phoneNormSql('phone')} LIKE ?`); params.push(`%${qDigits}%`); }
-      if (/^\d+$/.test(q)) { parts.push('id = ?'); params.push(Number(q)); }
-      clauses.push('(' + parts.join(' OR ') + ')');
-    }
+    // Текстовый поиск — в JS (а не LIKE в SQL): обычный SQLite LIKE приводит к одному
+    // регистру только латиницу, кириллицу — нет ("Алматы" не найдётся по "алматы"), а
+    // пакет sqlite3 в проекте не даёт зарегистрировать свою функцию для LIKE/LOWER (нет
+    // db.function в этой версии). JS-овский toLowerCase() с кириллицей справляется верно.
+    const qLower = q.toLowerCase();
+    const qDigits = q.replace(/\D/g, '').slice(-10); // та же нормализация, что у phoneNormSql — иначе "+7..." (11 цифр с кодом страны) не совпадёт с усечёнными до 10 цифр номерами в базе
+    const matchesSearch = (o) => {
+      if (!q) return true;
+      const fields = [o.name, o.phone, o.company, o.email, o.city, o.message, o.items];
+      if (fields.some((v) => String(v || '').toLowerCase().includes(qLower))) return true;
+      if (qDigits.length >= 3 && String(o.phone || '').replace(/\D/g, '').slice(-10).includes(qDigits)) return true;
+      if (/^\d+$/.test(q) && Number(q) === o.id) return true;
+      return false;
+    };
     // Фильтр «дата закрытия» — по completed_at (когда статус реально стал "Выполнена"),
     // не по дате поступления заявки. У незакрытых заявок completed_at пустой, поэтому
     // они сами отсеются, если задан хотя бы один из dateFrom/dateTo.
@@ -2669,16 +2698,27 @@ app.get('/api/admin/orders', adminAuth, async (req, res) => {
       return SORT_COLS[col] ? `${SORT_COLS[col]} ${d}` : null;
     }).filter(Boolean);
     const orderBy = sortParts.length ? sortParts.join(', ') : 'o.id DESC';
-    const countRow = await db.getAsync(`SELECT COUNT(*) as cnt FROM orders o ${where}`, params);
-    const rows = await db.allAsync(
-      `SELECT o.*, (SELECT COUNT(*) FROM order_notes n WHERE n.order_id = o.id) AS notesCount,
+    const selectCols = `o.*, (SELECT COUNT(*) FROM order_notes n WHERE n.order_id = o.id) AS notesCount,
        (SELECT text FROM order_notes n WHERE n.order_id = o.id ORDER BY n.id DESC LIMIT 1) AS lastNote,
        (SELECT remind_at FROM order_notes n WHERE n.order_id = o.id ORDER BY n.id DESC LIMIT 1) AS nextReminder,
-       COALESCE((SELECT SUM(delta) FROM bonus_log WHERE order_id = o.id AND reason = 'order_earn'), 0) AS bonus_earned
-       FROM orders o ${where} ORDER BY ${orderBy} LIMIT ? OFFSET ?`,
-      [...params, Number(limit), Number(offset)]
-    );
-    res.json({ total: countRow.cnt, orders: rows });
+       COALESCE((SELECT SUM(delta) FROM bonus_log WHERE order_id = o.id AND reason = 'order_earn'), 0) AS bonus_earned`;
+    let total, rows;
+    if (q) {
+      // С текстовым поиском — фильтр по статусу/дате делаем в SQL как обычно, а сам
+      // текстовый поиск и пагинацию — уже в JS (см. matchesSearch выше).
+      const all = await db.allAsync(`SELECT ${selectCols} FROM orders o ${where} ORDER BY ${orderBy}`, params);
+      const filtered = all.filter(matchesSearch);
+      total = filtered.length;
+      rows = filtered.slice(offset, offset + Number(limit));
+    } else {
+      const countRow = await db.getAsync(`SELECT COUNT(*) as cnt FROM orders o ${where}`, params);
+      total = countRow.cnt;
+      rows = await db.allAsync(
+        `SELECT ${selectCols} FROM orders o ${where} ORDER BY ${orderBy} LIMIT ? OFFSET ?`,
+        [...params, Number(limit), Number(offset)]
+      );
+    }
+    res.json({ total, orders: rows });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -2779,6 +2819,22 @@ app.put('/api/admin/orders/:id', adminAuth, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+app.delete('/api/admin/orders/:id', adminAuth, requireSuperadmin, async (req, res) => {
+  try {
+    const order = await db.getAsync('SELECT * FROM orders WHERE id = ?', [req.params.id]);
+    if (!order) return res.status(404).json({ error: 'Не найдено' });
+    // Удалять можно только то, что ещё не в работе и не закрыто — у заявки "в работе"
+    // или "выполнена" уже могла быть реальная сделка/начисленный бонус, такую лучше
+    // отменять статусом, а не стирать совсем.
+    if (order.status !== 'new' && order.status !== 'cancelled') {
+      return res.status(400).json({ error: 'Удалить можно только новую или отменённую заявку' });
+    }
+    await db.runAsync('DELETE FROM order_notes WHERE order_id = ?', [req.params.id]);
+    await db.runAsync('DELETE FROM orders WHERE id = ?', [req.params.id]);
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // Лиды со скачивания КП (телефон подтверждён кодом, см. /api/kp/verify-code) —
 // чтобы менеджер мог перезвонить, даже если клиент не оставил обычную заявку.
 app.get('/api/admin/kp-leads', adminAuth, async (req, res) => {
@@ -2863,25 +2919,37 @@ app.get('/api/admin/customers', adminAuth, async (req, res) => {
     // клиента (client_no — видимый, его и будет вводить админ) и, на всякий случай, по
     // внутреннему id, если запрос — просто число.
     const qDigits = q.replace(/\D/g, '').slice(-10); // та же нормализация, что у phoneNormSql — иначе "+7..." (11 цифр с кодом страны) не совпадёт с усечёнными до 10 цифр номерами в базе
-    const parts = [], params = [];
-    if (q) {
-      parts.push('name LIKE ?', 'phone LIKE ?', 'email LIKE ?', 'corp_phone LIKE ?', 'extra_phone LIKE ?', 'company LIKE ?', 'city LIKE ?', 'comment LIKE ?');
-      params.push(`%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`);
-      if (/^\d+$/.test(q)) { parts.push('id = ?', 'client_no = ?'); params.push(Number(q), Number(q)); }
+    // Текстовый поиск — в JS, не LIKE в SQL: см. подробный комментарий в /api/admin/orders —
+    // обычный LIKE не приводит кириллицу к одному регистру, а своей функции для этого
+    // через db.function() эта версия пакета sqlite3 не даёт зарегистрировать.
+    const qLower = q.toLowerCase();
+    const matchesSearch = (c) => {
+      if (!q) return true;
+      const fields = [c.name, c.email, c.company, c.city, c.comment];
+      if (fields.some((v) => String(v || '').toLowerCase().includes(qLower))) return true;
+      if (/^\d+$/.test(q) && (Number(q) === c.id || Number(q) === c.client_no)) return true;
       if (qDigits.length >= 3) {
-        parts.push(`${phoneNormSql('phone')} LIKE ?`, `${phoneNormSql('corp_phone')} LIKE ?`, `${phoneNormSql('extra_phone')} LIKE ?`);
-        params.push(`%${qDigits}%`, `%${qDigits}%`, `%${qDigits}%`);
-      }
-    }
-    const where = q ? `WHERE (${parts.join(' OR ')})` : '';
-    const total = (await db.getAsync(`SELECT COUNT(*) AS c FROM customers ${where}`, params)).c;
-    const rows = await db.allAsync(
-      `SELECT c.*, (SELECT COUNT(*) FROM orders o
+        const digits10 = (v) => String(v || '').replace(/\D/g, '').slice(-10);
+        if ([c.phone, c.corp_phone, c.extra_phone].some((v) => digits10(v).includes(qDigits))) return true;
+      } else if ([c.phone, c.corp_phone, c.extra_phone].some((v) => String(v || '').toLowerCase().includes(qLower))) return true;
+      return false;
+    };
+    const ordersCountSql = `(SELECT COUNT(*) FROM orders o
          WHERE o.customer_id = c.id OR ${phoneNormSql('o.phone')} = ${phoneNormSql('c.phone')}
-       ) AS ordersCount
-       FROM customers c ${where} ORDER BY c.id DESC LIMIT ? OFFSET ?`,
-      [...params, limit, (page - 1) * limit]
-    );
+       ) AS ordersCount`;
+    let total, rows;
+    if (q) {
+      const all = await db.allAsync(`SELECT c.*, ${ordersCountSql} FROM customers c ORDER BY c.id DESC`);
+      const filtered = all.filter(matchesSearch);
+      total = filtered.length;
+      rows = filtered.slice((page - 1) * limit, (page - 1) * limit + limit);
+    } else {
+      total = (await db.getAsync(`SELECT COUNT(*) AS c FROM customers`)).c;
+      rows = await db.allAsync(
+        `SELECT c.*, ${ordersCountSql} FROM customers c ORDER BY c.id DESC LIMIT ? OFFSET ?`,
+        [limit, (page - 1) * limit]
+      );
+    }
     res.json({ total, customers: rows });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });

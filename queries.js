@@ -237,19 +237,32 @@ async function queryProducts(q) {
         ))`
       : '';
     const fParams = category && category !== 'all' ? [category, category] : [];
+    // Когда выбрана конкретная подкатегория (не просто "Все" внутри раздела) — фасеты
+    // (бренды, тип, диапазон цены/производительности) должны считаться по товарам именно
+    // этой подкатегории, а не всего раздела целиком. Без этого в списке брендов попадали
+    // бренды из СОСЕДНИХ подкатегорий того же раздела (например, Elsea есть только среди
+    // АВД, а не поломоечных машин) — чекбокс показывался, а при выборе давал 0 товаров.
+    const subWhere = subcategoryIds.length
+      ? `AND (p.subcategory_id IN (${subcategoryIds.map(() => '?').join(',')}) OR p.id IN (
+          SELECT product_id FROM product_extra_categories WHERE subcategory_id IN (${subcategoryIds.map(() => '?').join(',')})
+        ))`
+      : '';
+    const subParams = subcategoryIds.length ? [...subcategoryIds, ...subcategoryIds] : [];
+    const facetWhere = catWhere + subWhere;
+    const facetParams = [...fParams, ...subParams];
     const brands = await db.allAsync(
       `SELECT DISTINCT p.brand FROM products p JOIN categories c ON p.category_id=c.id
-       WHERE p.published = 1 AND p.brand != '' ${catWhere} ORDER BY p.brand`, fParams);
+       WHERE p.published = 1 AND p.brand != '' ${facetWhere} ORDER BY p.brand`, facetParams);
     const noBrand = await db.getAsync(
       `SELECT COUNT(*) as cnt FROM products p JOIN categories c ON p.category_id=c.id
-       WHERE p.published = 1 AND (p.brand IS NULL OR p.brand = '') ${catWhere}`, fParams);
+       WHERE p.published = 1 AND (p.brand IS NULL OR p.brand = '') ${facetWhere}`, facetParams);
     const subtypes = await db.allAsync(
       `SELECT DISTINCT p.subtype FROM products p JOIN categories c ON p.category_id=c.id
-       WHERE p.published = 1 AND p.subtype IS NOT NULL AND p.subtype != '' ${catWhere} ORDER BY p.subtype`, fParams);
+       WHERE p.published = 1 AND p.subtype IS NOT NULL AND p.subtype != '' ${facetWhere} ORDER BY p.subtype`, facetParams);
     const range = await db.getAsync(
       `SELECT MIN(NULLIF(p.price,0)) as pmin, MAX(p.price) as pmax,
               MIN(p.perf) as perfmin, MAX(p.perf) as perfmax
-       FROM products p JOIN categories c ON p.category_id=c.id WHERE p.published = 1 ${catWhere}`, fParams);
+       FROM products p JOIN categories c ON p.category_id=c.id WHERE p.published = 1 ${facetWhere}`, facetParams);
     // Здесь c.slug — категория самой подкатегории (к какому разделу она относится), а не
     // товаров — product_extra_categories тут ни при чём, поэтому своя простая проверка.
     const subcatCatWhere = category && category !== 'all' ? 'AND c.slug = ?' : '';
